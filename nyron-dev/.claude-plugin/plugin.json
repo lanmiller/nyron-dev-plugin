@@ -1,9 +1,15 @@
 {
   "name": "nyron-dev",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Операционка команды AI Evolve / Nyron: стандарт Jira-задач, волновая оркестрация эпиков, live-тестирование, QA-передача",
   "author": {
     "name": "AI Evolve team"
   },
-  "keywords": ["jira", "workflow", "waves", "qa", "testing"]
+  "keywords": [
+    "jira",
+    "workflow",
+    "waves",
+    "qa",
+    "testing"
+  ]
 }
