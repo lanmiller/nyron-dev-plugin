@@ -8,6 +8,16 @@
 
 Канон плагина живёт здесь; описание скиллов — `nyron-dev/README.md`.
 
+## Установка
+
+- **Claude Desktop**: Settings → Plugins → Add → Add from a repository →
+  `lanmiller/nyron-dev-plugin` → установить плагин `nyron-dev`.
+- **Claude Code**: `/plugin marketplace add https://github.com/lanmiller/nyron-dev-plugin`
+  или `claude --plugin-dir <клон>/nyron-dev`.
+
+Два remote'а канона: GitHub `lanmiller/nyron-dev-plugin` (для Desktop-синка) +
+GitLab `your2563006/nyron-dev-plugin`. При правках пушить в оба.
+
 ## Правило версий (для всех, кто правит плагин)
 
 Любая правка содержимого плагина = бамп `version` в
