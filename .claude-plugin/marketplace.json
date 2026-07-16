@@ -1,0 +1,13 @@
+{
+  "name": "nyron-dev-marketplace",
+  "owner": {
+    "name": "AI Evolve team"
+  },
+  "plugins": [
+    {
+      "name": "nyron-dev",
+      "source": "./nyron-dev",
+      "description": "Операционка команды AI Evolve / Nyron: стандарт Jira-задач, волновая оркестрация эпиков, live-тестирование, QA-передача"
+    }
+  ]
+}
