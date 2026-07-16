@@ -15,8 +15,9 @@
 - **Claude Code**: `/plugin marketplace add https://github.com/lanmiller/nyron-dev-plugin`
   или `claude --plugin-dir <клон>/nyron-dev`.
 
-Два remote'а канона: GitHub `lanmiller/nyron-dev-plugin` (для Desktop-синка) +
-GitLab `your2563006/nyron-dev-plugin`. При правках пушить в оба.
+Канон — GitLab `your2563006/nyron-dev-plugin`; он push-зеркалится в GitHub
+`lanmiller/nyron-dev-plugin` автоматически (Desktop-синк берёт с GitHub).
+Правки пушить только в GitLab.
 
 ## Правило версий (для всех, кто правит плагин)
 
