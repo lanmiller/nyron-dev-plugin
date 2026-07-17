@@ -18,19 +18,27 @@
 
 ## Установка
 
-Плагин живёт в общем docs-репо — обновляется обычным `git pull`.
+Плагин живёт в отдельном репо (канон — GitLab `your2563006/nyron-dev-plugin`,
+зеркало — GitHub `lanmiller/nyron-dev-plugin`); детали — README корня репо.
 
 ```bash
-# Claude Code (терминал):
-claude --plugin-dir <твой-путь>/ai-evolve-docs-test/nyron-dev
+# Claude Desktop: Settings → Plugins → Add from a repository →
+#   lanmiller/nyron-dev-plugin → установить nyron-dev
 
-# либо добавить в настройки проекта/профиля, чтобы грузился всегда.
+# Claude Code (терминал):
+/plugin marketplace add https://github.com/lanmiller/nyron-dev-plugin
+# или локальным клоном:
+claude --plugin-dir <клон>/nyron-dev
 ```
 
 Требования:
-- **Atlassian MCP** подключён (Jira DEV @ nyron.atlassian.net) — на нём вся шина;
+- **Плагинный Atlassian MCP** (`plugin:atlassian`) с грантом на
+  nyron.atlassian.net — на нём вся шина; другие Atlassian-коннекторы профиля
+  без гранта на nyron не годятся (скиллы проверяют это первым ходом);
 - git по SSH-ключам к репо проекта (токены не нужны);
-- опционально: плагин `superpowers` (brainstorming/writing-plans на груминге).
+- опционально: плагин `superpowers` (brainstorming/writing-plans на груминге);
+- опционально: Atlassian REST API-токен в `~/psylia-secrets` — ускоритель
+  Jira-вотчеров диспетчера (дефолт плагина — бес-токенный).
 
 ## Конвенции (сквозные)
 
