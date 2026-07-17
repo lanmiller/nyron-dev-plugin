@@ -33,10 +33,18 @@ patch, новый скилл/секция — minor, слом конвенций
 
 ## Известные грабли
 
-- **Рассинхрон кэша Desktop ↔ CLI**: UI Settings → Plugins может показывать
-  новую версию, а в кэше плагинов на диске (который читают CLI/goal-сессии)
-  лежать старая. `reload-skills` маркетплейс НЕ синкает — нужен Sync или
-  переустановка маркетплейса в Settings → Plugins; после — сверить версию в
-  установленном кэше с `plugin.json`. Пока рассинхрон не устранён, канон
-  правил волн читать из `ai-evolve-docs-test/shared/wave-rules.md` (он
-  синкается с плагином коммитом релиза).
+- **Плагин «не обновляется» / рассинхрон версий**: локальный клон маркетплейса
+  (`~/.claude/plugins/marketplaces/nyron-dev-marketplace`) сам НЕ фетчится —
+  он залипает на коммите установки, и ни `/reload-skills`, ни UI-Sync его не
+  двигают. Проверенный рецепт обновления (проверено на 0.1.1 → 0.1.3):
+
+  ```bash
+  claude plugin marketplace update nyron-dev-marketplace
+  claude plugin update nyron-dev@nyron-dev-marketplace
+  # затем перезапустить сессию/приложение (Restart to apply changes)
+  ```
+
+  Диагностика залипания: `grep version
+  ~/.claude/plugins/marketplaces/nyron-dev-marketplace/nyron-dev/.claude-plugin/plugin.json`
+  против версии в репо. Пока рассинхрон не устранён, канон правил волн читать
+  из `ai-evolve-docs-test/shared/wave-rules.md` (синкается коммитом релиза).
