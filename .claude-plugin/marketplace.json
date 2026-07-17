@@ -7,6 +7,7 @@
     {
       "name": "nyron-dev",
       "source": "./nyron-dev",
+      "version": "0.1.3",
       "description": "Операционка команды AI Evolve / Nyron: стандарт Jira-задач, волновая оркестрация эпиков, live-тестирование, QA-передача"
     }
   ]
