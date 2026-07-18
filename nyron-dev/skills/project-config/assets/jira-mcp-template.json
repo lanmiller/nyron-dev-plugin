@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "jira-nyron": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-e", "JIRA_URL",
+        "-e", "JIRA_USERNAME",
+        "-e", "JIRA_API_TOKEN",
+        "-e", "ENABLED_TOOLS",
+        "ghcr.io/sooperset/mcp-atlassian:latest"
+      ],
+      "env": {
+        "JIRA_URL": "https://<site>.atlassian.net",
+        "JIRA_USERNAME": "<email>",
+        "JIRA_API_TOKEN": "<токен из ~/psylia-secrets — файл НЕ коммитить>",
+        "ENABLED_TOOLS": "jira_get_user_profile,jira_get_issue,jira_search,jira_get_project_issues,jira_get_transitions,jira_create_issue,jira_batch_create_issues,jira_update_issue,jira_assign_issue,jira_add_comment,jira_edit_comment,jira_transition_issue,jira_link_to_epic,jira_create_issue_link,jira_get_link_types,jira_get_all_projects,jira_get_project_issue_types,jira_get_create_fields,jira_search_fields,jira_get_project_epic_hierarchy,jira_get_agile_boards,jira_get_board_issues,jira_search_assignable_users"
+      }
+    }
+  }
+}

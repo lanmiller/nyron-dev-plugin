@@ -53,11 +53,13 @@
   `DEV-XXX: <что сделано, по-человечески>`; коммит/пуш закрывает несколько
   тикетов — ВСЕ ключи списком (`DEV-421, DEV-422: <что сделано>`). Те же ключи
   в отчёт-комменте и MR.
-- **Jira — только через плагинный Atlassian MCP** (`plugin:atlassian`,
-  `mcp__plugin_atlassian_atlassian__*`). Первым ходом проверить грант:
-  `getAccessibleAtlassianResources` должен вернуть nyron.atlassian.net;
-  если в сессии виден другой Atlassian-коннектор без гранта на nyron —
-  им не пользоваться.
+- **Jira — через project-MCP из `.mcp.json` корня проекта** (в ai-evolve —
+  сервер `jira-nyron`, тулзы `mcp__jira-nyron__jira_*`; API-токен,
+  headless-надёжен). Первым ходом — смоук `jira_get_user_profile` или JQL по
+  проекту. Fallback (Docker/сервер лежит): плагинный Atlassian MCP
+  (`plugin:atlassian`) с грантом на nyron.atlassian.net — грант проверить
+  через `getAccessibleAtlassianResources`; чужие коннекторы без гранта не
+  годятся.
 - Коммиты и комменты — на русском.
 
 ## Качество (по канону репо)

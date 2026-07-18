@@ -53,11 +53,10 @@ claude --plugin-dir <клон>/nyron-dev
 ```
 
 Требования:
-- **Плагинный Atlassian MCP** (`plugin:atlassian`) с грантом на
-  nyron.atlassian.net — на нём вся шина; другие Atlassian-коннекторы профиля
-  без гранта на nyron не годятся (скиллы проверяют это первым ходом);
-  альтернатива для headless — project-MCP Jira по API-токену (см. конфиг
-  проекта `jira.mcp_server`);
+- **Jira project-MCP** в `.mcp.json` корня проекта (канон: докерный
+  `mcp-atlassian` по API-токену — headless-надёжен; настраивает скилл
+  `project-config`, шаблон в его assets; нужен запущенный Docker). Fallback —
+  плагинный Atlassian MCP (`plugin:atlassian`) с грантом на сайт проекта;
 - **Node 18+** — для MCP-сервера будки `nyron-hub` (zero-deps, докер не нужен);
 - **codex CLI** (`npm i -g @openai/codex`, затем `codex login` — браузерный
   вход ChatGPT-подпиской, ОБЯЗАТЕЛЬНО до первого использования) — для
