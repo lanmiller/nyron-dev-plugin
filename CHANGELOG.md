@@ -3,6 +3,14 @@
 Формат: одна запись на версию; что изменилось и зачем (одной-двумя строками
 на пункт). Бамп версии в plugin.json = запись здесь, тем же коммитом.
 
+## 0.2.4 — 2026-07-19
+
+- **Проектные MCP для codex** (`project-config`): рецепт `.codex/config.toml`
+  на проект (trust в `~/.codex/config.toml`, `default_tools_approval_mode =
+  "approve"` — `auto` игнорируется и headless-вызовы умирают, обёртка для
+  болтливых stdout-серверов, `startup_timeout_sec`). Обкатано живьём:
+  ai-evolve и betzo получили свои обсидиан + smart-connections в codex.
+
 ## 0.2.3 — 2026-07-18
 
 - **Каноны проекта доезжают до GPT**: промт cross-review велит читать
