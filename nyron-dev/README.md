@@ -31,6 +31,7 @@ psylua) через конфиг-файл проекта.
 |---|---|
 | `project-config` (скилл) | конфиг проекта `.claude/nyron-dev.md` (+`.local.md`): тип dev/research, хранилище jira/files, карта моделей, роли, ревьюер |
 | `nyron-hub` (MCP-сервер) | «будка»: шина сообщений агентов, бронь файлов, очередь мержа — быстрое служебное МИМО Jira; состояние в `.nyron-hub/` проекта |
+| `codex` (MCP-сервер) | GPT как полноценный агент-тул у каждой сессии (`codex mcp-server`): живая делегация задач GPT из диспетчера и волн; конвейерное ревью — по-прежнему скриптом `cross-review` (жёсткий формат вердикта) |
 
 Жизненный цикл: **сырьё → intake-groom → продуктовый борт (роли) →
 jira-task-standard → nyron-waves (+cross-review, +будка) ⇄ live-epic-testing →
@@ -58,8 +59,11 @@ claude --plugin-dir <клон>/nyron-dev
   альтернатива для headless — project-MCP Jira по API-токену (см. конфиг
   проекта `jira.mcp_server`);
 - **Node 18+** — для MCP-сервера будки `nyron-hub` (zero-deps, докер не нужен);
-- **codex CLI** (`npm i -g @openai/codex`, логин ChatGPT-подписки) — для
-  кросс-ревью `cross-review`; нет codex — шаг помечается недоступным, не блокер;
+- **codex CLI** (`npm i -g @openai/codex`, затем `codex login` — браузерный
+  вход ChatGPT-подпиской, ОБЯЗАТЕЛЬНО до первого использования) — для
+  кросс-ревью `cross-review` и MCP-сервера `codex` (GPT-агент тулом у сессий);
+  нет codex/логина — шаг помечается недоступным, не блокер, MCP-сервер просто
+  не поднимется;
 - git по SSH-ключам к репо проекта (токены не нужны);
 - опционально: плагин `superpowers` (brainstorming/writing-plans на груминге);
 - опционально: Atlassian REST API-токен в `~/psylia-secrets` — ускоритель

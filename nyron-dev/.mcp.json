@@ -3,6 +3,10 @@
     "nyron-hub": {
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/hub/server.mjs"]
+    },
+    "codex": {
+      "command": "codex",
+      "args": ["mcp-server"]
     }
   }
 }
