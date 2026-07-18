@@ -85,13 +85,20 @@ $DIFF
 EOF
 
 OUT_FILE=$(mktemp)
-MODEL_ARGS=()
-[ -n "$MODEL" ] && MODEL_ARGS=(-m "$MODEL")
-# ChatGPT-подписка даёт только gpt-5.5 (кодекс/про-варианты и 5.6 — API-only);
-# топовость ревью добираем максимальным reasoning effort.
-codex exec --sandbox read-only --cd "$REPO" --skip-git-repo-check \
-  -c 'model_reasoning_effort="high"' \
-  --output-last-message "$OUT_FILE" "${MODEL_ARGS[@]}" - < "$PROMPT_FILE" >&2
+# Дефолт ревьюера — gpt-5.6-sol («Latest frontier agentic coding model»,
+# доступен на Pro-подписке, codex CLI >= 0.144). Аккаунт без него (400
+# «model is not supported») — авто-фолбэк на дефолтную модель аккаунта.
+# Всегда — максимальный reasoning effort.
+[ -n "$MODEL" ] || MODEL="gpt-5.6-sol"
+run_codex() {
+  codex exec --sandbox read-only --cd "$REPO" --skip-git-repo-check \
+    -c 'model_reasoning_effort="high"' \
+    --output-last-message "$OUT_FILE" "$@" - < "$PROMPT_FILE" >&2
+}
+if ! run_codex -m "$MODEL"; then
+  echo "cross-review: модель $MODEL недоступна аккаунту — фолбэк на дефолт codex" >&2
+  run_codex
+fi
 
 cat "$OUT_FILE"
 rm -f "$OUT_FILE"
