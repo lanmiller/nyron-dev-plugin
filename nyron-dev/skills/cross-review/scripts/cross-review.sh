@@ -87,7 +87,10 @@ EOF
 OUT_FILE=$(mktemp)
 MODEL_ARGS=()
 [ -n "$MODEL" ] && MODEL_ARGS=(-m "$MODEL")
+# ChatGPT-подписка даёт только gpt-5.5 (кодекс/про-варианты и 5.6 — API-only);
+# топовость ревью добираем максимальным reasoning effort.
 codex exec --sandbox read-only --cd "$REPO" --skip-git-repo-check \
+  -c 'model_reasoning_effort="high"' \
   --output-last-message "$OUT_FILE" "${MODEL_ARGS[@]}" - < "$PROMPT_FILE" >&2
 
 cat "$OUT_FILE"
