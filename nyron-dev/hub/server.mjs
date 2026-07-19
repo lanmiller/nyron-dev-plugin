@@ -23,8 +23,25 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
+import { execSync } from 'node:child_process';
 
-const HUB_DIR = process.env.NYRON_HUB_DIR || path.join(process.cwd(), '.nyron-hub');
+// Якорь будки — КОРЕНЬ ОСНОВНОГО чекаута проекта, не cwd: сессии в linked
+// git-worktree (чипы «fresh worktree») иначе получают изолированную будку и
+// сообщения расходятся по разным файлам (баг обкатки 19.07). git-common-dir
+// у любого worktree указывает на .git основного чекаута.
+function resolveHubDir() {
+  if (process.env.NYRON_HUB_DIR) return process.env.NYRON_HUB_DIR;
+  try {
+    const common = execSync('git rev-parse --path-format=absolute --git-common-dir', {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).toString().trim();
+    if (common && path.basename(common) === '.git')
+      return path.join(path.dirname(common), '.nyron-hub');
+  } catch {}
+  return path.join(process.cwd(), '.nyron-hub');
+}
+
+const HUB_DIR = resolveHubDir();
 const MSG_FILE = path.join(HUB_DIR, 'messages.jsonl');
 const LOCKS_FILE = path.join(HUB_DIR, 'locks.json');
 const QUEUE_FILE = path.join(HUB_DIR, 'merge-queue.json');
