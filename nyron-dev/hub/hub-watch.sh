@@ -20,11 +20,23 @@
 set -euo pipefail
 
 MODE="${1:-}"; ME="${2:-}"
-[ -n "$MODE" ] && [ -n "$ME" ] || { echo "usage: $0 watch|alive <agent-name>" >&2; exit 2; }
+case "$MODE" in
+  hubdir|reanimator) : ;;   # имя агента не нужно
+  *) [ -n "$MODE" ] && [ -n "$ME" ] || {
+       echo "usage: $0 watch|alive <agent-name> | hubdir | reanimator [минут]" >&2; exit 2; } ;;
+esac
 
+# Якорь будки — КОРЕНЬ ПРОЕКТА (каталог с .claude/nyron-dev.md). Лестница
+# ОБЯЗАНА совпадать с hub/hub-dir.mjs — иначе вотчеры разъедутся с сервером
+# и будут ждать событий в файле, куда никто не пишет (баг прогона 21.07).
 resolve_hub() {
   if [ -n "${NYRON_HUB_DIR:-}" ]; then echo "$NYRON_HUB_DIR"; return; fi
-  local common
+  local dir="$PWD" common
+  while :; do
+    if [ -f "$dir/.claude/nyron-dev.md" ]; then echo "$dir/.nyron-hub"; return; fi
+    [ "$dir" = "/" ] && break
+    dir=$(dirname "$dir")
+  done
   common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
   if [ -n "$common" ] && [ "$(basename "$common")" = ".git" ]; then
     echo "$(dirname "$common")/.nyron-hub"
@@ -38,6 +50,10 @@ WDIR="$HUB/.watchers"; PIDF="$WDIR/$ME.pid"
 mkdir -p "$WDIR"
 
 case "$MODE" in
+  hubdir)
+    # диагностика: в какую будку смотрит ЭТА сессия. Расходится с соседней —
+    # значит сессии в разных будках, координация не работает.
+    echo "$HUB" ;;
   alive)
     [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null && exit 0 || exit 1 ;;
   watch)
