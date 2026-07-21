@@ -36,10 +36,19 @@ jira:                        # для storage: jira (трекер задач)
 files:                       # пути артефактов (нужны и при storage: jira)
   tasks_dir: _tasks          # задачи-файлы (только storage: files)
   requirements_dir: docs/requirements   # файлы-требования (скилл feature-intake)
+  hypotheses_dir: docs/hypotheses       # карточки гипотез (скилл product-flow)
 
 docs_dir: docs               # папка доков/спек (от корня проекта)
 epic_folder: "docs/epics/{key}-{slug}" # шаблон папки эпика: {key} — ключ эпика,
                              # {slug} — слаг. Сюда кладётся всё длиннее коммента.
+hypothesis_folder: "docs/hypotheses/{id}-{slug}"   # пакет гипотезы: карточка,
+                             # расчёт, ресёрч, замер. {id} — идентификатор гипотезы.
+
+canon_dir: docs/canon        # память продукта: атомарные файлы по доменам
+canon_index: docs/canon/INDEX.md   # индекс канона. Пополняется шагами product-flow
+                             # (замер → метрики, раскатка → реестр, вердикт → инсайты),
+                             # а не отдельной рутиной. Дисциплина устаревания:
+                             # значение · дата · источник; старое → «проверить».
 
 models:                      # карта моделей по ролям конвейера
   thinker: fable             # продумать сложное — точечно
