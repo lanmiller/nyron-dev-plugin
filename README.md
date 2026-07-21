@@ -36,17 +36,17 @@ minor, слом конвенций — major). Desktop-синк детектит
 ## Известные грабли
 
 - **Плагин «не обновляется» / рассинхрон версий**: локальный клон маркетплейса
-  (`~/.claude/plugins/marketplaces/nyron-dev-marketplace`) сам НЕ фетчится —
+  (`~/.claude/plugins/marketplaces/nyron-dev-marketplace-v2`) сам НЕ фетчится —
   он залипает на коммите установки, и ни `/reload-skills`, ни UI-Sync его не
   двигают. Проверенный рецепт обновления (проверено на 0.1.1 → 0.1.3):
 
   ```bash
-  claude plugin marketplace update nyron-dev-marketplace
-  claude plugin update nyron-dev@nyron-dev-marketplace
+  claude plugin marketplace update nyron-dev-marketplace-v2
+  claude plugin update nyron-dev@nyron-dev-marketplace-v2
   # затем перезапустить сессию/приложение (Restart to apply changes)
   ```
 
   Диагностика залипания: `grep version
-  ~/.claude/plugins/marketplaces/nyron-dev-marketplace/nyron-dev/.claude-plugin/plugin.json`
+  ~/.claude/plugins/marketplaces/nyron-dev-marketplace-v2/nyron-dev/.claude-plugin/plugin.json`
   против версии в репо. Пока рассинхрон не устранён, канон правил волн читать
   из `ai-evolve-docs-test/shared/wave-rules.md` (синкается коммитом релиза).
