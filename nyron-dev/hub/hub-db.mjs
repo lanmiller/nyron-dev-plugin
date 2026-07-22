@@ -84,8 +84,20 @@ export class HubDb {
     // timeout — ждать освобождения блокировки, а не падать SQLITE_BUSY: под
     // конкурентной записью из нескольких сессий иначе теряются вставки.
     this.db = new DatabaseSync(this.dbPath, { timeout: 8000 });
-    this.db.exec('PRAGMA journal_mode = WAL');
+    // busy_timeout — ПЕРВЫМ, до любых прагм.
     this.db.exec('PRAGMA busy_timeout = 8000');
+    // Конверсия delete→WAL на свежесозданной базе гонится между процессами, и
+    // busy-handler эту ветку НЕ покрывает: параллельный старт двух сессий ронял
+    // один из процессов SQLITE_BUSY (терялась вставка; баг пойман psylia на
+    // 0.6.0). Ретраим конверсию сами; после первого успеха journal_mode
+    // персистентен и ветка становится no-op.
+    for (let attempt = 0; ; attempt++) {
+      try { this.db.exec('PRAGMA journal_mode = WAL'); break; }
+      catch (e) {
+        if (attempt >= 40) throw e;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+      }
+    }
     this.db.exec(SCHEMA);
     this.#migrateFromJsonl();
   }
