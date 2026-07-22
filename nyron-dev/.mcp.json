@@ -1,12 +1,16 @@
 {
   "mcpServers": {
     "nyron-hub": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/hub/server.mjs"]
+      "command": "sh",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/hub/run-hub.sh"
+      ]
     },
     "codex": {
-      "command": "codex",
-      "args": ["mcp-server"]
+      "command": "sh",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/hub/run-codex.sh"
+      ]
     }
   }
 }
