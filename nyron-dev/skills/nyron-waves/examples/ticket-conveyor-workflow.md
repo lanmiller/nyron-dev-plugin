@@ -94,9 +94,10 @@ const guard = await agent(
   { label: `guard:${args.ticket}`, model: 'haiku', schema: VERDICT })
 if (!guard.ok) return { status: 'БЛОКЕР', stage: 'guard', findings: guard.findings }
 
-// ── Стадия 4: адверсарка (пока ВСЕМ тикетам — до данных телеметрии) ──
+// ── Стадия 4: адверсарка — ТОЛЬКО СЛОЖНЫЙ (канон по двум пилотам) ──
 phase('Adversarial')
-let round = 0, adv
+let round = 0, adv = { ok: true, summary: 'skip: обычный тикет — Sol один' }
+if (args.complexity === 'СЛОЖНЫЙ')
 while (round < 3) {
   adv = await agent(
     `Адверсарно ОПРОВЕРГНИ готовность ${args.ticket} в ${args.worktree}
