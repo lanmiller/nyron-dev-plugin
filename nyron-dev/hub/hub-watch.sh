@@ -45,9 +45,35 @@ resolve_hub() {
   fi
 }
 
-HUB=$(resolve_hub); MSG="$HUB/messages.jsonl"
+HUB=$(resolve_hub); DB="$HUB/hub.db"
 WDIR="$HUB/.watchers"; PIDF="$WDIR/$ME.pid"
 mkdir -p "$WDIR"
+
+# ---------- чтение будки через sqlite3 CLI ----------
+# Хранилище переехало с messages.jsonl на SQLite (DEV-627). База может ещё не
+# существовать (сервер не стартовал) — тогда ведём себя как при пустой шине.
+SQLITE=/usr/bin/sqlite3
+
+db_max()   { # наибольший seq сейчас (0 если базы/строк нет)
+  [ -f "$DB" ] || { echo 0; return; }
+  local v; v=$("$SQLITE" "$DB" 'SELECT COALESCE(MAX(seq),0) FROM messages;' 2>/dev/null || echo 0)
+  echo "${v:-0}"
+}
+db_new()   { # число ЧУЖИХ сообщений с seq > $1 (эхо-фильтр по sender != ME)
+  [ -f "$DB" ] || { echo 0; return; }
+  local v; v=$("$SQLITE" "$DB" "SELECT COUNT(*) FROM messages WHERE seq > $1 AND sender != '$ME';" 2>/dev/null || echo 0)
+  echo "${v:-0}"
+}
+db_tail()  { # последние 5 чужих сообщений с seq > $1
+  [ -f "$DB" ] || return
+  "$SQLITE" -separator ' | ' "$DB" \
+    "SELECT ts,sender,text FROM messages WHERE seq > $1 AND sender != '$ME' ORDER BY seq DESC LIMIT 5;" 2>/dev/null || true
+}
+db_total() { # всего сообщений (для реаниматора; свои пинги считаются активностью)
+  [ -f "$DB" ] || { echo 0; return; }
+  local v; v=$("$SQLITE" "$DB" 'SELECT COUNT(*) FROM messages;' 2>/dev/null || echo 0)
+  echo "${v:-0}"
+}
 
 case "$MODE" in
   hubdir)
@@ -59,16 +85,11 @@ case "$MODE" in
   watch)
     echo $$ > "$PIDF"
     trap 'rm -f "$PIDF"' EXIT
-    base=$(grep -c '^' "$MSG" 2>/dev/null || echo 0)
+    base=$(db_max)   # база = текущий хвост; пришедшее ДО старта не будит
     while true; do
-      cur=$(grep -c '^' "$MSG" 2>/dev/null || echo 0)
-      if [ "$cur" -gt "$base" ]; then
-        # новые строки без своих (фильтр эха) → событие
-        if tail -n +"$((base + 1))" "$MSG" | grep -v "\"from\":\"$ME\"" | grep -q .; then
-          echo "HUB-EVENT для $ME:"; tail -n +"$((base + 1))" "$MSG" | grep -v "\"from\":\"$ME\"" | tail -5
-          exit 0
-        fi
-        base=$cur   # были только свои посты — перезамер базы, ждём дальше
+      if [ "$(db_new "$base")" -gt 0 ]; then
+        echo "HUB-EVENT для $ME:"; db_tail "$base"
+        exit 0
       fi
       sleep 15
     done ;;
@@ -77,20 +98,19 @@ case "$MODE" in
     case "$MIN" in (*[!0-9]*) MIN="${3:-40}";; esac
     echo $$ > "$WDIR/reanimator.pid"
     trap 'rm -f "$WDIR/reanimator.pid"' EXIT
+    prev=$(db_total); last_change=$(date +%s)
     while true; do
-      if [ -f "$MSG" ]; then
-        last=$(stat -f %m "$MSG" 2>/dev/null || stat -c %Y "$MSG" 2>/dev/null || echo 0)
-        now=$(date +%s)
-        if [ $((now - last)) -gt $((MIN * 60)) ]; then
-          # RESUME-пинг напрямую в файл (zero-token), под спинлоком сервера
-          until mkdir "$HUB/.spinlock" 2>/dev/null; do sleep 1; done
-          printf '{"id":"%s-rean","ts":"%s","from":"reanimator","to":"all","ticket":null,"wave":null,"text":"RESUME-пинг: будка молчала %s+ мин (лимиты/разрыв?) — всем сессиям проверить свои волны и продолжить по брифам"}\n' \
-            "$(date +%s)" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$MIN" >> "$MSG"
-          rmdir "$HUB/.spinlock" 2>/dev/null || true
-          echo "REANIMATOR: пинг отправлен ($(date '+%H:%M'))"
-        fi
-      fi
       sleep 60
+      cur=$(db_total)
+      # активность (в т.ч. собственный пинг) сдвигает окно тишины
+      [ "$cur" != "$prev" ] && { prev=$cur; last_change=$(date +%s); }
+      now=$(date +%s)
+      if [ -f "$DB" ] && [ $((now - last_change)) -gt $((MIN * 60)) ]; then
+        # RESUME-пинг прямо в базу (zero-token); single-writer SQLite, спинлок не нужен
+        "$SQLITE" "$DB" \
+          "INSERT INTO messages(id,ts,sender,recipient,ticket,wave,text) VALUES('$(date +%s)-rean','$(date -u '+%Y-%m-%dT%H:%M:%SZ')','reanimator','all',NULL,NULL,'RESUME-пинг: будка молчала ${MIN}+ мин (лимиты/разрыв?) — всем сессиям проверить свои волны и продолжить по брифам');" 2>/dev/null || true
+        echo "REANIMATOR: пинг отправлен ($(date '+%H:%M'))"
+      fi
     done ;;
-  *) echo "usage: $0 watch|alive <agent-name> | reanimator [минут]" >&2; exit 2 ;;
+  *) echo "usage: $0 watch|alive <agent-name> | hubdir | reanimator [минут]" >&2; exit 2 ;;
 esac

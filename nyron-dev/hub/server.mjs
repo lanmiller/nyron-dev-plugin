@@ -2,91 +2,33 @@
 /**
  * nyron-hub — «будка» координации агентов nyron-dev.
  *
- * Локальный MCP stdio-сервер (zero-deps, чистый Node 18+). Каждая сессия
- * Claude Code поднимает свой процесс, но состояние общее — файлы в
- * <PROJECT_ROOT>/.nyron-hub/ (или $NYRON_HUB_DIR). Джиру будка НЕ трогает:
+ * Локальный MCP stdio-сервер (zero-deps, чистый Node 22+). Каждая сессия
+ * Claude Code поднимает свой процесс, но состояние общее — SQLite-база
+ * <PROJECT_ROOT>/.nyron-hub/hub.db (или $NYRON_HUB_DIR). Джиру будка НЕ трогает:
  * долгоживущее (задачи, статусы, брифы, отчёты) — в Jira, быстрое и
  * служебное (сообщения «взял/готово», бронь файлов, очередь мержа) — здесь.
  *
  * Тулзы:
  *   hub_status        — сводка: сообщения, брони, очереди мержа
  *   hub_post          — отправить сообщение в шину
- *   hub_read          — прочитать сообщения (фильтры + курсор since_id)
+ *   hub_read          — прочитать сообщения (курсор per-agent + фильтры)
  *   hub_lock          — забронировать файлы/каталоги
  *   hub_unlock        — снять свои брони
  *   hub_merge_join    — встать в очередь мержа репо
  *   hub_merge_leave   — выйти из очереди (после мержа или отказа)
  *
- * Конкурентность: read-modify-write JSON-файлов — под mkdir-спинлоком,
- * сообщения — append-only JSONL (атомарно для коротких строк с O_APPEND).
+ * Хранение и конкурентность — hub-db.mjs (SQLite single-writer, транзакции;
+ * mkdir-спинлок и JSONL/JSON-файлы больше не используются).
  */
-import fs from 'node:fs';
-import path from 'node:path';
-import readline from 'node:readline';
 import { resolveHubDir } from './hub-dir.mjs';
+import { HubDb } from './hub-db.mjs';
 
 // Якорь будки — КОРЕНЬ ПРОЕКТА (каталог с .claude/nyron-dev.md), не cwd и не
 // корень саб-репо: иначе сессии в независимых репо зонтика и в linked
 // git-worktree получают изолированные будки и расходятся по разным файлам.
 // Лестница разрешения и её обоснование — hub-dir.mjs.
 const HUB_DIR = resolveHubDir();
-const MSG_FILE = path.join(HUB_DIR, 'messages.jsonl');
-const LOCKS_FILE = path.join(HUB_DIR, 'locks.json');
-const QUEUE_FILE = path.join(HUB_DIR, 'merge-queue.json');
-const SPINLOCK = path.join(HUB_DIR, '.spinlock');
-const LOCK_TTL_MIN_DEFAULT = 240;
-const MSG_KEEP = 2000; // строк JSONL держим, старое обрезается
-
-fs.mkdirSync(HUB_DIR, { recursive: true });
-
-// ---------- примитивы состояния ----------
-
-function withSpinlock(fn) {
-  const deadline = Date.now() + 10_000;
-  for (;;) {
-    try {
-      fs.mkdirSync(SPINLOCK);
-      break;
-    } catch {
-      // чужой спинлок старше 30с — умер, забираем
-      try {
-        const st = fs.statSync(SPINLOCK);
-        if (Date.now() - st.mtimeMs > 30_000) { fs.rmdirSync(SPINLOCK); continue; }
-      } catch { continue; }
-      if (Date.now() > deadline) throw new Error('hub busy: спинлок не освободился за 10с');
-      const buf = new SharedArrayBuffer(4);
-      Atomics.wait(new Int32Array(buf), 0, 0, 100); // sleep 100ms без busy-loop
-    }
-  }
-  try { return fn(); } finally { try { fs.rmdirSync(SPINLOCK); } catch {} }
-}
-
-function readJson(file, fallback) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
-}
-
-function writeJson(file, data) {
-  const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-  fs.renameSync(tmp, file);
-}
-
-function normPath(p) {
-  return path.normalize(String(p)).replace(/\\/g, '/').replace(/\/+$/, '');
-}
-
-function pathsOverlap(a, b) {
-  if (a === b) return true;
-  return a.startsWith(b + '/') || b.startsWith(a + '/');
-}
-
-function activeLocks() {
-  const now = Date.now();
-  const data = readJson(LOCKS_FILE, { locks: [] });
-  const alive = data.locks.filter((l) => l.expires > now);
-  if (alive.length !== data.locks.length) writeJson(LOCKS_FILE, { locks: alive });
-  return alive;
-}
+const hub = new HubDb(HUB_DIR);
 
 // ---------- тулзы ----------
 
@@ -96,16 +38,12 @@ const tools = {
       'Сводка будки: последние сообщения, активные брони файлов, очереди мержа по репо. Вызывать первым делом при входе агента в работу.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler() {
-      return withSpinlock(() => {
-        const locks = activeLocks();
-        const queues = readJson(QUEUE_FILE, { queues: {} }).queues;
-        let messages = [];
-        try {
-          messages = fs.readFileSync(MSG_FILE, 'utf8').trim().split('\n').filter(Boolean)
-            .slice(-15).map((l) => JSON.parse(l));
-        } catch {}
-        return { hub_dir: HUB_DIR, recent_messages: messages, locks, merge_queues: queues };
-      });
+      return {
+        hub_dir: HUB_DIR,
+        recent_messages: hub.recent(15),
+        locks: hub.activeLocks(),
+        merge_queues: hub.mergeQueues(),
+      };
     },
   },
 
@@ -125,48 +63,26 @@ const tools = {
       additionalProperties: false,
     },
     handler({ from, text, to, ticket, wave }) {
-      const msg = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        ts: new Date().toISOString(), from, to: to || 'all', ticket: ticket || null,
-        wave: wave || null, text };
-      fs.appendFileSync(MSG_FILE, JSON.stringify(msg) + '\n');
-      // компакция: не даём файлу расти бесконечно
-      withSpinlock(() => {
-        try {
-          const lines = fs.readFileSync(MSG_FILE, 'utf8').trim().split('\n');
-          if (lines.length > MSG_KEEP * 1.2)
-            fs.writeFileSync(MSG_FILE, lines.slice(-MSG_KEEP).join('\n') + '\n');
-        } catch {}
-      });
-      return { posted: msg };
+      return { posted: hub.post({ from, text, to, ticket, wave }) };
     },
   },
 
   hub_read: {
     description:
-      'Прочитать сообщения шины. Курсор since_id — отдавать id последнего виденного сообщения, вернутся только новые. Фильтры: to (адресат, включая all), wave, ticket, from.',
+      'Прочитать сообщения шины. Курсор per-agent: передать своё имя в agent — вернутся только НОВЫЕ с прошлого чтения (курсор в базе, переживает смерть сессии), свои сообщения отфильтрованы. Доп.фильтры: to, wave, ticket, from. Legacy: без agent — по курсору since_id.',
     inputSchema: {
       type: 'object',
       properties: {
-        since_id: { type: 'string', description: 'id последнего виденного сообщения' },
+        agent: { type: 'string', description: 'имя консьюмера — курсор чтения per-agent' },
+        since_id: { type: 'string', description: 'legacy-курсор: id последнего виденного сообщения' },
         to: { type: 'string' }, from: { type: 'string' },
         wave: { type: 'string' }, ticket: { type: 'string' },
         limit: { type: 'number', description: 'default 50' },
       },
       additionalProperties: false,
     },
-    handler({ since_id, to, from, wave, ticket, limit = 50 }) {
-      let lines = [];
-      try { lines = fs.readFileSync(MSG_FILE, 'utf8').trim().split('\n').filter(Boolean); } catch {}
-      let msgs = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-      if (since_id) {
-        const i = msgs.findIndex((m) => m.id === since_id);
-        if (i >= 0) msgs = msgs.slice(i + 1);
-      }
-      if (to) msgs = msgs.filter((m) => m.to === to || m.to === 'all');
-      if (from) msgs = msgs.filter((m) => m.from === from);
-      if (wave) msgs = msgs.filter((m) => m.wave === wave);
-      if (ticket) msgs = msgs.filter((m) => m.ticket === ticket);
-      return { messages: msgs.slice(-limit), last_id: msgs.at(-1)?.id ?? since_id ?? null };
+    handler(args) {
+      return hub.read(args || {});
     },
   },
 
@@ -184,21 +100,8 @@ const tools = {
       required: ['agent', 'paths'],
       additionalProperties: false,
     },
-    handler({ agent, paths, ticket, ttl_min = LOCK_TTL_MIN_DEFAULT }) {
-      return withSpinlock(() => {
-        const locks = activeLocks();
-        const want = paths.map(normPath);
-        const conflicts = locks.filter(
-          (l) => l.agent !== agent && want.some((p) => pathsOverlap(p, l.path)));
-        if (conflicts.length) return { ok: false, conflicts };
-        const now = Date.now();
-        const fresh = want.map((p) => ({ agent, path: p, ticket: ticket || null,
-          ts: new Date(now).toISOString(), expires: now + ttl_min * 60_000 }));
-        // свои старые брони на те же пути заменяем
-        const rest = locks.filter((l) => !(l.agent === agent && want.some((p) => pathsOverlap(p, l.path))));
-        writeJson(LOCKS_FILE, { locks: [...rest, ...fresh] });
-        return { ok: true, locked: fresh };
-      });
+    handler({ agent, paths, ticket, ttl_min }) {
+      return hub.lock({ agent, paths, ticket, ttl_min });
     },
   },
 
@@ -214,14 +117,7 @@ const tools = {
       additionalProperties: false,
     },
     handler({ agent, paths }) {
-      return withSpinlock(() => {
-        const locks = activeLocks();
-        const drop = (l) => l.agent === agent &&
-          (!paths || paths.map(normPath).some((p) => pathsOverlap(p, l.path)));
-        const removed = locks.filter(drop);
-        writeJson(LOCKS_FILE, { locks: locks.filter((l) => !drop(l)) });
-        return { removed };
-      });
+      return hub.unlock({ agent, paths });
     },
   },
 
@@ -240,15 +136,7 @@ const tools = {
       additionalProperties: false,
     },
     handler({ agent, repo, branch, ticket }) {
-      return withSpinlock(() => {
-        const data = readJson(QUEUE_FILE, { queues: {} });
-        const q = (data.queues[repo] ||= []);
-        if (!q.some((e) => e.branch === branch))
-          q.push({ agent, branch, ticket: ticket || null, ts: new Date().toISOString() });
-        writeJson(QUEUE_FILE, data);
-        const position = q.findIndex((e) => e.branch === branch);
-        return { repo, branch, position, is_head: position === 0, queue: q };
-      });
+      return hub.mergeJoin({ agent, repo, branch, ticket });
     },
   },
 
@@ -264,19 +152,14 @@ const tools = {
       additionalProperties: false,
     },
     handler({ repo, branch }) {
-      return withSpinlock(() => {
-        const data = readJson(QUEUE_FILE, { queues: {} });
-        const q = data.queues[repo] || [];
-        data.queues[repo] = q.filter((e) => e.branch !== branch);
-        writeJson(QUEUE_FILE, data);
-        const head = data.queues[repo][0] || null;
-        return { repo, removed: branch, new_head: head };
-      });
+      return hub.mergeLeave({ repo, branch });
     },
   },
 };
 
 // ---------- MCP stdio (JSON-RPC 2.0) ----------
+
+import readline from 'node:readline';
 
 function send(obj) { process.stdout.write(JSON.stringify(obj) + '\n'); }
 
@@ -292,7 +175,7 @@ rl.on('line', (line) => {
       send({ jsonrpc: '2.0', id, result: {
         protocolVersion: params?.protocolVersion || '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'nyron-hub', version: '0.2.0' },
+        serverInfo: { name: 'nyron-hub', version: '0.3.0' },
       } });
     } else if (method === 'notifications/initialized' || method === 'initialized') {
       // notification — ответа не требует
