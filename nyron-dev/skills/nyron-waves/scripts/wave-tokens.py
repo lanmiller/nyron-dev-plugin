@@ -4,7 +4,9 @@
 Использование:
   python3 wave-tokens.py <transcript.jsonl> [...]        # по файлам
   python3 wave-tokens.py --grep <строка> <каталог>       # найти сессии по подстроке
-                                                          # (ветка, тикет) и посчитать
+                                                          # (ветка, тикет) и посчитать;
+                                                          # ищет РЕКУРСИВНО (subagents/ и
+                                                          # каталоги worktree-сессий)
 
 Считает: input / output / cache_read / cache_write, разбивка output по моделям.
 Sol/codex здесь НЕ виден (подписка, не Claude-токены) — это структурная
@@ -30,7 +32,7 @@ args = sys.argv[1:]
 files = []
 if args and args[0] == '--grep':
     needle, root = args[1], args[2]
-    for f in glob.glob(os.path.join(root, '*.jsonl')):
+    for f in glob.glob(os.path.join(root, '**', '*.jsonl'), recursive=True):
         try:
             if needle in open(f, errors='ignore').read(): files.append(f)
         except Exception: pass
