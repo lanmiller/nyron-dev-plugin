@@ -38,6 +38,21 @@ for d in "" /sub-back /sub-docs /.wt-docs; do
   check "корень$d" "${got:-НЕТ_РЕЖИМА}"
 done
 
+echo "== worktree с ТРЕКНУТЫМ конфигом код-репо — не якорь (баг НБ-1) =="
+git -C "$ROOT/sub-back" ls-files >/dev/null 2>&1
+mkdir -p "$ROOT/sub-back/.claude"
+printf -- "---\nproject: sub-back\n---\n" > "$ROOT/sub-back/.claude/nyron-dev.md"
+git -C "$ROOT/sub-back" add .claude/nyron-dev.md
+git -C "$ROOT/sub-back" -c user.email=t@t -c user.name=t commit -qm cfg
+git -C "$ROOT/sub-back" worktree add -q "$ROOT/back-wt" -b wt-cfg
+got=$(cd "$ROOT/back-wt" && node -e 'import("'"$PLUGIN"'/hub/hub-dir.mjs").then(m=>console.log(m.resolveHubDir()))' 2>/dev/null)
+check "worktree-с-конфигом (mjs)" "${got:-ПУСТО}"
+got=$(cd "$ROOT/back-wt" && bash "$PLUGIN/hub/hub-watch.sh" hubdir 2>/dev/null)
+check "worktree-с-конфигом (sh)" "${got:-ПУСТО}"
+got=$(cd "$ROOT/sub-back" && bash "$PLUGIN/hub/hub-watch.sh" hubdir 2>/dev/null)
+if [ "$(norm "$got")" = "$(norm "$ROOT/sub-back/.nyron-hub")" ]; then echo "  ✅ главный чекаут со своим конфигом остаётся своим якорем (betpulse-семантика)"; else
+  echo "  ❌ главный чекаут: $got"; fail=1; fi
+
 echo "== NYRON_HUB_DIR перекрывает всё =="
 got=$(cd "$ROOT/sub-back" && NYRON_HUB_DIR=/tmp/forced bash "$PLUGIN/hub/hub-watch.sh" hubdir 2>/dev/null)
 if [ "$got" = "/tmp/forced" ]; then echo "  ✅ env-оверрайд"; else echo "  ❌ env-оверрайд: $got"; fail=1; fi

@@ -33,7 +33,10 @@ resolve_hub() {
   if [ -n "${NYRON_HUB_DIR:-}" ]; then echo "$NYRON_HUB_DIR"; return; fi
   local dir="$PWD" common
   while :; do
-    if [ -f "$dir/.claude/nyron-dev.md" ]; then echo "$dir/.nyron-hub"; return; fi
+    # конфиг в корне linked worktree (.git — файл) якорем не считается
+    if [ -f "$dir/.claude/nyron-dev.md" ] && [ ! -f "$dir/.git" ]; then
+      echo "$dir/.nyron-hub"; return
+    fi
     [ "$dir" = "/" ] && break
     dir=$(dirname "$dir")
   done

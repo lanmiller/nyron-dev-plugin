@@ -28,8 +28,17 @@ export function resolveHubDir(cwd = process.cwd(), env = process.env) {
   if (env.NYRON_HUB_DIR) return env.NYRON_HUB_DIR;
 
   for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.claude', 'nyron-dev.md')))
-      return path.join(dir, '.nyron-hub');
+    if (fs.existsSync(path.join(dir, '.claude', 'nyron-dev.md'))) {
+      // Конфиг в корне LINKED git-worktree — НЕ якорь: worktree копирует
+      // трекнутые файлы, включая .claude/nyron-dev.md код-репо, и каждый
+      // worktree становился «отдельным проектом» с пустой будкой (баг пилота
+      // НБ-1 psylia). У linked worktree .git — ФАЙЛ (gitdir: ...), у главного
+      // чекаута — каталог. Видим файл → поднимаемся дальше к зонтику.
+      const dotGit = path.join(dir, '.git');
+      const isLinkedWorktree =
+        fs.existsSync(dotGit) && fs.statSync(dotGit).isFile();
+      if (!isLinkedWorktree) return path.join(dir, '.nyron-hub');
+    }
     if (dir === path.dirname(dir)) break; // дошли до /
   }
 
