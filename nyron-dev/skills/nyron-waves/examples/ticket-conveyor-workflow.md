@@ -1,77 +1,130 @@
-# Скелет: конвейер тикета как Workflow
+# Скелет: конвейер тикета v2 как Workflow (канон 0.5.0)
 
-Стадийный конвейер одного тикета волны Workflow-скриптом: чекпойнт на каждой
-границе стадий (упал/припарковался — `resumeFromRunId` вернёт готовые стадии
-из кэша), стадию «забыть» невозможно, цикл доработок ограничен.
+Стадийный конвейер одного тикета Workflow-скриптом: тест-ген (Sol) → чекпойнт
+тестов → код → дифф-валидатор → адверсарка → cross-review → телеметрия.
+Чекпойнт на каждой границе (упал/припарковался — `resumeFromRunId` вернёт
+готовые стадии из кэша), стадию «забыть» невозможно, циклы ограничены.
 
 Правила адаптации по месту:
 - пути/тикеты подставлять РАЗВЁРНУТЫМИ строками (грабля: `${...}` в
   строках-промтах workflow интерполируется — литеральный `$` экранировать);
-- `codex`-стадия зовёт cross-review.sh Bash-ом ВНУТРИ агента стадии (агент
-  синхронно ждёт — в workflow это нормально, параллелит конвейер);
+- codex-стадии зовут CLI Bash-ом ВНУТРИ агента стадии (синхронно — в workflow
+  это нормально, параллелит сам конвейер);
 - решения (вердикт диспетчера, блокеры, Jira-статусы) — НЕ в скрипте: скрипт
-  возвращает результат, волна-сессия решает и двигает шину.
+  возвращает результат, волна-сессия решает и двигает шину;
+- телеметрию пишет каждая стадия — строка в `.nyron-hub/metrics.jsonl`
+  (echo >> из механического агента, дёшево).
 
 ```javascript
 export const meta = {
-  name: 'ticket-conveyor',
-  description: 'Конвейер тикета: impl → адверсарка → cross-review → пуш-готовность',
+  name: 'ticket-conveyor-v2',
+  description: 'Конвейер тикета: тест-ген(Sol) → чекпойнт → код → валидатор → адверсарка → Sol-ревью',
   phases: [
-    { title: 'Impl' }, { title: 'Adversarial' }, { title: 'CrossReview' },
+    { title: 'TestGen' }, { title: 'Impl' }, { title: 'Guard' },
+    { title: 'Adversarial' }, { title: 'CrossReview' },
   ],
 }
-// args: { ticket: 'DEV-XXX', worktree: '/abs/path', brief: '<бриф-текст>',
-//         ticketFile: '/abs/path/ticket.txt', crossReviewSh: '/abs/path/cross-review.sh' }
+// args: { ticket, worktree, testsDir, brief, dod, howToTest, ticketFile,
+//         crossReviewSh, metricsFile, behavioral: true|false,
+//         complexity: 'обычный'|'СЛОЖНЫЙ' }
 
 const VERDICT = { type: 'object', properties: {
   ok: { type: 'boolean' }, summary: { type: 'string' },
   findings: { type: 'array', items: { type: 'string' } } },
   required: ['ok', 'summary'] }
 
+const metric = (stage, data) =>
+  `echo '${'${'}JSON.stringify({ts: args.now, ticket: args.ticket, stage, ...data})}' >> ${'${'}args.metricsFile}`
+// упрощённо: реальную запись делает механический агент стадии одной echo-командой
+
+// ── Стадия 1: red-тесты из DoD пишет Sol (НЕ видит будущий код) ──
+phase('TestGen')
+let tests = null
+if (args.behavioral) {
+  tests = await agent(
+    `Запусти Bash: codex exec в каталоге ${args.testsDir} (репо тестов).
+     Промт для codex: «Напиши ПАДАЮЩИЕ тесты для тикета ${args.ticket} строго
+     из DoD и "Как тестировать" ниже. Реализации ещё нет — тесты фиксируют
+     ожидаемое наблюдаемое поведение, не выдумывай внутренности.
+     DoD: ${args.dod}
+     Как тестировать: ${args.howToTest}
+     Каждый тест — шапка-описание + регистрация в каталоге тестов.»
+     Верни список созданных файлов и имена тест-кейсов.`,
+    { label: `testgen:${args.ticket}`, model: 'sonnet' })
+  // ЧЕКПОЙНТ СЕССИИ: workflow возвращает управление? Нет — конвейер продолжает,
+  // но волна смотрит тесты на своём чекпойнте (workflow-журнал) и может
+  // остановить ДО импла. Для строгого гейта: разбить на два workflow.
+}
+
+// ── Стадия 2: код. Тестовые файлы трогать НЕЛЬЗЯ ──
 phase('Impl')
 const impl = await agent(
   `Тикет ${args.ticket}, worktree ${args.worktree}. Бриф: ${args.brief}
-   TDD: тест первым (red→green), затем код. py_compile/тесты прогнать.
-   Коммиты «${args.ticket}: ...». Верни: что сделано, какие тесты, хэши.`,
+   Лестница до кода: ответь на 3 вопроса ДО правок (пруф №2 — граф
+   codebase-memory, фолбэк grep; путь:строка). Red-тесты уже написаны
+   (${args.testsDir}): твоя задача red → green. ТЕСТОВЫЕ ФАЙЛЫ НЕ ПРАВИТЬ —
+   не согласен с тестом → верни это как блокер, не подгоняй.
+   В цикле гоняй ТОЧЕЧНЫЕ тесты по затронутому; полный сьют — один раз в конце.
+   Коммиты «${args.ticket}: ...». Верни: лестница (3 ответа с пруфом), что
+   сделано, red→green статус, хэши.`,
   { label: `impl:${args.ticket}`, model: 'opus', agentType: 'backend-dev' })
 
+// ── Стадия 3: механический гвард — дифф не трогает тесты ──
+phase('Guard')
+const guard = await agent(
+  `Bash в ${args.worktree}: git diff origin/main..HEAD --name-only | grep -E
+   '(tests?/|\\.test\\.|\\.spec\\.)' — если код-МР тронул тестовые файлы,
+   верни ok=false и список; иначе ok=true. Плюс допиши метрику:
+   echo-строку {stage:"guard", ok, ladder_proof: "<graph|grep|none из отчёта импла>"}
+   в ${args.metricsFile}.`,
+  { label: `guard:${args.ticket}`, model: 'haiku', schema: VERDICT })
+if (!guard.ok) return { status: 'БЛОКЕР', stage: 'guard', findings: guard.findings }
+
+// ── Стадия 4: адверсарка (пока ВСЕМ тикетам — до данных телеметрии) ──
 phase('Adversarial')
 let round = 0, adv
 while (round < 3) {
   adv = await agent(
     `Адверсарно ОПРОВЕРГНИ готовность ${args.ticket} в ${args.worktree}
-     (дифф origin/main..HEAD). Контекст имплементации: ${impl}
-     ok=true только если опровергнуть не удалось; findings — конкретика.`,
+     (дифф origin/main..HEAD). Контекст: ${impl}
+     ok=true только если опровергнуть не удалось. Каждую находку — строкой
+     «[adversarial] тип: суть» (тип: bug|overengineering|dup|style).`,
     { label: `adv:${args.ticket}#${round}`, model: 'opus', schema: VERDICT })
   if (adv.ok) break
   await agent(
-    `Почини по замечаниям адверсарки в ${args.worktree} (коммиты ${args.ticket}):
-     ${adv.findings.join('; ')}. Тесты перегнать.`,
+    `Почини по замечаниям в ${args.worktree} (коммиты ${args.ticket}):
+     ${adv.findings.join('; ')}. Точечные тесты перегнать. Тестовые файлы не трогать.`,
     { label: `fix:${args.ticket}#${round}`, model: 'opus', agentType: 'backend-dev' })
   round++
 }
 if (!adv.ok) return { status: 'БЛОКЕР', stage: 'adversarial', findings: adv.findings }
 
+// ── Стадия 5: кросс-ревью Sol + финальный полный прогон ──
 phase('CrossReview')
 let crRound = 0, cr
 while (crRound < 2) {
   cr = await agent(
-    `Запусти Bash: ${args.crossReviewSh} -C ${args.worktree} -b main -t ${args.ticketFile}
-     Дождись вердикта (синхронно). Верни ok=true при «ВЕРДИКТ: ПРИНЯТО»,
-     иначе ok=false и findings = замечания дословно.`,
+    `1) Полный прогон тестов проекта для зоны тикета (make -C ... / npm test).
+     2) Запусти Bash: ${args.crossReviewSh} -C ${args.worktree} -b main -t ${args.ticketFile}
+     Верни ok=true при зелёном полном прогоне И «ВЕРДИКТ: ПРИНЯТО»; иначе
+     findings (замечания дословно, «[sol] тип: суть»; НЕБЛОКИРУЮЩЕЕ — отдельным
+     списком nonblocking). Метрики находок — echo в ${args.metricsFile}.`,
     { label: `sol:${args.ticket}#${crRound}`, model: 'sonnet', schema: VERDICT })
   if (cr.ok) break
   await agent(
-    `Почини по вердикту Sol в ${args.worktree} (коммиты ${args.ticket}):
-     ${cr.findings.join('; ')}. Тесты перегнать.`,
+    `Почини по вердикту Sol в ${args.worktree}: ${cr.findings.join('; ')}.
+     Точечные тесты перегнать. Тестовые файлы не трогать.`,
     { label: `fix-sol:${args.ticket}#${crRound}`, model: 'opus', agentType: 'backend-dev' })
   crRound++
 }
 
 return { status: cr.ok ? 'ГОТОВ К ПУШУ' : 'БЛОКЕР', stage: 'cross-review',
-         impl, adversarial: adv, crossReview: cr }
-// Дальше — СЕССИЯ: пуш, отчёт-коммент в Jira, статус, hub_post «сдал».
+         tests, impl, adversarial: adv, crossReview: cr }
+// Дальше — СЕССИЯ (Fable): смотрит red-тесты и дифф, вердикт, пуш, Jira,
+// hub_post. СЛОЖНЫЙ тикет → перед вердиктом разбор конструкции thinker'ом.
+// Неблокирующие замечания волна в конце собирает в файл долгов проекта.
 ```
 
-Несколько тикетов волны → `pipeline(tickets, t => workflow-конвейер t)` или
-параллельные запуски — конвейеры едут одновременно, wall-clock = самый долгий.
+Несколько тикетов волны → `pipeline(tickets, t => конвейер t)` — едут
+одновременно, wall-clock = самый долгий. Телеметрия всех тикетов — в одном
+`metrics.jsonl`, сводка волны по нему.
