@@ -28,10 +28,14 @@ jira:                        # для storage: jira (трекер задач)
   labels: [front, back, agent, infra]   # лейблы зон проекта
 
   statuses:                  # человеческие имена статусов лестницы; transition id
-    backlog: "Бэклог"        # всегда получать по месту (getTransitionsForJiraIssue),
-    in_progress: "В работе"  # ориентир — категория new / indeterminate / done
-    review: "Тестирование"
-    done: "Готово"
+    backlog: "Бэклог"        # всегда получать по месту (getTransitionsForJiraIssue).
+    in_progress: "В работе"  # ВСЕ 6 ключей обязательны — скиллы ходят по ключам,
+    review: "Ревью"          # имена на доске любые (psylia: review = «Готово к
+    rework: "Доработка"      # тестированию» — ремап именем, не переименованием
+    testing: "Тестирование"  # доски). Категория Jira-статуса — часть канона:
+    done: "Готово"           # done/Отменено обязаны быть в категории done,
+                             # иначе отменённые лезут в фильтры незакрытого
+                             # (грабля psylia 26.07).
 
 files:                       # пути артефактов (нужны и при storage: jira)
   tasks_dir: _tasks          # задачи-файлы (только storage: files)

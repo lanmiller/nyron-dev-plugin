@@ -55,27 +55,36 @@ mkdir -p "$WDIR"
 # ---------- чтение будки через sqlite3 CLI ----------
 # Хранилище переехало с messages.jsonl на SQLite (DEV-627). База может ещё не
 # существовать (сервер не стартовал) — тогда ведём себя как при пустой шине.
+# Все чтения — с busy-timeout: голый вызов на занятой WAL-базе падает с
+# SQLITE_BUSY, и «ошибка» неотличима от «0 строк» (источник зомби-реаниматора,
+# диагноз 27.07: флаппинг 797→0→797 вечно сбрасывал окно тишины).
 SQLITE=/usr/bin/sqlite3
+SQL() { "$SQLITE" -cmd '.timeout 3000' "$@"; }
 
 db_max()   { # наибольший seq сейчас (0 если базы/строк нет)
   [ -f "$DB" ] || { echo 0; return; }
-  local v; v=$("$SQLITE" "$DB" 'SELECT COALESCE(MAX(seq),0) FROM messages;' 2>/dev/null || echo 0)
+  local v; v=$(SQL "$DB" 'SELECT COALESCE(MAX(seq),0) FROM messages;' 2>/dev/null || echo 0)
   echo "${v:-0}"
 }
 db_new()   { # число ЧУЖИХ сообщений с seq > $1 (эхо-фильтр по sender != ME)
   [ -f "$DB" ] || { echo 0; return; }
-  local v; v=$("$SQLITE" "$DB" "SELECT COUNT(*) FROM messages WHERE seq > $1 AND sender != '$ME';" 2>/dev/null || echo 0)
+  local v; v=$(SQL "$DB" "SELECT COUNT(*) FROM messages WHERE seq > $1 AND sender != '$ME';" 2>/dev/null || echo 0)
   echo "${v:-0}"
 }
 db_tail()  { # последние 5 чужих сообщений с seq > $1
   [ -f "$DB" ] || return
-  "$SQLITE" -separator ' | ' "$DB" \
+  SQL -separator ' | ' "$DB" \
     "SELECT ts,sender,text FROM messages WHERE seq > $1 AND sender != '$ME' ORDER BY seq DESC LIMIT 5;" 2>/dev/null || true
 }
-db_total() { # всего сообщений (для реаниматора; свои пинги считаются активностью)
+db_total() { # всего сообщений (для реаниматора). ОШИБКА чтения возвращается
+  # как ERR, не как 0: занятая база — это не активность и не тишина.
   [ -f "$DB" ] || { echo 0; return; }
-  local v; v=$("$SQLITE" "$DB" 'SELECT COUNT(*) FROM messages;' 2>/dev/null || echo 0)
-  echo "${v:-0}"
+  local v
+  if v=$(SQL "$DB" 'SELECT COUNT(*) FROM messages;' 2>/dev/null); then
+    echo "${v:-0}"
+  else
+    echo ERR
+  fi
 }
 
 case "$MODE" in
@@ -86,8 +95,18 @@ case "$MODE" in
   alive)
     [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null && exit 0 || exit 1 ;;
   watch)
+    # ПЕРЕВЗВОД = ЗАМЕНА: живого тёзку убиваем, дубли не плодим (диагноз
+    # 27.07: стеки вотчеров на одно имя стреляли пачкой по одному событию).
+    if [ -f "$PIDF" ]; then
+      OLD=$(cat "$PIDF" 2>/dev/null || true)
+      if [ -n "$OLD" ] && [ "$OLD" != "$$" ] && kill -0 "$OLD" 2>/dev/null; then
+        kill "$OLD" 2>/dev/null || true
+      fi
+    fi
     echo $$ > "$PIDF"
-    trap 'rm -f "$PIDF"' EXIT
+    # trap снимает pid-файл ТОЛЬКО если он всё ещё наш: при замене trap
+    # умирающего старика не должен снести файл нового вотчера (гонка).
+    trap '[ "$(cat "$PIDF" 2>/dev/null)" = "$$" ] && rm -f "$PIDF"' EXIT
     base=$(db_max)   # база = текущий хвост; пришедшее ДО старта не будит
     while true; do
       if [ "$(db_new "$base")" -gt 0 ]; then
@@ -99,20 +118,32 @@ case "$MODE" in
   reanimator)
     MIN="${2:-40}"   # для reanimator второй аргумент = минуты (имя не нужно)
     case "$MIN" in (*[!0-9]*) MIN="${3:-40}";; esac
-    echo $$ > "$WDIR/reanimator.pid"
-    trap 'rm -f "$WDIR/reanimator.pid"' EXIT
+    RPIDF="$WDIR/reanimator.pid"
+    # Одиночка: живой реаниматор уже дежурит — второго не поднимаем.
+    if [ -f "$RPIDF" ]; then
+      OLD=$(cat "$RPIDF" 2>/dev/null || true)
+      if [ -n "$OLD" ] && [ "$OLD" != "$$" ] && kill -0 "$OLD" 2>/dev/null; then
+        echo "REANIMATOR: уже дежурит (pid $OLD) — выходим"; exit 0
+      fi
+    fi
+    echo $$ > "$RPIDF"
+    trap '[ "$(cat "$RPIDF" 2>/dev/null)" = "$$" ] && rm -f "$RPIDF"' EXIT
     prev=$(db_total); last_change=$(date +%s)
+    [ "$prev" = "ERR" ] && prev=0
     while true; do
       sleep 60
       cur=$(db_total)
+      # нечитаемая база = неизвестность: не активность и не тишина — пропуск
+      [ "$cur" = "ERR" ] && continue
       # активность (в т.ч. собственный пинг) сдвигает окно тишины
       [ "$cur" != "$prev" ] && { prev=$cur; last_change=$(date +%s); }
       now=$(date +%s)
       if [ -f "$DB" ] && [ $((now - last_change)) -gt $((MIN * 60)) ]; then
         # RESUME-пинг прямо в базу (zero-token); single-writer SQLite, спинлок не нужен
-        "$SQLITE" "$DB" \
+        SQL "$DB" \
           "INSERT INTO messages(id,ts,sender,recipient,ticket,wave,text) VALUES('$(date +%s)-rean','$(date -u '+%Y-%m-%dT%H:%M:%SZ')','reanimator','all',NULL,NULL,'RESUME-пинг: будка молчала ${MIN}+ мин (лимиты/разрыв?) — всем сессиям проверить свои волны и продолжить по брифам');" 2>/dev/null || true
         echo "REANIMATOR: пинг отправлен ($(date '+%H:%M'))"
+        last_change=$(date +%s)   # свой пинг двигает окно даже при busy-чтениях
       fi
     done ;;
   *) echo "usage: $0 watch|alive <agent-name> | hubdir | reanimator [минут]" >&2; exit 2 ;;
