@@ -61,6 +61,16 @@ mkdir -p "$WDIR"
 SQLITE=/usr/bin/sqlite3
 SQL() { "$SQLITE" -cmd '.timeout 3000' "$@"; }
 
+# Машинные события об ошибках хуков/скиллов (kind='error', STOVP-41) вотчеры
+# НЕ будят и тишину реаниматора не двигают: это сенсор для разбора процесса, а
+# не сообщение агенту. Колонка kind появилась в 0.8.18 — на базе, созданной
+# прежней версией, фильтр пуст (запрос с несуществующей колонкой упал бы, а
+# ошибка чтения тут неотличима от «0 строк»).
+NOERR=""
+if [ -f "$DB" ] && SQL "$DB" 'SELECT kind FROM messages LIMIT 1;' >/dev/null 2>&1; then
+  NOERR="AND (kind IS NULL OR kind != 'error')"
+fi
+
 db_max()   { # наибольший seq сейчас (0 если базы/строк нет)
   [ -f "$DB" ] || { echo 0; return; }
   local v; v=$(SQL "$DB" 'SELECT COALESCE(MAX(seq),0) FROM messages;' 2>/dev/null || echo 0)
@@ -68,19 +78,19 @@ db_max()   { # наибольший seq сейчас (0 если базы/стр
 }
 db_new()   { # число ЧУЖИХ сообщений с seq > $1 (эхо-фильтр по sender != ME)
   [ -f "$DB" ] || { echo 0; return; }
-  local v; v=$(SQL "$DB" "SELECT COUNT(*) FROM messages WHERE seq > $1 AND sender != '$ME';" 2>/dev/null || echo 0)
+  local v; v=$(SQL "$DB" "SELECT COUNT(*) FROM messages WHERE seq > $1 AND sender != '$ME' $NOERR;" 2>/dev/null || echo 0)
   echo "${v:-0}"
 }
 db_tail()  { # последние 5 чужих сообщений с seq > $1
   [ -f "$DB" ] || return
   SQL -separator ' | ' "$DB" \
-    "SELECT ts,sender,text FROM messages WHERE seq > $1 AND sender != '$ME' ORDER BY seq DESC LIMIT 5;" 2>/dev/null || true
+    "SELECT ts,sender,text FROM messages WHERE seq > $1 AND sender != '$ME' $NOERR ORDER BY seq DESC LIMIT 5;" 2>/dev/null || true
 }
 db_total() { # всего сообщений (для реаниматора). ОШИБКА чтения возвращается
   # как ERR, не как 0: занятая база — это не активность и не тишина.
   [ -f "$DB" ] || { echo 0; return; }
   local v
-  if v=$(SQL "$DB" 'SELECT COUNT(*) FROM messages;' 2>/dev/null); then
+  if v=$(SQL "$DB" "SELECT COUNT(*) FROM messages WHERE 1=1 $NOERR;" 2>/dev/null); then
     echo "${v:-0}"
   else
     echo ERR

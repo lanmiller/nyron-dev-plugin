@@ -15,6 +15,18 @@
 # ненулевой — техническая ошибка (нет codex, нет диффа и т.п.).
 set -euo pipefail
 
+# Техническая ошибка (не вердикт: у вердиктов exit 0) уходит машинным событием
+# в будку — STOVP-41, чтобы разбор процесса видел поломки инструмента, а не
+# только жалобы людей. Запись молчаливая, поведение скрипта не меняется.
+HOOKS="$(cd "$(dirname "$0")/../../.." && pwd)/hooks"
+ARGV="$*"
+report_fail() {
+  [ "$1" -eq 0 ] && return 0
+  [ -f "$HOOKS/error-report.sh" ] && sh "$HOOKS/error-report.sh" "skill:cross-review" "exit=$1 | $ARGV"
+  return 0
+}
+trap 'report_fail $?' EXIT
+
 REPO="" BASE="main" MODEL="" TICKET_FILE=""
 while getopts "C:b:m:t:" opt; do
   case $opt in
@@ -46,7 +58,7 @@ TICKET_CTX=""
 [ -n "$TICKET_FILE" ] && [ -f "$TICKET_FILE" ] && TICKET_CTX=$(cat "$TICKET_FILE")
 
 PROMPT_FILE=$(mktemp)
-trap 'rm -f "$PROMPT_FILE"' EXIT
+trap 'c=$?; rm -f "$PROMPT_FILE"; report_fail $c' EXIT
 cat > "$PROMPT_FILE" <<EOF
 Ты — независимый код-ревьюер. Код писала ДРУГАЯ модель (Claude); твоя ценность —
 свежий взгляд: ты ловишь ошибки, которые автор у себя не видит. Проверь ветку

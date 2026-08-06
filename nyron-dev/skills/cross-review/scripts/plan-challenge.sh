@@ -13,6 +13,18 @@
 # Выход: первая строка строго «ПЛАН: ОК» или «ПЛАН: РИСКИ», далее пункты.
 set -euo pipefail
 
+# Техническая ошибка (не вердикт: у вердиктов exit 0) уходит машинным событием
+# в будку — STOVP-41, чтобы разбор процесса видел поломки инструмента, а не
+# только жалобы людей. Запись молчаливая, поведение скрипта не меняется.
+HOOKS="$(cd "$(dirname "$0")/../../.." && pwd)/hooks"
+ARGV="$*"
+report_fail() {
+  [ "$1" -eq 0 ] && return 0
+  [ -f "$HOOKS/error-report.sh" ] && sh "$HOOKS/error-report.sh" "skill:plan-challenge" "exit=$1 | $ARGV"
+  return 0
+}
+trap 'report_fail $?' EXIT
+
 REPO="" MODEL="" PLAN_FILE=""
 while getopts "C:t:m:" opt; do
   case $opt in
@@ -26,7 +38,7 @@ done
 command -v codex >/dev/null || { echo "ошибка: codex CLI не установлен" >&2; exit 3; }
 
 PROMPT_FILE=$(mktemp)
-trap 'rm -f "$PROMPT_FILE"' EXIT
+trap 'c=$?; rm -f "$PROMPT_FILE"; report_fail $c' EXIT
 cat > "$PROMPT_FILE" <<EOF
 Ты — независимый архитектурный челленджер. План писала ДРУГАЯ модель (Claude);
 твоя ценность — проверить его против РЕАЛЬНОГО кода репо, к которому у тебя

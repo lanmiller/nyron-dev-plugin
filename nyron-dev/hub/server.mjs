@@ -11,7 +11,8 @@
  * Тулзы:
  *   hub_status        — сводка: сообщения, брони, очереди мержа
  *   hub_post          — отправить сообщение в шину
- *   hub_read          — прочитать сообщения (курсор per-agent + фильтры)
+ *   hub_read          — прочитать сообщения (курсор per-agent + фильтры;
+ *                       kind='error' — машинный канал ошибок хуков/скиллов)
  *   hub_lock          — забронировать файлы/каталоги
  *   hub_unlock        — снять свои брони
  *   hub_merge_join    — встать в очередь мержа репо
@@ -58,12 +59,13 @@ const tools = {
         to: { type: 'string', description: 'адресат (опц.): dispatcher, wave-2, all' },
         ticket: { type: 'string', description: 'DEV-XXX (опц.)' },
         wave: { type: 'string', description: 'метка волны (опц.)' },
+        kind: { type: 'string', description: "'error' — машинное событие (упал хук/скилл): пишется с машиной и временем, вотчеры и обычное чтение его не видят; по умолчанию 'msg'" },
       },
       required: ['from', 'text'],
       additionalProperties: false,
     },
-    handler({ from, text, to, ticket, wave }) {
-      return { posted: hub.post({ from, text, to, ticket, wave }) };
+    handler({ from, text, to, ticket, wave, kind }) {
+      return { posted: hub.post({ from, text, to, ticket, wave, kind }) };
     },
   },
 
@@ -77,6 +79,7 @@ const tools = {
         since_id: { type: 'string', description: 'legacy-курсор: id последнего виденного сообщения' },
         to: { type: 'string' }, from: { type: 'string' },
         wave: { type: 'string' }, ticket: { type: 'string' },
+        kind: { type: 'string', description: "'error' — машинный канал ошибок хуков/скиллов (from = источник, host = машина); курсор при таком чтении не двигается. Без параметра ошибки в выдачу не попадают." },
         limit: { type: 'number', description: 'default 50' },
       },
       additionalProperties: false,

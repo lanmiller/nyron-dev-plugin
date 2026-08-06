@@ -5,11 +5,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cat \"${CLAUDE_PLUGIN_ROOT}/hooks/code-policy.md\""
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.sh\" code-policy cat \"${CLAUDE_PLUGIN_ROOT}/hooks/code-policy.md\""
           },
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/version-check.sh\""
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.sh\" version-check sh \"${CLAUDE_PLUGIN_ROOT}/hooks/version-check.sh\""
           }
         ]
       }

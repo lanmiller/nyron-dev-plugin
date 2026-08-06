@@ -12,16 +12,25 @@
  * `sender != agent` прямо в SELECT.
  *
  * Схема:
- *   messages(seq PK AUTOINCREMENT, id, ts, sender, recipient, ticket, wave, text)
+ *   messages(seq PK AUTOINCREMENT, id, ts, sender, recipient, ticket, wave, text,
+ *            kind, host)                           — kind='error' — машинный канал
  *   cursors(consumer PK, last_seq)                 — курсор чтения per-agent
  *   locks(path PK, agent, ticket, ts, expires_ts, exclusive)
  *   merge_queue(pos PK AUTOINCREMENT, repo, agent, branch, ticket, ts)
  */
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const LOCK_TTL_MIN_DEFAULT = 240;
+
+// Типы сообщений. Обычный трафик агентов — KIND_MSG; KIND_ERROR — машинный
+// канал ошибок хуков и скиллов (STOVP-41): те же сообщения, но адресованы не
+// агентам, а разбору процесса, и в обычное чтение шины не примешиваются.
+const KIND_MSG = 'msg';
+const KIND_ERROR = 'error';
+const ERROR_RECIPIENT = 'errors';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS messages (
@@ -32,7 +41,9 @@ CREATE TABLE IF NOT EXISTS messages (
   recipient TEXT,
   ticket    TEXT,
   wave      TEXT,
-  text      TEXT
+  text      TEXT,
+  kind      TEXT,
+  host      TEXT
 );
 CREATE TABLE IF NOT EXISTS cursors (
   consumer TEXT PRIMARY KEY,
@@ -69,8 +80,12 @@ function pathsOverlap(a, b) {
 // строка messages → внешний формат сообщения (sender→from, recipient→to),
 // чтобы ответ тулзов совпадал со старым JSONL-форматом (волны на нём)
 function fmtMsg(r) {
-  return { id: r.id, ts: r.ts, from: r.sender, to: r.recipient,
+  const m = { id: r.id, ts: r.ts, from: r.sender, to: r.recipient,
     ticket: r.ticket, wave: r.wave, text: r.text };
+  // kind/host отдаём только у машинных событий: у обычных сообщений форма
+  // ответа остаётся прежней (волны разбирают её как раньше)
+  if (r.kind && r.kind !== KIND_MSG) { m.kind = r.kind; m.host = r.host || null; }
+  return m;
 }
 function fmtLock(l) {
   return { agent: l.agent, path: l.path, ticket: l.ticket, ts: l.ts, expires: l.expires_ts };
@@ -99,7 +114,17 @@ export class HubDb {
       }
     }
     this.db.exec(SCHEMA);
+    // База могла быть создана прежней версией плагина — дотягиваем колонки
+    // (у SQLite нет ADD COLUMN IF NOT EXISTS, смотрим pragma).
+    this.#ensureColumn('messages', 'kind');
+    this.#ensureColumn('messages', 'host');
     this.#migrateFromJsonl();
+  }
+
+  #ensureColumn(table, col) {
+    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all();
+    if (!cols.some((c) => c.name === col))
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT`);
   }
 
   // Одноразовый импорт из старого JSONL-формата: если база пуста И рядом лежит
@@ -141,21 +166,30 @@ export class HubDb {
 
   // ---------- сообщения ----------
 
-  post({ from, text, to, ticket, wave }) {
+  // kind='error' — машинное событие: адресат по умолчанию не 'all', а
+  // 'errors' (иначе ошибка разбудила бы вотчеры всех сессий), и в запись
+  // добавляется машина — по ней в разборе видно, у кого именно ломается.
+  post({ from, text, to, ticket, wave, kind, host }) {
+    const isErr = kind === KIND_ERROR;
     const msg = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      ts: new Date().toISOString(), from, to: to || 'all',
+      ts: new Date().toISOString(), from, to: to || (isErr ? ERROR_RECIPIENT : 'all'),
       ticket: ticket || null, wave: wave || null, text };
+    const rowKind = kind || KIND_MSG;
+    const rowHost = host || (isErr ? os.hostname() : null);
     this.db.prepare(
-      'INSERT INTO messages(id,ts,sender,recipient,ticket,wave,text) VALUES(?,?,?,?,?,?,?)')
-      .run(msg.id, msg.ts, msg.from, msg.to, msg.ticket, msg.wave, msg.text);
+      'INSERT INTO messages(id,ts,sender,recipient,ticket,wave,text,kind,host) VALUES(?,?,?,?,?,?,?,?,?)')
+      .run(msg.id, msg.ts, msg.from, msg.to, msg.ticket, msg.wave, msg.text, rowKind, rowHost);
+    if (isErr) { msg.kind = rowKind; msg.host = rowHost; }
     return msg;
   }
 
   // agent задан → курсорное чтение (переживает смерть сессии, эхо отфильтровано);
   // без agent → legacy-режим по since_id (совместимость со старыми вызовами).
-  read({ agent, since_id, to, from, wave, ticket, limit = 50 }) {
+  // kind задан (чтение машинного канала) → курсор НЕ трогаем и читаем всю
+  // историю: разбор ошибок не имеет права съесть непрочитанные сообщения волны.
+  read({ agent, since_id, to, from, wave, ticket, kind, limit = 50 }) {
     let rows;
-    if (agent) {
+    if (agent && !kind) {
       // SELECT кандидатов и сдвиг курсора — в одной транзакции: снапшот WAL
       // даёт согласованность, чужой INSERT между шагами курсор не проскочит.
       this.db.exec('BEGIN');
@@ -182,6 +216,11 @@ export class HubDb {
         if (i >= 0) rows = rows.slice(i + 1);
       }
     }
+    // Без явного kind машинные ошибки в выдачу не попадают — старые вызовы
+    // видят ровно то же, что видели раньше.
+    rows = kind
+      ? rows.filter((r) => (r.kind || KIND_MSG) === kind)
+      : rows.filter((r) => (r.kind || KIND_MSG) !== KIND_ERROR);
     if (to) rows = rows.filter((r) => r.recipient === to || r.recipient === 'all');
     if (from) rows = rows.filter((r) => r.sender === from);
     if (wave) rows = rows.filter((r) => r.wave === wave);
@@ -190,8 +229,12 @@ export class HubDb {
     return { messages, last_id: messages.at(-1)?.id ?? since_id ?? null };
   }
 
+  // Сводка — только трафик агентов: машинные ошибки в чат сессии не лезут,
+  // их читают отдельным hub_read(kind='error').
   recent(limit = 15) {
-    const rows = this.db.prepare('SELECT * FROM messages ORDER BY seq DESC LIMIT ?').all(limit);
+    const rows = this.db.prepare(
+      "SELECT * FROM messages WHERE kind IS NULL OR kind != ? ORDER BY seq DESC LIMIT ?")
+      .all(KIND_ERROR, limit);
     return rows.reverse().map(fmtMsg);
   }
 
