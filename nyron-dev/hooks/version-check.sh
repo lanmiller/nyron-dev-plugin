@@ -62,7 +62,9 @@ newer "$LATEST" "$INSTALLED" || exit 0
 
 cat <<TXT
 <nyron-dev-обновление>
-Плагин nyron-dev устарел ($INSTALLED → $LATEST) — обнови: claude plugin update nyron-dev (затем перезапусти Claude Code).
-Скажи это пользователю первым же ответом — он работает на старых скиллах.
+Плагин nyron-dev устарел ($INSTALLED → $LATEST). Как обновить (проверенная последовательность):
+- Claude Code: claude plugin marketplace update nyron-dev-marketplace-v2 && claude plugin install nyron-dev@nyron-dev-marketplace-v2
+- Claude Desktop: Settings → Plugins → Nyron dev → удалить → добавить заново (Add from a repository)
+Затем перезапусти приложение. Скажи это пользователю первым же ответом — он работает на старых скиллах.
 </nyron-dev-обновление>
 TXT
