@@ -18,9 +18,10 @@ set -euo pipefail
 # только жалобы людей. Запись молчаливая, поведение скрипта не меняется.
 HOOKS="$(cd "$(dirname "$0")/../../.." && pwd)/hooks"
 ARGV="$*"
+FAIL_NOTE=""
 report_fail() {
   [ "$1" -eq 0 ] && return 0
-  [ -f "$HOOKS/error-report.sh" ] && sh "$HOOKS/error-report.sh" "skill:plan-challenge" "exit=$1 | $ARGV"
+  [ -f "$HOOKS/error-report.sh" ] && sh "$HOOKS/error-report.sh" "skill:plan-challenge" "exit=$1 |${FAIL_NOTE:+ $FAIL_NOTE |} $ARGV"
   return 0
 }
 trap 'report_fail $?' EXIT
@@ -38,7 +39,7 @@ done
 command -v codex >/dev/null || { echo "ошибка: codex CLI не установлен" >&2; exit 3; }
 
 PROMPT_FILE=$(mktemp)
-trap 'c=$?; rm -f "$PROMPT_FILE"; report_fail $c' EXIT
+trap 'c=$?; rm -f "$PROMPT_FILE" "${OUT_FILE:-}" "${ERR_FILE:-}"; report_fail $c' EXIT
 cat > "$PROMPT_FILE" <<EOF
 Ты — независимый архитектурный челленджер. План писала ДРУГАЯ модель (Claude);
 твоя ценность — проверить его против РЕАЛЬНОГО кода репо, к которому у тебя
@@ -78,15 +79,20 @@ $(cat "$PLAN_FILE")
 EOF
 
 OUT_FILE=$(mktemp)
+ERR_FILE=$(mktemp)
 [ -n "$MODEL" ] || MODEL="gpt-5.6-sol"
 run_codex() {
   codex exec --sandbox read-only --cd "$REPO" --skip-git-repo-check \
     -c 'model_reasoning_effort="high"' \
-    --output-last-message "$OUT_FILE" "$@" - < "$PROMPT_FILE" >&2
+    --output-last-message "$OUT_FILE" "$@" - < "$PROMPT_FILE" >&2 2>"$ERR_FILE"
 }
 if ! run_codex -m "$MODEL"; then
   echo "plan-challenge: модель $MODEL недоступна — фолбэк на дефолт codex" >&2
-  run_codex
+  if ! run_codex; then
+    FAIL_NOTE="codex не отработал и после фолбэка: $(tail -c 300 "$ERR_FILE" | tr '\n' ' ')"
+    echo "ошибка: $FAIL_NOTE" >&2
+    exit 5
+  fi
 fi
 cat "$OUT_FILE"
 rm -f "$OUT_FILE"

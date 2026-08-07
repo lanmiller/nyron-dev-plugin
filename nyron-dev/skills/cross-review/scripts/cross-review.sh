@@ -20,9 +20,10 @@ set -euo pipefail
 # только жалобы людей. Запись молчаливая, поведение скрипта не меняется.
 HOOKS="$(cd "$(dirname "$0")/../../.." && pwd)/hooks"
 ARGV="$*"
+FAIL_NOTE=""
 report_fail() {
   [ "$1" -eq 0 ] && return 0
-  [ -f "$HOOKS/error-report.sh" ] && sh "$HOOKS/error-report.sh" "skill:cross-review" "exit=$1 | $ARGV"
+  [ -f "$HOOKS/error-report.sh" ] && sh "$HOOKS/error-report.sh" "skill:cross-review" "exit=$1 |${FAIL_NOTE:+ $FAIL_NOTE |} $ARGV"
   return 0
 }
 trap 'report_fail $?' EXIT
@@ -58,7 +59,7 @@ TICKET_CTX=""
 [ -n "$TICKET_FILE" ] && [ -f "$TICKET_FILE" ] && TICKET_CTX=$(cat "$TICKET_FILE")
 
 PROMPT_FILE=$(mktemp)
-trap 'c=$?; rm -f "$PROMPT_FILE"; report_fail $c' EXIT
+trap 'c=$?; rm -f "$PROMPT_FILE" "${OUT_FILE:-}" "${ERR_FILE:-}"; report_fail $c' EXIT
 cat > "$PROMPT_FILE" <<EOF
 Ты — независимый код-ревьюер. Код писала ДРУГАЯ модель (Claude); твоя ценность —
 свежий взгляд: ты ловишь ошибки, которые автор у себя не видит. Проверь ветку
@@ -115,6 +116,7 @@ $DIFF
 EOF
 
 OUT_FILE=$(mktemp)
+ERR_FILE=$(mktemp)
 # Дефолт ревьюера — gpt-5.6-sol («Latest frontier agentic coding model»,
 # доступен на Pro-подписке, codex CLI >= 0.144). Аккаунт без него (400
 # «model is not supported») — авто-фолбэк на дефолтную модель аккаунта.
@@ -123,11 +125,15 @@ OUT_FILE=$(mktemp)
 run_codex() {
   codex exec --sandbox read-only --cd "$REPO" --skip-git-repo-check \
     -c 'model_reasoning_effort="high"' \
-    --output-last-message "$OUT_FILE" "$@" - < "$PROMPT_FILE" >&2
+    --output-last-message "$OUT_FILE" "$@" - < "$PROMPT_FILE" >&2 2>"$ERR_FILE"
 }
 if ! run_codex -m "$MODEL"; then
   echo "cross-review: модель $MODEL недоступна аккаунту — фолбэк на дефолт codex" >&2
-  run_codex
+  if ! run_codex; then
+    FAIL_NOTE="codex не отработал и после фолбэка: $(tail -c 300 "$ERR_FILE" | tr '\n' ' ')"
+    echo "ошибка: $FAIL_NOTE" >&2
+    exit 5
+  fi
 fi
 
 cat "$OUT_FILE"
