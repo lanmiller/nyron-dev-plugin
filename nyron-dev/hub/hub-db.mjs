@@ -22,6 +22,38 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
+
+// Штамп базы (repo@sha[+dirty] @time) — считается ЗДЕСЬ, в слое записи,
+// чтобы КАЖДЫЙ producer (сервер, error-report, будущие) штамповал сообщения
+// автоматически (ревью Sol 09.08: канал ошибок ходил мимо штампа). Дорогая
+// часть (git) кэшируется на 5 с и укладывается в два коротких вызова с
+// таймаутом: подвисший git не блокирует stdio-сервер. Имя репо — по
+// git-common-dir: у linked worktree это основной чекаут, а не каталог
+// worktree, иначе сессии одного репо получали бы разные метки.
+let stampCache = { at: 0, prefix: null };
+export function computeStamp() {
+  const now = Date.now();
+  if (now - stampCache.at >= 5000) {
+    let prefix = null;
+    try {
+      const opts = { stdio: ['ignore', 'pipe', 'ignore'], timeout: 800 };
+      const [top, common, sha] = execSync(
+        'git rev-parse --show-toplevel --git-common-dir --short HEAD', opts)
+        .toString().trim().split('\n');
+      const commonAbs = path.resolve(top, common);
+      const repo = path.basename(
+        path.basename(commonAbs) === '.git' ? path.dirname(commonAbs) : commonAbs);
+      let dirty = '';
+      try {
+        dirty = execSync('git status --porcelain', opts).toString().trim() ? '+dirty' : '';
+      } catch { /* dirty неизвестен — не срываем штамп */ }
+      prefix = `${repo}@${sha}${dirty}`;
+    } catch { prefix = null; } // не git-репо / git недоступен — честный null
+    stampCache = { at: now, prefix };
+  }
+  return stampCache.prefix ? `${stampCache.prefix} @${new Date().toISOString()}` : null;
+}
 
 const LOCK_TTL_MIN_DEFAULT = 240;
 
@@ -65,6 +97,27 @@ CREATE TABLE IF NOT EXISTS merge_queue (
   ticket TEXT,
   ts     TEXT
 );
+CREATE TABLE IF NOT EXISTS asks (
+  id            TEXT PRIMARY KEY,
+  ts            TEXT,
+  session       TEXT,
+  ask_type      TEXT,
+  question      TEXT,
+  options       TEXT,
+  context       TEXT,
+  ticket        TEXT,
+  wave          TEXT,
+  stamp         TEXT,
+  urgency       TEXT,
+  status        TEXT,
+  decision      TEXT,
+  decided_by    TEXT,
+  decided_ts    TEXT,
+  delivered_ts  TEXT,
+  acked_ts      TEXT,
+  superseded_by TEXT,
+  cancel_reason TEXT
+);
 `;
 
 // ---------- пути (та же семантика, что была в server.mjs) ----------
@@ -85,7 +138,22 @@ function fmtMsg(r) {
   // kind/host отдаём только у машинных событий: у обычных сообщений форма
   // ответа остаётся прежней (волны разбирают её как раньше)
   if (r.kind && r.kind !== KIND_MSG) { m.kind = r.kind; m.host = r.host || null; }
+  if (r.stamp) m.stamp = r.stamp;
   return m;
+}
+// строка asks → внешний формат (options из JSON обратно в массив)
+function fmtAsk(r) {
+  if (!r) return null;
+  const a = { id: r.id, ts: r.ts, session: r.session, type: r.ask_type,
+    question: r.question, context: r.context, ticket: r.ticket, wave: r.wave,
+    stamp: r.stamp, urgency: r.urgency, status: r.status };
+  try { a.options = r.options ? JSON.parse(r.options) : null; } catch { a.options = null; }
+  if (r.decision != null) { a.decision = r.decision; a.decided_by = r.decided_by; a.decided_ts = r.decided_ts; }
+  if (r.delivered_ts) a.delivered_ts = r.delivered_ts;
+  if (r.acked_ts) a.acked_ts = r.acked_ts;
+  if (r.superseded_by) a.superseded_by = r.superseded_by;
+  if (r.cancel_reason) a.cancel_reason = r.cancel_reason;
+  return a;
 }
 function fmtLock(l) {
   return { agent: l.agent, path: l.path, ticket: l.ticket, ts: l.ts, expires: l.expires_ts };
@@ -118,13 +186,19 @@ export class HubDb {
     // (у SQLite нет ADD COLUMN IF NOT EXISTS, смотрим pragma).
     this.#ensureColumn('messages', 'kind');
     this.#ensureColumn('messages', 'host');
+    this.#ensureColumn('messages', 'stamp');
     this.#migrateFromJsonl();
   }
 
   #ensureColumn(table, col) {
     const cols = this.db.prepare(`PRAGMA table_info(${table})`).all();
-    if (!cols.some((c) => c.name === col))
-      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT`);
+    if (!cols.some((c) => c.name === col)) {
+      // check-then-ALTER гонится между параллельно стартующими процессами
+      // (обновление плагина под живыми сессиями): второй получает
+      // duplicate column — это НЕ ошибка, колонка уже есть (ревью Sol 09.08).
+      try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT`); }
+      catch (e) { if (!/duplicate column/i.test(String(e?.message || e))) throw e; }
+    }
   }
 
   // Одноразовый импорт из старого JSONL-формата: если база пуста И рядом лежит
@@ -169,7 +243,8 @@ export class HubDb {
   // kind='error' — машинное событие: адресат по умолчанию не 'all', а
   // 'errors' (иначе ошибка разбудила бы вотчеры всех сессий), и в запись
   // добавляется машина — по ней в разборе видно, у кого именно ломается.
-  post({ from, text, to, ticket, wave, kind, host }) {
+  post({ from, text, to, ticket, wave, kind, host, stamp }) {
+    if (stamp === undefined) stamp = computeStamp();
     const isErr = kind === KIND_ERROR;
     const msg = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       ts: new Date().toISOString(), from, to: to || (isErr ? ERROR_RECIPIENT : 'all'),
@@ -177,10 +252,163 @@ export class HubDb {
     const rowKind = kind || KIND_MSG;
     const rowHost = host || (isErr ? os.hostname() : null);
     this.db.prepare(
-      'INSERT INTO messages(id,ts,sender,recipient,ticket,wave,text,kind,host) VALUES(?,?,?,?,?,?,?,?,?)')
-      .run(msg.id, msg.ts, msg.from, msg.to, msg.ticket, msg.wave, msg.text, rowKind, rowHost);
+      'INSERT INTO messages(id,ts,sender,recipient,ticket,wave,text,kind,host,stamp) VALUES(?,?,?,?,?,?,?,?,?,?)')
+      .run(msg.id, msg.ts, msg.from, msg.to, msg.ticket, msg.wave, msg.text, rowKind, rowHost, stamp || null);
     if (isErr) { msg.kind = rowKind; msg.host = rowHost; }
+    if (stamp) msg.stamp = stamp;
     return msg;
+  }
+
+  // ---------- ask/decision — автомат запросов на решение ----------
+  //
+  // Спека: docs/specs/2026-08-08-morda-pult.md («Правки по ревью Sol»).
+  // Состояния: open → answered → (delivered) → acknowledged; выходы —
+  // cancelled (автор снял) и superseded (заменён новым). Идемпотентность:
+  // повторный decide НЕ перезаписывает первое решение (двойной клик, гонка
+  // двух людей); повторный ask с тем же вопросом НЕ плодит второй open.
+  // delivered — шаг будильника (этап 3): при pull-заборе сессия ack'ает
+  // прямо из answered, оба пути легальны.
+
+  ask({ session, question, type, options, context, ticket, wave, urgency, stamp, supersedes }) {
+    if (stamp === undefined) stamp = computeStamp();
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      // Дедуп по ЖИВЫМ статусам, не только open (ревью Sol 09.08):
+      // воскресшая сессия переспрашивает тот же вопрос — она должна получить
+      // СУЩЕСТВУЮЩИЙ ask (с решением, если оно уже есть) и забрать его через
+      // ack, а не плодить второй open. Новый цикл начинается только после
+      // acknowledged/cancelled/superseded.
+      const dup = this.db.prepare(
+        "SELECT * FROM asks WHERE session=? AND question=? AND status IN ('open','answered','delivered') ORDER BY ts DESC")
+        .get(session, question);
+      if (dup) { this.db.exec('COMMIT'); return { ask: fmtAsk(dup), deduped: true }; }
+      const id = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const ts = new Date().toISOString();
+      this.db.prepare(
+        `INSERT INTO asks(id,ts,session,ask_type,question,options,context,ticket,wave,stamp,urgency,status)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,'open')`)
+        .run(id, ts, session, type || 'choice', question,
+          options ? JSON.stringify(options) : null, context || null,
+          ticket || null, wave || null, stamp || null, urgency || 'idle');
+      let superseded_applied;
+      if (supersedes) {
+        // Гасится ТОЛЬКО свой открытый ask: answered/delivered несут
+        // неврученное решение — их терять нельзя (ревью Sol 09.08), чужие —
+        // не наша собственность. Не применилось — честный флаг, не молчание.
+        superseded_applied = this.db.prepare(
+          "UPDATE asks SET status='superseded', superseded_by=? WHERE id=? AND status='open' AND session=?")
+          .run(id, supersedes, session).changes > 0;
+      }
+      const row = this.db.prepare('SELECT * FROM asks WHERE id=?').get(id);
+      this.db.exec('COMMIT');
+      const out = { ask: fmtAsk(row), deduped: false };
+      if (supersedes) out.superseded_applied = superseded_applied;
+      return out;
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+  }
+
+  asks({ session, status, ticket, limit = 50 } = {}) {
+    limit = Math.max(1, Math.min(500, Math.floor(Number(limit) || 50)));
+    // Pull сессией своих решённых = ФАКТ ДОСТАВКИ (ревью Sol 09.08: pull
+    // фиксируется явно, а не размывает автомат): answered атомарно →
+    // delivered, и выдаются оба статуса — повторный pull после смерти
+    // сессии видит то же решение, пока не ack'нет.
+    if (session && status === 'answered') {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        const ts = new Date().toISOString();
+        this.db.prepare(
+          "UPDATE asks SET status='delivered', delivered_ts=? WHERE session=? AND status='answered'")
+          .run(ts, session);
+        const rows = this.db.prepare(
+          "SELECT * FROM asks WHERE session=? AND status='delivered' ORDER BY ts").all(session);
+        this.db.exec('COMMIT');
+        return { asks: rows.slice(-limit).map(fmtAsk) };
+      } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+    }
+    let rows = this.db.prepare('SELECT * FROM asks ORDER BY ts').all();
+    if (session) rows = rows.filter((r) => r.session === session);
+    if (ticket) rows = rows.filter((r) => r.ticket === ticket);
+    // без явного статуса отдаём живые: ждут человека (open) или сессию
+    // (answered/delivered — решено, не подтверждено)
+    rows = status
+      ? rows.filter((r) => r.status === status)
+      : rows.filter((r) => ['open', 'answered', 'delivered'].includes(r.status));
+    return { asks: rows.slice(-limit).map(fmtAsk) };
+  }
+
+  decide({ ask_id, decision, by }) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.db.prepare('SELECT * FROM asks WHERE id=?').get(ask_id);
+      if (!row) throw new Error(`ask не найден: ${ask_id}`);
+      if (row.status === 'cancelled' || row.status === 'superseded')
+        throw new Error(`ask ${ask_id} в статусе ${row.status} — решать нечего`);
+      if (row.status !== 'open') {
+        // идемпотентность: решение уже есть — возвращаем ПЕРВОЕ, не трогая
+        this.db.exec('COMMIT');
+        return { ask: fmtAsk(row), already_decided: true };
+      }
+      this.db.prepare(
+        "UPDATE asks SET status='answered', decision=?, decided_by=?, decided_ts=? WHERE id=?")
+        .run(String(decision), by || 'unknown', new Date().toISOString(), ask_id);
+      const upd = this.db.prepare('SELECT * FROM asks WHERE id=?').get(ask_id);
+      this.db.exec('COMMIT');
+      return { ask: fmtAsk(upd), already_decided: false };
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+  }
+
+  markDelivered({ ask_id }) {
+    const n = this.db.prepare(
+      "UPDATE asks SET status='delivered', delivered_ts=? WHERE id=? AND status='answered'")
+      .run(new Date().toISOString(), ask_id).changes;
+    const row = this.db.prepare('SELECT * FROM asks WHERE id=?').get(ask_id);
+    if (!row) throw new Error(`ask не найден: ${ask_id}`);
+    return { ask: fmtAsk(row), delivered_now: n > 0 };
+  }
+
+  ack({ ask_id, by }) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.db.prepare('SELECT * FROM asks WHERE id=?').get(ask_id);
+      if (!row) throw new Error(`ask не найден: ${ask_id}`);
+      if (row.status === 'acknowledged') {
+        this.db.exec('COMMIT');
+        return { ask: fmtAsk(row), already_acked: true };
+      }
+      if (row.status !== 'answered' && row.status !== 'delivered')
+        throw new Error(`ack из статуса ${row.status} невозможен — решения ещё нет`);
+      this.db.prepare(
+        "UPDATE asks SET status='acknowledged', acked_ts=? WHERE id=?")
+        .run(new Date().toISOString(), ask_id);
+      const upd = this.db.prepare('SELECT * FROM asks WHERE id=?').get(ask_id);
+      this.db.exec('COMMIT');
+      return { ask: fmtAsk(upd), already_acked: false };
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+  }
+
+  cancelAsk({ ask_id, by, reason }) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.db.prepare('SELECT * FROM asks WHERE id=?').get(ask_id);
+      if (!row) throw new Error(`ask не найден: ${ask_id}`);
+      if (row.status !== 'open')
+        throw new Error(`cancel из статуса ${row.status} невозможен: решение уже есть — забери его hub_ack (отмена решённого теряла бы неврученный ответ)`);
+      this.db.prepare(
+        "UPDATE asks SET status='cancelled', cancel_reason=? WHERE id=?")
+        .run(reason ? `${by || 'unknown'}: ${reason}` : (by || 'unknown'), ask_id);
+      const upd = this.db.prepare('SELECT * FROM asks WHERE id=?').get(ask_id);
+      this.db.exec('COMMIT');
+      return { ask: fmtAsk(upd) };
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+  }
+
+  openAsks(limit = 10) {
+    // блокирующие первыми, внутри — старые сверху (дольше всех ждут)
+    const rows = this.db.prepare(
+      "SELECT * FROM asks WHERE status='open' ORDER BY CASE urgency WHEN 'blocking' THEN 0 ELSE 1 END, ts LIMIT ?")
+      .all(limit);
+    return rows.map(fmtAsk);
   }
 
   // agent задан → курсорное чтение (переживает смерть сессии, эхо отфильтровано);
