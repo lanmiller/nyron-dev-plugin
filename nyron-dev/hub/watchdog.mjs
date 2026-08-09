@@ -34,16 +34,14 @@
  *   WATCHDOG_FRESH_MIN   — младше этого = working без вопросов (дефолт 2).
  */
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync, execFileSync } from 'node:child_process';
 import { resolveHubDir } from './hub-dir.mjs';
 import { HubDb } from './hub-db.mjs';
+import { transcriptDirs, tailOf } from './transcript.mjs';
 
 const DRY = process.argv.includes('--dry');
-const PROJECTS_DIR = process.env.CLAUDE_PROJECTS_DIR
-  || path.join(os.homedir(), '.claude', 'projects');
 const TAIL_KB = Number(process.env.WATCHDOG_TAIL_KB) || 48;
 const IDLE_SKIP_H = Number(process.env.WATCHDOG_IDLE_SKIP_H) || 48;
 const FRESH_MIN = Number(process.env.WATCHDOG_FRESH_MIN) || 2;
@@ -57,34 +55,8 @@ const FALLBACK_CMD = process.env.WATCHDOG_FALLBACK_MODEL_CMD || null;
 const STATES = ['working', 'waiting_decision', 'waiting_silent', 'stalled', 'dead'];
 
 // ---------- сбор фактов (без модели) ----------
-
-// каталоги транскриптов проекта: имя = путь корня с [/.] → '-'
-// (так их кладёт Claude Code; worktree-варианты попадают префиксом)
-function transcriptDirs(root) {
-  const prefix = root.replace(/[/.]/g, '-');
-  let entries = [];
-  try { entries = fs.readdirSync(PROJECTS_DIR); } catch { return []; }
-  return entries.filter((e) => e.startsWith(prefix))
-    .map((e) => path.join(PROJECTS_DIR, e));
-}
-
-function tailOf(file, kb) {
-  const fd = fs.openSync(file, 'r');
-  try {
-    const size = fs.fstatSync(fd).size;
-    const len = Math.min(size, kb * 1024);
-    const buf = Buffer.alloc(len);
-    const got = fs.readSync(fd, buf, 0, len, size - len);
-    let text = buf.subarray(0, got).toString('utf8');
-    // читали не с начала файла → первая строка почти наверняка разрезана
-    // границей хвоста: отбрасываем до первого перевода строки
-    if (size > len) {
-      const nl = text.indexOf('\n');
-      text = nl >= 0 ? text.slice(nl + 1) : '';
-    }
-    return text;
-  } finally { fs.closeSync(fd); }
-}
+// transcriptDirs/tailOf — из transcript.mjs (единственная реализация
+// чтения транскриптов на плагин; этап 4 добавил туда и полный парс).
 
 // хвост .jsonl → компактная выжимка для модели: когда последнее событие,
 // какого рода, последние видимые тексты ассистента
