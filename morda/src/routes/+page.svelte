@@ -39,6 +39,19 @@
     return () => clearInterval(t);
   });
 
+  async function openCopy(app) {
+    await fetch('/api/open', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-morda': '1' },
+      body: JSON.stringify({ app }),
+    });
+  }
+
+  function copyLabel(app) {
+    const m = app.match(/^Claude \((.+)\)$/);
+    return m ? m[1] : 'Claude';
+  }
+
   async function send(projectName, ask, decision) {
     busyAsk = ask.id;
     sendError = null;
@@ -80,6 +93,15 @@
     {/each}
     <span class="at">{data ? new Date(data.at).toLocaleTimeString('ru') : '…'}</span>
   </nav>
+
+  {#if data?.copies?.length}
+    <div class="copies">
+      <span class="quiet">копии:</span>
+      {#each data.copies as app (app)}
+        <button onclick={() => openCopy(app)} title="открыть {app}">{copyLabel(app)}</button>
+      {/each}
+    </div>
+  {/if}
 
   {#if data?.error}
     <p class="err">{data.error}</p>
@@ -188,6 +210,12 @@
   }
   nav button.active { color: #f5f3f0; border-color: #d97757; }
   nav .at { margin-left: auto; color: #6f6b64; font-size: 12px; }
+  .copies { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: -6px 0 10px; }
+  .copies button {
+    background: none; border: 1px dashed #4a4946; color: #8a857d;
+    border-radius: 7px; padding: 3px 10px; font-size: 12.5px; cursor: pointer;
+  }
+  .copies button:hover { color: #e8e6e3; border-color: #d97757; border-style: solid; }
   .badge {
     background: #d97757; color: #1e1d1b; border-radius: 9px;
     font-size: 11px; font-weight: 700; padding: 1px 7px; margin-left: 6px;

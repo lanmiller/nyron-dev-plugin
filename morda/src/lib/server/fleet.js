@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
+import { execFile } from 'node:child_process';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Модуль переезжает между dev (morda/src/lib/server), сборкой
@@ -82,7 +82,24 @@ export function overview() {
       }
     }),
     at: new Date().toISOString(),
+    copies: copies(),
   };
+}
+
+// Копии приложения Claude на этой машине — сканируются СЕРВЕРОМ по
+// /Applications (клиент не присылает имён, только выбирает из списка).
+export function copies() {
+  try {
+    return fs.readdirSync('/Applications')
+      .filter((f) => /^Claude( \(.+\))?\.app$/.test(f))
+      .map((f) => f.replace(/\.app$/, ''));
+  } catch { return []; }
+}
+
+export function openCopy(app) {
+  if (!copies().includes(app)) throw new Error(`неизвестная копия: ${app}`);
+  execFile('/usr/bin/open', ['-a', app]);
+  return { opened: app };
 }
 
 export function decide({ project, ask_id, decision, by }) {
