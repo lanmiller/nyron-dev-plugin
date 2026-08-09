@@ -13,7 +13,6 @@
   let data = $state(null);
   let error = $state(null);
   let draft = $state('');
-  let pane = $state(null);
   let saying = $state(false);
   let sayError = $state(null);
   let seq = 0;
@@ -32,8 +31,6 @@
       error = null;
       const stick = nearBottom();
       data = next;
-      if (!pane || !next.tmux?.some((c) => c.pane === pane))
-        pane = next.tmux?.[0]?.pane || null;
       if (stick) tick().then(() => window.scrollTo({ top: document.body.scrollHeight }));
     } catch { /* сервер перезапускается — следующий тик дотянется */ }
   }
@@ -51,13 +48,13 @@
   $effect(() => { if (project && key) { data = null; refresh(); } });
 
   async function sendText() {
-    if (!draft.trim() || !pane) return;
+    if (!draft.trim()) return;
     saying = true; sayError = null;
     try {
       const r = await fetch('/api/say', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-morda': '1' },
-        body: JSON.stringify({ project, pane, text: draft }),
+        body: JSON.stringify({ project, key, text: draft }),
       });
       if (!r.ok) sayError = (await r.json()).error || `HTTP ${r.status}`;
       else draft = '';
@@ -136,29 +133,22 @@
       <AskCard ask={a} project={project} linkToSession={false} onSent={refresh} />
     {/each}
 
-    {#if data.tmux?.length}
+    {#if data.input?.mode === 'tmux'}
       <div class="composer">
-        {#if data.tmux.length > 1}
-          <select bind:value={pane} title="панель tmux">
-            {#each data.tmux as c (c.pane)}
-              <option value={c.pane}>{c.session} · {c.pane}</option>
-            {/each}
-          </select>
-        {/if}
-        <textarea rows="2" placeholder="написать в чат (tmux {pane})…"
+        <textarea rows="2" placeholder="написать в чат ({data.input.pane.session} · {data.input.pane.pane})…"
           bind:value={draft}
           onkeydown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && sendText()}></textarea>
         <button class="btn primary" disabled={saying || !draft.trim()} onclick={sendText}>
           отправить
         </button>
       </div>
-      <p class="hint quiet">⌘⏎ — отправить. Текст уходит tmux send-keys в панель проекта.</p>
+      <p class="hint quiet">⌘⏎ — отправить. Панель доказанно держит транскрипт этой сессии.</p>
     {:else}
       <div class="mirror">
         <span class="quiet">
-          {isDesktop
-            ? 'Desktop-сессия: это зеркало, ввод в чужое живое окно запрещён (гонка двух рук). Ответы на ask доходят pull-ом; для живого ввода откройте копию:'
-            : 'tmux для этой сессии не найден — только зеркало. Ответы на ask доходят pull-ом; либо откройте копию:'}
+          {data.input?.mode === 'desktop'
+            ? 'Desktop-сессия: это зеркало, ввод в чужое живое окно запрещён (гонка двух рук). Ответы на ask доходят pull-ом; для живого ввода — «открыть в Claude» или копия:'
+            : 'Привязанной tmux-панели у сессии нет — только зеркало. Ответы на ask доходят pull-ом; либо откройте копию:'}
         </span>
         {#each st.overview?.copies || [] as app (app)}
           <button class="copy" onclick={() => openCopy(app)}>{copyLabel(app)}</button>

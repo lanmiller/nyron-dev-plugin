@@ -145,6 +145,29 @@ if (full.truncated) throw 'полный файл помечен truncated';
 if (full.items.length !== 200) throw 'полный парс: ' + full.items.length;
 " && ok "обрезка по границе строки" || bad "maxBytes"
 
+echo "== T8: чужой cwd и дубль uuid при прямом чтении (ревью Sol r1) =="
+# Соседний проект /…/work-2 попадает под munged-префикс /…/work
+TDIR2="$CLAUDE_PROJECTS_DIR/$(echo "$PROJ-2" | tr '/.' '--')"
+mkdir -p "$TDIR2"
+cat > "$TDIR2/eeee5555-0000-0000-0000-000000000005.jsonl" <<EOF
+{"type":"user","cwd":"$PROJ-2","message":{"role":"user","content":"секрет соседнего проекта"}}
+EOF
+# Дубль uuid: старый в основном каталоге, свежий в worktree-каталоге
+WDIR="$CLAUDE_PROJECTS_DIR/$(echo "$PROJ/wt" | tr '/.' '--')"
+mkdir -p "$WDIR"
+cat > "$TDIR/ffff6666-0000-0000-0000-000000000006.jsonl" <<EOF
+{"type":"user","cwd":"$PROJ","message":{"role":"user","content":"старая ветка"}}
+EOF
+cat > "$WDIR/ffff6666-0000-0000-0000-000000000006.jsonl" <<EOF
+{"type":"user","cwd":"$PROJ/wt","message":{"role":"user","content":"свежая ветка"}}
+EOF
+touch -t 202601010000 "$TDIR/ffff6666-0000-0000-0000-000000000006.jsonl"
+run_node "
+if (readSession(ROOT, 'eeee5555-0000-0000-0000-000000000005') !== null) throw 'чужой проект прочитан по прямому uuid';
+const r = readSession(ROOT, 'ffff6666-0000-0000-0000-000000000006');
+if (!r.items[0].text.includes('свежая ветка')) throw 'дубль uuid: открыт не свежайший: ' + r.items[0].text;
+" && ok "чужой cwd отбит, свежайший дубль выигрывает" || bad "прямое чтение"
+
 echo "== T7: шум отфильтрован =="
 run_node "
 const r = readSession(ROOT, 'aaaa1111-0000-0000-0000-000000000001');

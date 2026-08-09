@@ -75,7 +75,10 @@ export function overview() {
         const hub = hubFor(root);
         return {
           name, root,
-          asks: hub.asks({}).asks,          // живые: open + answered/delivered
+          // живые (open + answered/delivered) + хвост acknowledged: цепочка
+          // доставки видна до конца, а не рвётся на ack (ревью Sol r1)
+          asks: [...hub.asks({}).asks,
+            ...hub.asks({ status: 'acknowledged' }).asks.slice(-3)],
           watch: hub.watchStates(),
           recent: hub.recent(8),
         };
@@ -163,20 +166,26 @@ export function sessions(project) {
     .slice(0, 60);
 }
 
-/** Окно сессии: транскрипт + состояние + её ask (живые и решённые) + tmux. */
+/** Окно сессии: транскрипт + состояние + её ask + режим ввода.
+ *  Ask — живые ПЛЮС недавние acknowledged: без них цепочка доставки
+ *  обрывалась на подтверждении (ревью Sol r1). */
 export function session(project, key) {
   const root = rootByName(project);
   const r = T.readSession(root, key);
   if (!r) return null;
   const hub = hubFor(root);
   const w = hub.watchStates().find((x) => x.key === key) || null;
+  const asks = [
+    ...hub.asks({ session: key }).asks,
+    ...hub.asks({ session: key, status: 'acknowledged' }).asks.slice(-3),
+  ];
   return {
     ...r,
     project,
     state: w?.state || null,
     reason: w?.reason || null,
-    asks: hub.asks({ session: key }).asks,
-    tmux: tmuxCandidates(root),
+    asks,
+    input: inputFor(root, key, r.entrypoint),
   };
 }
 
@@ -186,33 +195,80 @@ export function agentTranscript(project, key, agentId) {
 
 // ---------- ввод в чат (спека, этап 4: tmux — мгновенно; Desktop — зеркало) ----------
 
-// Панели tmux, где в корне проекта крутится claude. Привязать панель к
-// КОНКРЕТНОМУ uuid сессии пока нечем (реестр сессия↔копия — исследование
-// спеки); честное правило: одна панель-кандидат — пишем в неё, несколько —
-// клиент выбирает явно из списка, ноль — только зеркало.
+// Панели tmux, где в корне проекта крутится claude.
 export function tmuxCandidates(root) {
   let out;
   try {
     // разделитель многосимвольный: таб tmux молча превращает в '_' (факт 09.08)
     out = execFileSync('tmux', ['list-panes', '-a', '-F',
-      '#{pane_id}|;|#{session_name}|;|#{pane_current_path}|;|#{pane_current_command}'],
+      '#{pane_id}|;|#{pane_pid}|;|#{session_name}|;|#{pane_current_path}|;|#{pane_current_command}'],
       { timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
   } catch { return []; } // tmux не поднят — честно пусто
   return out.trim().split('\n').filter(Boolean).map((l) => {
-    const [pane, session, cwd, cmd] = l.split('|;|');
-    return { pane, session, cwd, cmd };
+    const [pane, pid, session, cwd, cmd] = l.split('|;|');
+    return { pane, pid: Number(pid), session, cwd, cmd };
   }).filter((p) => (p.cwd === root || p.cwd?.startsWith(root + path.sep))
     && /claude|node/.test(p.cmd || ''));
 }
 
-/** Отправить текст в панель tmux. pane обязан быть из tmuxCandidates —
- *  клиент не может писать в произвольную панель машины. */
-export function say({ project, pane, text }) {
+// Дерево процессов панели: pane_pid + все потомки (ps один раз на вызов).
+function paneProcessTree(panePid) {
+  let ps;
+  try {
+    ps = execFileSync('ps', ['-axo', 'pid=,ppid='],
+      { timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+  } catch { return [panePid]; }
+  const kids = new Map(); // ppid → [pid]
+  for (const l of ps.trim().split('\n')) {
+    const [pid, ppid] = l.trim().split(/\s+/).map(Number);
+    if (!kids.has(ppid)) kids.set(ppid, []);
+    kids.get(ppid).push(pid);
+  }
+  const out = [];
+  const stack = [panePid];
+  while (stack.length) {
+    const p = stack.pop();
+    out.push(p);
+    for (const k of kids.get(p) || []) stack.push(k);
+  }
+  return out;
+}
+
+// Держит ли кто-то в дереве панели транскрипт <key>.jsonl открытым.
+// Это ЕДИНСТВЕННАЯ принимаемая привязка панель↔сессия (ревью Sol r1:
+// ввод без привязки мог уйти в чужой чат; при неоднозначности — запрет).
+function paneHoldsTranscript(panePid, key) {
+  const pids = paneProcessTree(panePid);
+  try {
+    const out = execFileSync('lsof', ['-p', pids.join(','), '-Fn'],
+      { timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+    return out.includes(`/${key}.jsonl`);
+  } catch { return false; }
+}
+
+/** Режим ввода окна сессии:
+ *  { mode: 'tmux', pane }    — панель однозначно держит этот транскрипт;
+ *  { mode: 'desktop' }       — сессия живёт в приложении, только зеркало;
+ *  { mode: 'mirror', candidates } — привязка не доказана, ввод запрещён. */
+export function inputFor(root, key, entrypoint) {
+  if (entrypoint === 'claude-desktop') return { mode: 'desktop' };
+  const cands = tmuxCandidates(root);
+  const matches = cands.filter((c) => paneHoldsTranscript(c.pid, key));
+  if (matches.length === 1) return { mode: 'tmux', pane: matches[0] };
+  return { mode: 'mirror', candidates: cands.length };
+}
+
+/** Отправить текст в чат сессии. Панель НЕ приходит с клиента — сервер
+ *  сам заново доказывает привязку панель↔сессия и шлёт только в неё. */
+export function say({ project, key, text }) {
   const root = rootByName(project);
   if (!text || typeof text !== 'string') throw new Error('пустой текст');
-  const ok = tmuxCandidates(root).some((c) => c.pane === pane);
-  if (!ok) throw new Error(`панель ${pane} не найдена среди сессий проекта — ввод только в свои`);
-  execFileSync('tmux', ['send-keys', '-t', pane, '-l', text], { timeout: 3000 });
-  execFileSync('tmux', ['send-keys', '-t', pane, 'Enter'], { timeout: 3000 });
-  return { sent: true, pane };
+  const r = T.readSession(root, key, { maxBytes: 64 * 1024 });
+  if (!r) throw new Error(`сессия ${key} не найдена в проекте ${project}`);
+  const input = inputFor(root, key, r.entrypoint);
+  if (input.mode !== 'tmux')
+    throw new Error('у сессии нет привязанной tmux-панели — ввод запрещён (зеркало)');
+  execFileSync('tmux', ['send-keys', '-t', input.pane.pane, '-l', text], { timeout: 3000 });
+  execFileSync('tmux', ['send-keys', '-t', input.pane.pane, 'Enter'], { timeout: 3000 });
+  return { sent: true, pane: input.pane.pane };
 }

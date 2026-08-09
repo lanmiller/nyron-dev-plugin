@@ -164,9 +164,23 @@ function firstText(content) {
 
 function findSessionFile(root, key) {
   if (!KEY_RE.test(key)) return null;
+  // Ревью Sol r1 (этап 4): (а) munged-префикс цепляет и соседний проект
+  // /a/b-2 — валидный uuid чужого проекта читался бы напрямую; (б) дубль
+  // uuid в root/worktree-каталогах открывал не тот файл, что показан в
+  // списке. Выбор единый: свежайший файл, чей cwd принадлежит корню.
+  const cands = [];
   for (const dir of transcriptDirs(root)) {
     const full = path.join(dir, `${key}.jsonl`);
-    try { if (fs.statSync(full).isFile()) return full; } catch {}
+    try {
+      const st = fs.statSync(full);
+      if (st.isFile()) cands.push({ full, mtime: st.mtimeMs });
+    } catch {}
+  }
+  cands.sort((a, b) => b.mtime - a.mtime);
+  for (const c of cands) {
+    const events = [...parseLines(headOf(c.full, 64)), ...parseLines(tailOf(c.full, 16))];
+    const cwd = events.find((e) => typeof e.cwd === 'string')?.cwd || null;
+    if (!cwdForeign(cwd, root)) return c.full;
   }
   return null;
 }

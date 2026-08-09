@@ -35,7 +35,11 @@
 
 <article class="ask" class:blocking={ask.urgency === 'blocking'} class:done={ask.status !== 'open'}>
   <header>
-    <b>{ask.question}</b>
+    {#if sessionHref}
+      <a href={sessionHref} class="q" title="открыть окно сессии"><b>{ask.question}</b></a>
+    {:else}
+      <b>{ask.question}</b>
+    {/if}
     <span class="meta">
       {#if sessionHref}
         <a href={sessionHref} class="sess" title="открыть окно сессии">{ask.session.slice(0, 8)} ↗</a>
@@ -99,6 +103,8 @@
   .meta em { color: var(--accent); font-style: normal; font-weight: 600; }
   .meta .sess { color: var(--text-2); text-decoration: none; }
   .meta .sess:hover { color: var(--accent); }
+  header .q { color: inherit; text-decoration: none; }
+  header .q:hover b { color: var(--accent); }
   details { margin: 8px 0 0; color: var(--text-2); font-size: 13.5px; }
   summary { cursor: pointer; color: var(--text-3); }
   .stamp {
