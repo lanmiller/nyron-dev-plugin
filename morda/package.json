@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "HOST=127.0.0.1 PORT=4747 node build"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.2.0",
@@ -15,4 +16,4 @@
     "svelte": "^5.0.0",
     "vite": "^6.0.0"
   }
-}
+}\n

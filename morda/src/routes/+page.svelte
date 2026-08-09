@@ -7,6 +7,8 @@
   let active = $state(null);      // имя активной вкладки
   let busyAsk = $state(null);     // id ask, по которому летит запрос
   let textDraft = $state({});     // черновики ответов для type=text
+  let sendError = $state(null);
+  let seq = 0;                    // анти-гонка: старый poll не затирает новый
 
   const STATE_RU = {
     working: ['работает', '#7bc47f'],
@@ -17,9 +19,12 @@
   };
 
   async function refresh() {
+    const my = ++seq;
     try {
       const r = await fetch('/api/overview');
-      data = await r.json();
+      const next = await r.json();
+      if (my !== seq) return; // пришёл устаревший ответ — выбрасываем
+      data = next;
       if (!active && data.projects?.length) {
         // первая вкладка с открытыми решениями, иначе просто первая
         const hot = data.projects.find((p) => p.asks?.some((a) => a.status === 'open'));
@@ -34,15 +39,22 @@
     return () => clearInterval(t);
   });
 
-  async function send(root, ask, decision) {
+  async function send(projectName, ask, decision) {
     busyAsk = ask.id;
-    await fetch('/api/decide', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ root, ask_id: ask.id, decision: String(decision), by: 'CTO@morda' }),
-    });
-    busyAsk = null;
-    refresh();
+    sendError = null;
+    try {
+      const r = await fetch('/api/decide', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-morda': '1' },
+        body: JSON.stringify({ project: projectName, ask_id: ask.id, decision: String(decision), by: 'CTO@morda' }),
+      });
+      if (!r.ok) sendError = (await r.json()).error || `HTTP ${r.status}`;
+    } catch (e) {
+      sendError = String(e.message || e);
+    } finally {
+      busyAsk = null;
+      refresh();
+    }
   }
 
   function age(ts) {
@@ -72,6 +84,9 @@
   {#if data?.error}
     <p class="err">{data.error}</p>
   {/if}
+  {#if sendError}
+    <p class="err">Ответ не доставлен: {sendError}</p>
+  {/if}
 
   {#if project}
     {#if project.error}
@@ -97,20 +112,21 @@
           <div class="answers">
             {#if a.type === 'choice' && a.options}
               {#each a.options as o}
-                <button disabled={busyAsk === a.id} onclick={() => send(project.root, a, o.n)} title={o.effect || ''}>
-                  {o.n}. {o.label}
+                <button disabled={busyAsk === a.id} onclick={() => send(project.name, a, o.n)}>
+                  <span>{o.n}. {o.label}</span>
+                  {#if o.effect}<small>{o.effect}</small>{/if}
                 </button>
               {/each}
             {:else if a.type === 'confirm'}
-              <button disabled={busyAsk === a.id} onclick={() => send(project.root, a, 'да')}>да</button>
-              <button disabled={busyAsk === a.id} onclick={() => send(project.root, a, 'нет')}>нет</button>
+              <button disabled={busyAsk === a.id} onclick={() => send(project.name, a, 'да')}>да</button>
+              <button disabled={busyAsk === a.id} onclick={() => send(project.name, a, 'нет')}>нет</button>
             {:else}
               <input
                 placeholder="ответ…"
                 bind:value={textDraft[a.id]}
-                onkeydown={(e) => e.key === 'Enter' && textDraft[a.id] && send(project.root, a, textDraft[a.id])}
+                onkeydown={(e) => e.key === 'Enter' && textDraft[a.id] && send(project.name, a, textDraft[a.id])}
               />
-              <button disabled={busyAsk === a.id || !textDraft[a.id]} onclick={() => send(project.root, a, textDraft[a.id])}>
+              <button disabled={busyAsk === a.id || !textDraft[a.id]} onclick={() => send(project.name, a, textDraft[a.id])}>
                 отправить
               </button>
             {/if}
@@ -197,7 +213,9 @@
   .answers button {
     background: #3d3c39; color: #e8e6e3; border: 1px solid #4a4946;
     border-radius: 8px; padding: 7px 16px; font-size: 14px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
   }
+  .answers button small { color: #8a857d; font-size: 11.5px; font-weight: 400; }
   .answers button:hover:not(:disabled) { border-color: #d97757; }
   .answers button:disabled { opacity: 0.4; }
   .answers input {
