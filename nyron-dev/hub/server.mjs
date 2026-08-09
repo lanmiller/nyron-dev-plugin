@@ -56,6 +56,7 @@ const tools = {
         recent_messages: hub.recent(15),
         locks: hub.activeLocks(),
         merge_queues: hub.mergeQueues(),
+        watch: hub.watchStates(),
       };
     },
   },

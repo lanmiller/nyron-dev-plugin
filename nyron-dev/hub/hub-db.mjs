@@ -122,7 +122,8 @@ CREATE TABLE IF NOT EXISTS asks (
   delivered_ts  TEXT,
   acked_ts      TEXT,
   superseded_by TEXT,
-  cancel_reason TEXT
+  cancel_reason TEXT,
+  cancelled_ts  TEXT
 );
 `;
 
@@ -159,6 +160,7 @@ function fmtAsk(r) {
   if (r.acked_ts) a.acked_ts = r.acked_ts;
   if (r.superseded_by) a.superseded_by = r.superseded_by;
   if (r.cancel_reason) a.cancel_reason = r.cancel_reason;
+  if (r.cancelled_ts) a.cancelled_ts = r.cancelled_ts;
   return a;
 }
 function fmtLock(l) {
@@ -193,6 +195,7 @@ export class HubDb {
     this.#ensureColumn('messages', 'kind');
     this.#ensureColumn('messages', 'host');
     this.#ensureColumn('messages', 'stamp');
+    this.#ensureColumn('asks', 'cancelled_ts');
     this.#migrateFromJsonl();
   }
 
@@ -401,8 +404,9 @@ export class HubDb {
       if (row.status !== 'open')
         throw new Error(`cancel из статуса ${row.status} невозможен: решение уже есть — забери его hub_ack (отмена решённого теряла бы неврученный ответ)`);
       this.db.prepare(
-        "UPDATE asks SET status='cancelled', cancel_reason=? WHERE id=?")
-        .run(reason ? `${by || 'unknown'}: ${reason}` : (by || 'unknown'), ask_id);
+        "UPDATE asks SET status='cancelled', cancel_reason=?, cancelled_ts=? WHERE id=?")
+        .run(reason ? `${by || 'unknown'}: ${reason}` : (by || 'unknown'),
+          new Date().toISOString(), ask_id);
       const upd = this.db.prepare('SELECT * FROM asks WHERE id=?').get(ask_id);
       this.db.exec('COMMIT');
       return { ask: fmtAsk(upd) };
@@ -411,14 +415,17 @@ export class HubDb {
 
   // ---------- состояния сессий (пишет надзиратель, этап 2 морды) ----------
 
+  // Полный СНАПШОТ тика, не апсерт (ревью Sol 09.08): сессия, пропавшая из
+  // наблюдения (файл удалён, старше порога), обязана пропасть и из
+  // watch_states — иначе морда вечно показывает призраков.
   setWatchStates(list) {
-    const up = this.db.prepare(
-      `INSERT INTO watch_states(key,state,reason,observed_at) VALUES(?,?,?,?)
-       ON CONFLICT(key) DO UPDATE SET state=excluded.state, reason=excluded.reason, observed_at=excluded.observed_at`);
+    const ins = this.db.prepare(
+      'INSERT INTO watch_states(key,state,reason,observed_at) VALUES(?,?,?,?)');
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      this.db.exec('DELETE FROM watch_states');
       const ts = new Date().toISOString();
-      for (const s of list) up.run(String(s.key), String(s.state), s.reason || null, ts);
+      for (const s of list) ins.run(String(s.key), String(s.state), s.reason || null, ts);
       this.db.exec('COMMIT');
     } catch (e) { this.db.exec('ROLLBACK'); throw e; }
   }
