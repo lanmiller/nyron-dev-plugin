@@ -97,6 +97,12 @@ CREATE TABLE IF NOT EXISTS merge_queue (
   ticket TEXT,
   ts     TEXT
 );
+CREATE TABLE IF NOT EXISTS watch_states (
+  key         TEXT PRIMARY KEY,
+  state       TEXT,
+  reason      TEXT,
+  observed_at TEXT
+);
 CREATE TABLE IF NOT EXISTS asks (
   id            TEXT PRIMARY KEY,
   ts            TEXT,
@@ -401,6 +407,24 @@ export class HubDb {
       this.db.exec('COMMIT');
       return { ask: fmtAsk(upd) };
     } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+  }
+
+  // ---------- состояния сессий (пишет надзиратель, этап 2 морды) ----------
+
+  setWatchStates(list) {
+    const up = this.db.prepare(
+      `INSERT INTO watch_states(key,state,reason,observed_at) VALUES(?,?,?,?)
+       ON CONFLICT(key) DO UPDATE SET state=excluded.state, reason=excluded.reason, observed_at=excluded.observed_at`);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const ts = new Date().toISOString();
+      for (const s of list) up.run(String(s.key), String(s.state), s.reason || null, ts);
+      this.db.exec('COMMIT');
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+  }
+
+  watchStates() {
+    return this.db.prepare('SELECT * FROM watch_states ORDER BY state, key').all();
   }
 
   openAsks(limit = 10) {
