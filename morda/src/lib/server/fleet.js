@@ -179,13 +179,14 @@ export function session(project, key) {
     ...hub.asks({ session: key }).asks,
     ...hub.asks({ session: key, status: 'acknowledged' }).asks.slice(-3),
   ];
+  const { file, ...rest } = r; // абсолютный путь клиенту не нужен
   return {
-    ...r,
+    ...rest,
     project,
     state: w?.state || null,
     reason: w?.reason || null,
     asks,
-    input: inputFor(root, key, r.entrypoint),
+    input: inputFor(root, file, r.entrypoint),
   };
 }
 
@@ -254,11 +255,11 @@ function paneHoldsFile(panePid, file) {
  *  { mode: 'tmux', pane }    — панель однозначно держит этот транскрипт;
  *  { mode: 'desktop' }       — сессия живёт в приложении, только зеркало;
  *  { mode: 'mirror', candidates } — привязка не доказана, ввод запрещён. */
-export function inputFor(root, key, entrypoint) {
+export function inputFor(root, file, entrypoint) {
   if (entrypoint === 'claude-desktop') return { mode: 'desktop' };
-  // тот же файл, что выбирает чтение (sessionFile: свежайший со своим cwd) —
-  // привязка и зеркало не могут разойтись на дублях uuid
-  const file = T.sessionFile(root, key);
+  // file — ровно тот путь, который вернуло чтение (readSession().file):
+  // повторный независимый выбор давал окно гонки на дублях uuid
+  // (ревью Sol r3: показали транскрипт A — привязали ввод к B)
   if (!file) return { mode: 'mirror', candidates: 0 };
   const cands = tmuxCandidates(root);
   const matches = cands.filter((c) => paneHoldsFile(c.pid, file));
@@ -273,7 +274,7 @@ export function say({ project, key, text }) {
   if (!text || typeof text !== 'string') throw new Error('пустой текст');
   const r = T.readSession(root, key, { maxBytes: 64 * 1024 });
   if (!r) throw new Error(`сессия ${key} не найдена в проекте ${project}`);
-  const input = inputFor(root, key, r.entrypoint);
+  const input = inputFor(root, r.file, r.entrypoint);
   if (input.mode !== 'tmux')
     throw new Error('у сессии нет привязанной tmux-панели — ввод запрещён (зеркало)');
   execFileSync('tmux', ['send-keys', '-t', input.pane.pane, '-l', text], { timeout: 3000 });

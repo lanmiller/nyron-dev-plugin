@@ -215,7 +215,10 @@ export function readSession(root, key, { maxBytes = 4 * 1024 * 1024 } = {}) {
     }
   }
   attachAgents(path.join(path.dirname(file), key), items);
-  return { key, size, truncated, title: title || null, entrypoint, items };
+  // file отдаём наружу: привязка ввода обязана проверяться по ТОМУ ЖЕ
+  // файлу, что прочитан (ревью Sol r3: независимый повторный выбор давал
+  // окно гонки на дублях uuid — показали A, привязали B)
+  return { key, file, size, truncated, title: title || null, entrypoint, items };
 }
 
 /** readAgent(root, key, agentId) → { agentId, meta, items } | null */
