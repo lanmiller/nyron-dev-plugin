@@ -234,15 +234,19 @@ function paneProcessTree(panePid) {
   return out;
 }
 
-// Держит ли кто-то в дереве панели транскрипт <key>.jsonl открытым.
+// Держит ли кто-то в дереве панели открытым ИМЕННО этот файл транскрипта.
 // Это ЕДИНСТВЕННАЯ принимаемая привязка панель↔сессия (ревью Sol r1:
 // ввод без привязки мог уйти в чужой чат; при неоднозначности — запрет).
-function paneHoldsTranscript(panePid, key) {
+// Сверка точная по n-строкам lsof, не подстрокой (ревью Sol r2:
+// .jsonl.lock/.backup и дубль uuid ложно доказывали привязку).
+function paneHoldsFile(panePid, file) {
   const pids = paneProcessTree(panePid);
+  const wanted = new Set([file]);
+  try { wanted.add(fs.realpathSync(file)); } catch {}
   try {
     const out = execFileSync('lsof', ['-p', pids.join(','), '-Fn'],
       { timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
-    return out.includes(`/${key}.jsonl`);
+    return out.split('\n').some((l) => l.startsWith('n') && wanted.has(l.slice(1)));
   } catch { return false; }
 }
 
@@ -252,8 +256,12 @@ function paneHoldsTranscript(panePid, key) {
  *  { mode: 'mirror', candidates } — привязка не доказана, ввод запрещён. */
 export function inputFor(root, key, entrypoint) {
   if (entrypoint === 'claude-desktop') return { mode: 'desktop' };
+  // тот же файл, что выбирает чтение (sessionFile: свежайший со своим cwd) —
+  // привязка и зеркало не могут разойтись на дублях uuid
+  const file = T.sessionFile(root, key);
+  if (!file) return { mode: 'mirror', candidates: 0 };
   const cands = tmuxCandidates(root);
-  const matches = cands.filter((c) => paneHoldsTranscript(c.pid, key));
+  const matches = cands.filter((c) => paneHoldsFile(c.pid, file));
   if (matches.length === 1) return { mode: 'tmux', pane: matches[0] };
   return { mode: 'mirror', candidates: cands.length };
 }

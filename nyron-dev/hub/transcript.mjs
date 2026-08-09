@@ -162,12 +162,16 @@ function firstText(content) {
 
 // ---------- полное чтение сессии ----------
 
-function findSessionFile(root, key) {
+/**
+ * Файл транскрипта по ключу — единый выбор для чтения и привязки ввода.
+ * Ревью Sol r1/r2 (этап 4): (а) munged-префикс цепляет и соседний проект
+ * /a/b-2 — валидный uuid чужого проекта читался бы напрямую; (б) дубль
+ * uuid в root/worktree-каталогах открывал не тот файл, что показан в
+ * списке; (в) файл БЕЗ cwd в голове/хвосте не принимается (fail-closed:
+ * принадлежность проекту обязана быть доказана, отсутствие улик ≠ свой).
+ */
+export function sessionFile(root, key) {
   if (!KEY_RE.test(key)) return null;
-  // Ревью Sol r1 (этап 4): (а) munged-префикс цепляет и соседний проект
-  // /a/b-2 — валидный uuid чужого проекта читался бы напрямую; (б) дубль
-  // uuid в root/worktree-каталогах открывал не тот файл, что показан в
-  // списке. Выбор единый: свежайший файл, чей cwd принадлежит корню.
   const cands = [];
   for (const dir of transcriptDirs(root)) {
     const full = path.join(dir, `${key}.jsonl`);
@@ -180,7 +184,7 @@ function findSessionFile(root, key) {
   for (const c of cands) {
     const events = [...parseLines(headOf(c.full, 64)), ...parseLines(tailOf(c.full, 16))];
     const cwd = events.find((e) => typeof e.cwd === 'string')?.cwd || null;
-    if (!cwdForeign(cwd, root)) return c.full;
+    if (cwd && !cwdForeign(cwd, root)) return c.full;
   }
   return null;
 }
@@ -193,7 +197,7 @@ function findSessionFile(root, key) {
  * tool_result по id, agent — мета субагента (subagents/*.meta.json).
  */
 export function readSession(root, key, { maxBytes = 4 * 1024 * 1024 } = {}) {
-  const file = findSessionFile(root, key);
+  const file = sessionFile(root, key);
   if (!file) return null;
   const size = fs.statSync(file).size;
   const truncated = size > maxBytes;
@@ -216,7 +220,7 @@ export function readSession(root, key, { maxBytes = 4 * 1024 * 1024 } = {}) {
 
 /** readAgent(root, key, agentId) → { agentId, meta, items } | null */
 export function readAgent(root, key, agentId, { maxBytes = 4 * 1024 * 1024 } = {}) {
-  const file = findSessionFile(root, key);
+  const file = sessionFile(root, key);
   if (!file || !KEY_RE.test(agentId)) return null;
   const sub = path.join(path.dirname(file), key, 'subagents', `agent-${agentId}.jsonl`);
   let size;

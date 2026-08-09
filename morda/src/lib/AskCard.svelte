@@ -76,8 +76,9 @@
     <div class="delivery">
       <span class="step on">решено «{ask.decision}» · {ask.decided_by} · {hhmm(ask.decided_ts)}</span>
       <span class="arrow">→</span>
-      <span class="step" class:on={ask.delivered_ts}>
-        {ask.delivered_ts ? `доставлено ${hhmm(ask.delivered_ts)}` : 'сессия ещё не забрала'}
+      <span class="step" class:on={ask.delivered_ts || ask.acked_ts}>
+        {ask.delivered_ts ? `доставлено ${hhmm(ask.delivered_ts)}`
+          : ask.acked_ts ? 'доставка не фиксировалась' : 'сессия ещё не забрала'}
       </span>
       <span class="arrow">→</span>
       <span class="step" class:on={ask.acked_ts}>

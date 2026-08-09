@@ -162,11 +162,26 @@ cat > "$WDIR/ffff6666-0000-0000-0000-000000000006.jsonl" <<EOF
 {"type":"user","cwd":"$PROJ/wt","message":{"role":"user","content":"свежая ветка"}}
 EOF
 touch -t 202601010000 "$TDIR/ffff6666-0000-0000-0000-000000000006.jsonl"
+# Fail-closed (ревью Sol r2): свежий кандидат БЕЗ cwd не принимается —
+# выбирается старший валидный; если валидного нет вовсе — null
+cat > "$TDIR2/aaaa7777-0000-0000-0000-000000000007.jsonl" <<EOF
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"без cwd, чужой каталог"}]}}
+EOF
+cat > "$TDIR/aaaa7777-0000-0000-0000-000000000007.jsonl" <<EOF
+{"type":"user","cwd":"$PROJ","message":{"role":"user","content":"валидный старший"}}
+EOF
+touch -t 202601010000 "$TDIR/aaaa7777-0000-0000-0000-000000000007.jsonl"
+cat > "$TDIR2/bbbb8888-0000-0000-0000-000000000008.jsonl" <<EOF
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"без cwd вообще"}]}}
+EOF
 run_node "
 if (readSession(ROOT, 'eeee5555-0000-0000-0000-000000000005') !== null) throw 'чужой проект прочитан по прямому uuid';
 const r = readSession(ROOT, 'ffff6666-0000-0000-0000-000000000006');
 if (!r.items[0].text.includes('свежая ветка')) throw 'дубль uuid: открыт не свежайший: ' + r.items[0].text;
-" && ok "чужой cwd отбит, свежайший дубль выигрывает" || bad "прямое чтение"
+const fc = readSession(ROOT, 'aaaa7777-0000-0000-0000-000000000007');
+if (!fc || !fc.items[0].text.includes('валидный старший')) throw 'fail-closed: свежий без cwd перебил валидный';
+if (readSession(ROOT, 'bbbb8888-0000-0000-0000-000000000008') !== null) throw 'файл без cwd принят как свой';
+" && ok "чужой cwd отбит, свежайший валидный дубль, fail-closed без cwd" || bad "прямое чтение"
 
 echo "== T7: шум отфильтрован =="
 run_node "
