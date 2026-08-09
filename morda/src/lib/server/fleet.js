@@ -12,15 +12,31 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-// В dev модуль живёт в morda/src/lib/server, после adapter-node — в
-// build/server/chunks (ревью Sol 09.08): для прод-сборки корни задаются
-// env-переменными, относительный расчёт — только dev-фолбэк.
-const MORDA_ROOT = process.env.MORDA_ROOT || path.resolve(HERE, '../../..');
-const PLUGIN_HUB = process.env.NYRON_PLUGIN_HUB
-  || path.resolve(MORDA_ROOT, '../nyron-dev/hub');
+// Модуль переезжает между dev (morda/src/lib/server), сборкой
+// (.svelte-kit/output/…) и прод-билдом (build/server/chunks) — жёсткий
+// относительный путь ломается (ревью Sol 09.08 + факт: build падал).
+// Резолв честный: env в приоритете, дальше перебор кандидатов по факту
+// существования файла.
+function firstExisting(cands, probe, envName) {
+  for (const c of cands.filter(Boolean)) {
+    if (fs.existsSync(path.join(c, probe))) return c;
+  }
+  throw new Error(
+    `не нашёл ${probe}; задай env ${envName}; искал: ${cands.filter(Boolean).join(' | ')}`);
+}
+const MORDA_ROOT = firstExisting([
+  process.env.MORDA_ROOT,
+  path.resolve(HERE, '../../..'),      // dev: morda/src/lib/server → morda
+  path.resolve(HERE, '../../../..'),   // build/server/chunks → morda
+  process.cwd(),                        // npm запускается из morda/
+], 'projects.json.example', 'MORDA_ROOT');
+const PLUGIN_HUB = firstExisting([
+  process.env.NYRON_PLUGIN_HUB,
+  path.resolve(MORDA_ROOT, '../nyron-dev/hub'),
+], 'hub-db.mjs', 'NYRON_PLUGIN_HUB');
 
 // hub-db из плагина — единственная реализация будки, вторую не заводим
-const { HubDb } = await import(path.join(PLUGIN_HUB, 'hub-db.mjs'));
+const { HubDb } = await import(/* @vite-ignore */ path.join(PLUGIN_HUB, 'hub-db.mjs'));
 
 // Реестр соединений — в globalThis: Vite HMR пересоздаёт модуль, и
 // локальная Map копила бы открытые SQLite-дескрипторы (ревью Sol 09.08).
