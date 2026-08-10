@@ -194,5 +194,5 @@
     border-radius: 8px; padding: 3px 10px; font-size: 12px; margin: 2px 2px 0 8px;
   }
   .copies button:hover { color: var(--text-1); border-color: var(--accent); border-style: solid; }
-  main { flex: 1; min-width: 0; padding: 18px 26px 60px; max-width: 980px; }
+  main { flex: 1; min-width: 0; padding: 18px 32px 60px; max-width: 1620px; }
 </style>

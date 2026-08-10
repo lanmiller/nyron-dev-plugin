@@ -66,6 +66,13 @@
   // смена сессии в URL — перезагрузка окна с чистого листа
   $effect(() => { if (project && key) { data = null; refresh(); } });
 
+  // клик по варианту родной формы: адресное сообщение сессии с явной
+  // привязкой к вопросу — доставляет почтальон через канал приложения
+  function sendFormChoice(question, label) {
+    draft = `Ответ на твою форму «${question}»: ${label}`;
+    sendText();
+  }
+
   async function sendText() {
     if (!draft.trim()) return;
     saying = true; sayError = null; sent = null;
@@ -168,15 +175,16 @@
         <article class="hitl">
           <header>
             <b>{data.pending_hitl.questions[0]?.question}</b>
-            <span class="meta">форма приложения · ждёт ответа в окне сессии · {age(data.pending_hitl.ts)}</span>
+            <span class="meta">форма приложения · {age(data.pending_hitl.ts)}</span>
           </header>
           {#each data.pending_hitl.questions[0]?.options || [] as o}
-            <div class="opt">
+            <button class="opt" disabled={saying}
+              onclick={() => sendFormChoice(data.pending_hitl.questions[0].question, o.label)}>
               <b>{o.label}</b>
               {#if o.description}<span>{o.description}</span>{/if}
-            </div>
+            </button>
           {/each}
-          <p class="meta">Ответить: открыть окно сессии в её копии приложения и кликнуть вариант. Текст из композера уйдёт в будку, но эту форму не снимет.</p>
+          <p class="meta">Клик уйдёт сессии адресным сообщением (доставит почтальон); свой вариант — текстом в композере ниже. Мгновенно и наверняка — клик в её окне приложения.</p>
         </article>
       {/if}
       {#each openAsks as a (a.id)}
@@ -249,9 +257,13 @@
   .hitl header { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
   .hitl .meta { color: var(--text-3); font-size: 12.5px; margin: 6px 0 0; }
   .hitl .opt {
+    display: block; width: 100%; text-align: left;
+    background: var(--bg-1); color: var(--text-1);
     border: 1px solid var(--border-soft); border-radius: 8px;
     padding: 6px 12px; margin-top: 6px; font-size: 13.5px;
   }
+  .hitl .opt:hover:not(:disabled) { border-color: var(--warn); }
+  .hitl .opt:disabled { opacity: 0.5; }
   .hitl .opt b { display: block; }
   .hitl .opt span { color: var(--text-3); font-size: 12.5px; }
   .composer { display: flex; gap: 8px; align-items: flex-end; }
