@@ -73,6 +73,27 @@
     sendText();
   }
 
+  // multiSelect-формы: копим отметки по вопросам, шлём одним сообщением
+  let hitlPicked = $state({}); // qi → Set(label)
+  let hitlAny = $derived(Object.values(hitlPicked).some((s) => s?.size));
+  function toggleHitl(qi, label) {
+    const s = new Set(hitlPicked[qi] || []);
+    s.has(label) ? s.delete(label) : s.add(label);
+    hitlPicked = { ...hitlPicked, [qi]: s };
+  }
+  function sendHitlPicked() {
+    const parts = data.pending_hitl.questions
+      .map((q, qi) => {
+        const s = hitlPicked[qi];
+        return s?.size ? `«${q.question}»: ${[...s].join('; ')}` : null;
+      })
+      .filter(Boolean);
+    if (!parts.length) return;
+    draft = `Ответ на твою форму — ${parts.join(' | ')}`;
+    hitlPicked = {};
+    sendText();
+  }
+
   async function sendText() {
     if (!draft.trim()) return;
     saying = true; sayError = null; sent = null;
@@ -173,18 +194,36 @@
         <!-- родная форма AskUserQuestion ждёт человека В ОКНЕ ПРИЛОЖЕНИЯ:
              морда её показывает, но кликнуть вариант можно только там -->
         <article class="hitl">
-          <header>
-            <b>{data.pending_hitl.questions[0]?.question}</b>
-            <span class="meta">форма приложения · {age(data.pending_hitl.ts)}</span>
-          </header>
-          {#each data.pending_hitl.questions[0]?.options || [] as o}
-            <button class="opt" disabled={saying}
-              onclick={() => sendFormChoice(data.pending_hitl.questions[0].question, o.label)}>
-              <b>{o.label}</b>
-              {#if o.description}<span>{o.description}</span>{/if}
-            </button>
+          {#each data.pending_hitl.questions as q, qi}
+            <header>
+              <b>{q.question}</b>
+              <span class="meta">
+                форма приложения · {q.multiSelect ? 'можно несколько' : 'один вариант'} · {age(data.pending_hitl.ts)}
+              </span>
+            </header>
+            {#each q.options || [] as o}
+              {#if q.multiSelect}
+                <label class="opt" class:picked={hitlPicked[qi]?.has(o.label)}>
+                  <input type="checkbox"
+                    checked={hitlPicked[qi]?.has(o.label)}
+                    onchange={() => toggleHitl(qi, o.label)} />
+                  <span class="opt-body"><b>{o.label}</b>
+                    {#if o.description}<span>{o.description}</span>{/if}</span>
+                </label>
+              {:else}
+                <button class="opt" disabled={saying}
+                  onclick={() => sendFormChoice(q.question, o.label)}>
+                  <b>{o.label}</b>
+                  {#if o.description}<span>{o.description}</span>{/if}
+                </button>
+              {/if}
+            {/each}
           {/each}
-          <p class="meta">Клик уйдёт сессии адресным сообщением (доставит почтальон); свой вариант — текстом в композере ниже. Мгновенно и наверняка — клик в её окне приложения.</p>
+          {#if data.pending_hitl.questions.some((q) => q.multiSelect)}
+            <button class="btn primary hitl-submit" disabled={saying || !hitlAny}
+              onclick={sendHitlPicked}>отправить выбранное</button>
+          {/if}
+          <p class="meta">Выбор уйдёт сессии адресным сообщением (доставит почтальон); свой вариант — текстом в композере ниже. Мгновенно и наверняка — клик в её окне приложения.</p>
         </article>
       {/if}
       {#each openAsks as a (a.id)}
@@ -266,6 +305,11 @@
   .hitl .opt:disabled { opacity: 0.5; }
   .hitl .opt b { display: block; }
   .hitl .opt span { color: var(--text-3); font-size: 12.5px; }
+  .hitl label.opt { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+  .hitl label.opt input { margin-top: 4px; accent-color: var(--accent); }
+  .hitl label.opt.picked { border-color: var(--warn); }
+  .hitl .opt-body { flex: 1; }
+  .hitl-submit { margin-top: 10px; }
   .composer { display: flex; gap: 8px; align-items: flex-end; }
   .composer textarea { flex: 1; resize: vertical; }
   .hint { font-size: 12px; margin: 6px 2px 0; }
