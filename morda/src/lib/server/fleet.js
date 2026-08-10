@@ -282,16 +282,26 @@ export function inputFor(root, file, entrypoint) {
 }
 
 /** Отправить текст в чат сессии. Панель НЕ приходит с клиента — сервер
- *  сам заново доказывает привязку панель↔сессия и шлёт только в неё. */
-export function say({ project, key, text }) {
+ *  сам заново доказывает привязку панель↔сессия и шлёт только в неё.
+ *  Без tmux-привязки (Desktop/headless) сообщение НЕ теряется: уходит
+ *  адресным постом в будку (канон: сессии обязаны её читать; спящих
+ *  добуживает почтальон через send_message приложения — вопрос CTO 10.08
+ *  «почему не дать мне писать в неё в целом»). */
+export function say({ project, key, text, by }) {
   const root = rootByName(project);
   if (!text || typeof text !== 'string') throw new Error('пустой текст');
   const r = T.readSession(root, key, { maxBytes: 64 * 1024 });
   if (!r) throw new Error(`сессия ${key} не найдена в проекте ${project}`);
   const input = inputFor(root, r.file, r.entrypoint);
-  if (input.mode !== 'tmux')
-    throw new Error('у сессии нет привязанной tmux-панели — ввод запрещён (зеркало)');
-  execFileSync('tmux', ['send-keys', '-t', input.pane.pane, '-l', text], { timeout: 3000 });
-  execFileSync('tmux', ['send-keys', '-t', input.pane.pane, 'Enter'], { timeout: 3000 });
-  return { sent: true, pane: input.pane.pane };
+  if (input.mode === 'tmux') {
+    execFileSync('tmux', ['send-keys', '-t', input.pane.pane, '-l', text], { timeout: 3000 });
+    execFileSync('tmux', ['send-keys', '-t', input.pane.pane, 'Enter'], { timeout: 3000 });
+    return { sent: true, via: 'tmux', pane: input.pane.pane };
+  }
+  const hub = hubFor(root);
+  hub.post({
+    from: by || 'CTO@morda', to: key, wave: 'morda-inbox',
+    text: `[сообщение человека из морды — прочитать и учесть] ${text}`,
+  });
+  return { sent: true, via: 'hub', note: 'адресный пост в будке: рабочая сессия заберёт при чтении, спящую добудит почтальон' };
 }

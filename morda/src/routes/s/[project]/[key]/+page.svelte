@@ -15,6 +15,7 @@
   let draft = $state('');
   let saying = $state(false);
   let sayError = $state(null);
+  let sent = $state(null);
   let seq = 0;
 
   let project = $derived(page.params.project);
@@ -67,15 +68,19 @@
 
   async function sendText() {
     if (!draft.trim()) return;
-    saying = true; sayError = null;
+    saying = true; sayError = null; sent = null;
     try {
       const r = await fetch('/api/say', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-morda': '1' },
         body: JSON.stringify({ project, key, text: draft }),
       });
-      if (!r.ok) sayError = (await r.json()).error || `HTTP ${r.status}`;
-      else draft = '';
+      const body = await r.json();
+      if (!r.ok) sayError = body.error || `HTTP ${r.status}`;
+      else {
+        draft = '';
+        sent = body.via === 'tmux' ? `доставлено в панель ${body.pane}` : `в будке (адресовано сессии) — ${body.note}`;
+      }
     } catch (e) {
       sayError = String(e.message || e);
     } finally {
@@ -161,28 +166,28 @@
       <AskCard ask={a} project={project} linkToSession={false} onSent={refresh} />
     {/each}
 
-    {#if data.input?.mode === 'tmux'}
-      <div class="composer">
-        <textarea rows="2" placeholder="написать в чат ({data.input.pane.session} · {data.input.pane.pane})…"
-          bind:value={draft}
-          onkeydown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && sendText()}></textarea>
-        <button class="btn primary" disabled={saying || !draft.trim()} onclick={sendText}>
-          отправить
-        </button>
-      </div>
-      <p class="hint quiet">⌘⏎ — отправить. Панель доказанно держит транскрипт этой сессии.</p>
-    {:else}
-      <div class="mirror">
-        <span class="quiet">
-          {data.input?.mode === 'desktop'
-            ? 'Desktop-сессия: это зеркало, ввод в чужое живое окно запрещён (гонка двух рук). Ответы на ask доходят pull-ом; живой ввод — в её окне в копии приложения:'
-            : 'Привязанной tmux-панели у сессии нет — только зеркало. Ответы на ask доходят pull-ом; либо откройте копию:'}
-        </span>
+    <div class="composer">
+      <textarea rows="2"
+        placeholder={data.input?.mode === 'tmux'
+          ? `написать в чат (${data.input.pane.session} · ${data.input.pane.pane}) — мгновенно…`
+          : 'написать сессии — адресным постом в будку…'}
+        bind:value={draft}
+        onkeydown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && sendText()}></textarea>
+      <button class="btn primary" disabled={saying || !draft.trim()} onclick={sendText}>
+        отправить
+      </button>
+    </div>
+    <p class="hint quiet">
+      {data.input?.mode === 'tmux'
+        ? '⌘⏎ — отправить. Панель доказанно держит транскрипт этой сессии, доставка мгновенная.'
+        : 'Прямого канала нет (Desktop/headless): сообщение уйдёт адресным постом в будку — рабочая сессия заберёт при чтении, спящую добудит почтальон. Открыть её окно руками:'}
+      {#if data.input?.mode !== 'tmux'}
         {#each st.overview?.copies || [] as app (app)}
           <button class="copy" onclick={() => openCopy(app)}>{copyLabel(app)}</button>
         {/each}
-      </div>
-    {/if}
+      {/if}
+    </p>
+    {#if sent}<p class="hint ok-note">{sent}</p>{/if}
     {#if sayError}<p class="err">Не отправлено: {sayError}</p>{/if}
   </div>
 {/if}
@@ -217,10 +222,10 @@
   .composer { display: flex; gap: 8px; align-items: flex-end; }
   .composer textarea { flex: 1; resize: vertical; }
   .hint { font-size: 12px; margin: 6px 2px 0; }
-  .mirror { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13.5px; }
-  .mirror .copy {
+  .hint .copy {
     background: none; border: 1px dashed var(--border); color: var(--text-3);
-    border-radius: 8px; padding: 3px 10px; font-size: 12.5px;
+    border-radius: 8px; padding: 2px 9px; font-size: 12px; margin: 0 2px;
   }
-  .mirror .copy:hover { color: var(--text-1); border-color: var(--accent); border-style: solid; }
+  .hint .copy:hover { color: var(--text-1); border-color: var(--accent); border-style: solid; }
+  .ok-note { color: var(--ok); }
 </style>
