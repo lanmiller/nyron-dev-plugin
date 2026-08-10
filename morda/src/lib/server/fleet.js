@@ -195,9 +195,12 @@ export function session(project, key) {
   ];
   const { file, ...rest } = r; // абсолютный путь клиенту не нужен
   // незакрытый родной HITL (AskUserQuestion без tool_result) — форма ждёт
-  // человека в окне приложения; морда показывает её карточкой
-  const pendingHitl = [...r.items].reverse()
-    .find((i) => i.kind === 'tool' && i.questions && !i.result) || null;
+  // человека; гаснет, если ПОСЛЕ формы уже была реплика человека (ответ
+  // доехал каналом приложения — сессия пошла дальше, форма лишь висит в UI)
+  const hitlIdx = r.items.findLastIndex((i) => i.kind === 'tool' && i.questions && !i.result);
+  const answeredAfter = hitlIdx >= 0
+    && r.items.slice(hitlIdx + 1).some((i) => i.kind === 'user');
+  const pendingHitl = hitlIdx >= 0 && !answeredAfter ? r.items[hitlIdx] : null;
   return {
     ...rest,
     project,
@@ -306,7 +309,9 @@ export function say({ project, key, text, by }) {
   const hub = hubFor(root);
   hub.post({
     from: by || 'CTO@morda', to: key, wave: 'morda-inbox',
-    text: `[сообщение человека из морды — прочитать и учесть] ${text}`,
+    // адресат — в самом тексте: шину читают все, и чужое сообщение без
+    // явного «кому» диспетчеры принимали на свой счёт (факт 10.08)
+    text: `[сообщение человека из морды — ТОЛЬКО для сессии ${key.slice(0, 8)}, остальным игнорировать] ${text}`,
   });
   return { sent: true, via: 'hub', note: 'адресный пост в будке: рабочая сессия заберёт при чтении, спящую добудит почтальон' };
 }
