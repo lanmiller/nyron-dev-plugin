@@ -24,6 +24,12 @@
   });
   setContext('morda-project', { get name() { return project; } });
 
+  // живые — работают/ждут/застряли или несут открытый ask; остальное —
+  // отработавшие волны, свёрнутая группа
+  const ACTIVE = ['working', 'waiting_decision', 'waiting_silent', 'stalled'];
+  let liveSessions = $derived(st.sessions.filter((s) => s.open_asks || ACTIVE.includes(s.state)));
+  let doneSessions = $derived(st.sessions.filter((s) => !s.open_asks && !ACTIVE.includes(s.state)));
+
   let seq = 0;
   async function refresh() {
     const my = ++seq;
@@ -86,20 +92,29 @@
     </nav>
 
     <div class="side-h" title="цвет точки — вердикт сторожа: зелёная — работает; жёлтая — ждёт вашего решения (оформленный ask); оранжевая — спросила в чате и молчит; горчичная — застряла; серая — закончилась; тусклая — сторож её ещё не видел">Сессии <span class="hint-q">?</span></div>
+    {#snippet row(s)}
+      {@const [label, color] = STATE_RU[s.state] || ['', 'var(--text-4)']}
+      <a href="/s/{encodeURIComponent(project)}/{s.key}"
+         class:active={page.params?.key === s.key}
+         title="{s.title} · {label || 'вне надзора'}">
+        <i class="dot" style="background:{color}"></i>
+        <span class="t">{s.title}</span>
+        {#if s.open_asks}<span class="badge">{s.open_asks}</span>{/if}
+        <span class="age">{age(s.mtime)}</span>
+      </a>
+    {/snippet}
     <nav class="sessions">
-      {#each st.sessions as s (s.key)}
-        {@const [label, color] = STATE_RU[s.state] || ['', 'var(--text-4)']}
-        <a href="/s/{encodeURIComponent(project)}/{s.key}"
-           class:active={page.params?.key === s.key}
-           title="{s.title} · {label || 'вне надзора'}">
-          <i class="dot" style="background:{color}"></i>
-          <span class="t">{s.title}</span>
-          {#if s.open_asks}<span class="badge">{s.open_asks}</span>{/if}
-          <span class="age">{age(s.mtime)}</span>
-        </a>
-      {/each}
-      {#if !st.sessions.length}
-        <p class="quiet none">транскриптов нет</p>
+      {#each liveSessions as s (s.key)}{@render row(s)}{/each}
+      {#if !liveSessions.length}
+        <p class="quiet none">живых сессий нет</p>
+      {/if}
+      <!-- кладбище отработавших волн (воркtree снесены — норма) не должно
+           тонуть вперемешку с живыми (CTO 10.08) -->
+      {#if doneSessions.length}
+        <details class="done-group">
+          <summary>завершённые ({doneSessions.length})</summary>
+          {#each doneSessions as s (s.key)}{@render row(s)}{/each}
+        </details>
       {/if}
     </nav>
 
@@ -162,6 +177,13 @@
   nav.sessions .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   nav.sessions .age { font-size: 11px; color: var(--text-4); flex: none; }
   .none { padding: 4px 10px; font-size: 13px; }
+  .done-group > summary {
+    cursor: pointer; color: var(--text-4); font-size: 12px;
+    padding: 10px 10px 4px; list-style: none;
+  }
+  .done-group > summary::before { content: '▸ '; }
+  .done-group[open] > summary::before { content: '▾ '; }
+  .done-group a { opacity: 0.75; }
   .badge {
     background: var(--accent); color: var(--accent-ink); border-radius: var(--r-pill);
     font-size: 10.5px; font-weight: 700; padding: 1px 6px; flex: none;
