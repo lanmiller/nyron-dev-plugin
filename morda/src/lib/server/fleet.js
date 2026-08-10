@@ -194,12 +194,17 @@ export function session(project, key) {
     ...hub.asks({ session: key, status: 'acknowledged' }).asks.slice(-3),
   ];
   const { file, ...rest } = r; // абсолютный путь клиенту не нужен
+  // незакрытый родной HITL (AskUserQuestion без tool_result) — форма ждёт
+  // человека в окне приложения; морда показывает её карточкой
+  const pendingHitl = [...r.items].reverse()
+    .find((i) => i.kind === 'tool' && i.questions && !i.result) || null;
   return {
     ...rest,
     project,
     state: w?.state || null,
     reason: w?.reason || null,
     asks,
+    pending_hitl: pendingHitl ? { ts: pendingHitl.ts, questions: pendingHitl.questions } : null,
     input: inputFor(root, file, r.entrypoint),
   };
 }

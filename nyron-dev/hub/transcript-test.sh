@@ -183,6 +183,19 @@ if (!fc || !fc.items[0].text.includes('валидный старший')) throw 
 if (readSession(ROOT, 'bbbb8888-0000-0000-0000-000000000008') !== null) throw 'файл без cwd принят как свой';
 " && ok "чужой cwd отбит, свежайший валидный дубль, fail-closed без cwd" || bad "прямое чтение"
 
+echo "== T9: родной HITL (AskUserQuestion) =="
+cat > "$TDIR/aaaa9999-0000-0000-0000-000000000009.jsonl" <<EOF
+{"type":"user","cwd":"$PROJ","message":{"role":"user","content":"работай"}}
+{"type":"assistant","cwd":"$PROJ","message":{"role":"assistant","content":[{"type":"tool_use","id":"q1","name":"AskUserQuestion","input":{"questions":[{"question":"Чем заняться?","options":[{"label":"мержить","description":"катим"},{"label":"ждать","description":"стоим"}]}]}}]}}
+EOF
+run_node "
+const r = readSession(ROOT, 'aaaa9999-0000-0000-0000-000000000009');
+const q = r.items.find(i => i.kind === 'tool' && i.name === 'AskUserQuestion');
+if (!q.questions || q.questions[0].question !== 'Чем заняться?') throw 'questions не сохранены';
+if (q.questions[0].options[1].label !== 'ждать') throw 'варианты потеряны';
+if (q.result) throw 'result должен быть пуст (форма ждёт)';
+" && ok "незакрытая форма распарсена с вариантами" || bad "HITL"
+
 echo "== T7: шум отфильтрован =="
 run_node "
 const r = readSession(ROOT, 'aaaa1111-0000-0000-0000-000000000001');

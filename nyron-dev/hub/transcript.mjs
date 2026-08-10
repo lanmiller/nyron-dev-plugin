@@ -293,6 +293,11 @@ function toItems(events) {
           kind: 'tool', ts, id: p.id, name: p.name || '?',
           input: toolInputLabel(p.name, p.input), result: '', is_error: false,
         };
+        // родной HITL приложения: пока tool_result не пришёл, форма ждёт
+        // человека — морда обязана показать её карточкой (CTO 10.08:
+        // «в сессии висит HITL для меня, но я не вижу в морде этого»)
+        if (p.name === 'AskUserQuestion' && Array.isArray(p.input?.questions))
+          item.questions = p.input.questions;
         toolById.set(p.id, item);
         items.push(item);
       }

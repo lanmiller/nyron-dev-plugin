@@ -162,6 +162,23 @@
     <!-- вопросы — в прокрутке, композер всегда виден (CTO 10.08: пачка
          карточек не должна выталкивать ввод за экран) -->
     <div class="dock-asks">
+      {#if data.pending_hitl}
+        <!-- родная форма AskUserQuestion ждёт человека В ОКНЕ ПРИЛОЖЕНИЯ:
+             морда её показывает, но кликнуть вариант можно только там -->
+        <article class="hitl">
+          <header>
+            <b>{data.pending_hitl.questions[0]?.question}</b>
+            <span class="meta">форма приложения · ждёт ответа в окне сессии · {age(data.pending_hitl.ts)}</span>
+          </header>
+          {#each data.pending_hitl.questions[0]?.options || [] as o}
+            <div class="opt">
+              <b>{o.label}</b>
+              {#if o.description}<span>{o.description}</span>{/if}
+            </div>
+          {/each}
+          <p class="meta">Ответить: открыть окно сессии в её копии приложения и кликнуть вариант. Текст из композера уйдёт в будку, но эту форму не снимет.</p>
+        </article>
+      {/if}
       {#each openAsks as a (a.id)}
         <AskCard ask={a} project={project} linkToSession={false} onSent={refresh} />
       {/each}
@@ -224,6 +241,19 @@
     border-top: 1px solid var(--border-soft);
   }
   .dock-asks { max-height: 42vh; overflow-y: auto; }
+  .hitl {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-left: 3px solid var(--warn);
+    border-radius: var(--r); padding: 12px 14px; margin-bottom: 10px;
+  }
+  .hitl header { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+  .hitl .meta { color: var(--text-3); font-size: 12.5px; margin: 6px 0 0; }
+  .hitl .opt {
+    border: 1px solid var(--border-soft); border-radius: 8px;
+    padding: 6px 12px; margin-top: 6px; font-size: 13.5px;
+  }
+  .hitl .opt b { display: block; }
+  .hitl .opt span { color: var(--text-3); font-size: 12.5px; }
   .composer { display: flex; gap: 8px; align-items: flex-end; }
   .composer textarea { flex: 1; resize: vertical; }
   .hint { font-size: 12px; margin: 6px 2px 0; }
