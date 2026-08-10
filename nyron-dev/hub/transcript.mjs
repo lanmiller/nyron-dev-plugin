@@ -206,19 +206,26 @@ export function readSession(root, key, { maxBytes = 4 * 1024 * 1024 } = {}) {
   const { items, title: bodyTitle } = toItems(events);
   let title = bodyTitle;
   let entrypoint = events.find((e) => typeof e.entrypoint === 'string')?.entrypoint || null;
-  if ((!title || !entrypoint) && truncated) {
-    // заголовок и entrypoint обычно в голове файла — при обрезке хвостом
+  let cwd = events.find((e) => typeof e.cwd === 'string')?.cwd || null;
+  if ((!title || !entrypoint || !cwd) && truncated) {
+    // заголовок/entrypoint/cwd обычно в голове файла — при обрезке хвостом
     // добираем оттуда
     for (const e of parseLines(headOf(file, 64))) {
       if (e.type === 'custom-title' && titleOf(e)) title = titleOf(e);
       if (!entrypoint && typeof e.entrypoint === 'string') entrypoint = e.entrypoint;
+      if (!cwd && typeof e.cwd === 'string') cwd = e.cwd;
     }
   }
   attachAgents(path.join(path.dirname(file), key), items);
   // file отдаём наружу: привязка ввода обязана проверяться по ТОМУ ЖЕ
   // файлу, что прочитан (ревью Sol r3: независимый повторный выбор давал
-  // окно гонки на дублях uuid — показали A, привязали B)
-  return { key, file, size, truncated, title: title || null, entrypoint, items };
+  // окно гонки на дублях uuid — показали A, привязали B).
+  // cwd — рабочая папка сессии (воркtree-кодонимы вида suspicious-bose
+  // без неё нечитаемы) + существует ли она ещё.
+  return {
+    key, file, size, truncated, title: title || null, entrypoint, items,
+    cwd, cwd_alive: cwd ? fs.existsSync(cwd) : null,
+  };
 }
 
 /** readAgent(root, key, agentId) → { agentId, meta, items } | null */

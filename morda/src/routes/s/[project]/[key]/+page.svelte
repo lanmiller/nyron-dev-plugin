@@ -117,8 +117,17 @@
       {#if data.truncated}
         <span class="chip" title="файл больше лимита окна — показан хвост">хвост, файл {(data.size / 1048576).toFixed(1)} МБ</span>
       {/if}
-      <button class="chip open-app" disabled={opening} onclick={openInClaude}
-        title="claude://resume — открыть эту сессию в приложении Claude">открыть в Claude ⧉</button>
+      {#if data.cwd}
+        <span class="chip" class:dead-cwd={data.cwd_alive === false} title={data.cwd}>
+          📁 {data.cwd.split('/').at(-1)}{data.cwd_alive === false ? ' · папка снесена' : ''}
+        </span>
+      {/if}
+      {#if !isDesktop}
+        <!-- claude://resume ИМПОРТИРУЕТ копию CLI-сессии; для Desktop-сессий
+             это дубль с мёртвой папкой воркtree (факт 10.08) — прячем -->
+        <button class="chip open-app" disabled={opening} onclick={openInClaude}
+          title="claude://resume — открыть эту сессию в приложении Claude">открыть в Claude ⧉</button>
+      {/if}
     </div>
     {#if data.reason}<p class="reason quiet">{data.reason}</p>{/if}
   </header>
@@ -147,7 +156,7 @@
       <div class="mirror">
         <span class="quiet">
           {data.input?.mode === 'desktop'
-            ? 'Desktop-сессия: это зеркало, ввод в чужое живое окно запрещён (гонка двух рук). Ответы на ask доходят pull-ом; для живого ввода — «открыть в Claude» или копия:'
+            ? 'Desktop-сессия: это зеркало, ввод в чужое живое окно запрещён (гонка двух рук). Ответы на ask доходят pull-ом; живой ввод — в её окне в копии приложения:'
             : 'Привязанной tmux-панели у сессии нет — только зеркало. Ответы на ask доходят pull-ом; либо откройте копию:'}
         </span>
         {#each st.overview?.copies || [] as app (app)}
@@ -167,6 +176,7 @@
   .s-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .open-app { background: none; }
   .open-app:hover:not(:disabled) { border-color: var(--accent); color: var(--text-1); }
+  .dead-cwd { color: var(--stall); }
   .reason { margin: 8px 0 0; font-size: 13px; }
   .dock {
     position: sticky; bottom: 0; margin-top: 22px;
