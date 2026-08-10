@@ -24,11 +24,14 @@
   });
   setContext('morda-project', { get name() { return project; } });
 
-  // живые — работают/ждут/застряли или несут открытый ask; остальное —
-  // отработавшие волны, свёрнутая группа
+  // живые — работают/ждут/застряли, несут открытый ask ИЛИ свежие, но ещё
+  // не оценённые сторожем (слепота/лимит ≠ «завершилась» — факт 10.08);
+  // остальное — отработавшие волны, свёрнутая группа
   const ACTIVE = ['working', 'waiting_decision', 'waiting_silent', 'stalled'];
-  let liveSessions = $derived(st.sessions.filter((s) => s.open_asks || ACTIVE.includes(s.state)));
-  let doneSessions = $derived(st.sessions.filter((s) => !s.open_asks && !ACTIVE.includes(s.state)));
+  const isLive = (s) => s.open_asks || ACTIVE.includes(s.state)
+    || (!s.state && Date.now() - new Date(s.mtime).getTime() < 2 * 3600 * 1000);
+  let liveSessions = $derived(st.sessions.filter(isLive));
+  let doneSessions = $derived(st.sessions.filter((s) => !isLive(s)));
 
   let seq = 0;
   async function refresh() {
