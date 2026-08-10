@@ -159,12 +159,16 @@
   <Transcript items={data.items} {project} sessionKey={key} />
 
   <div class="dock">
-    {#each openAsks as a (a.id)}
-      <AskCard ask={a} project={project} linkToSession={false} onSent={refresh} />
-    {/each}
-    {#each recentDecided as a (a.id)}
-      <AskCard ask={a} project={project} linkToSession={false} onSent={refresh} />
-    {/each}
+    <!-- вопросы — в прокрутке, композер всегда виден (CTO 10.08: пачка
+         карточек не должна выталкивать ввод за экран) -->
+    <div class="dock-asks">
+      {#each openAsks as a (a.id)}
+        <AskCard ask={a} project={project} linkToSession={false} onSent={refresh} />
+      {/each}
+      {#each recentDecided as a (a.id)}
+        <AskCard ask={a} project={project} linkToSession={false} onSent={refresh} />
+      {/each}
+    </div>
 
     <div class="composer">
       <textarea rows="2"
@@ -219,6 +223,7 @@
     background: var(--bg-1); padding: 10px 0 14px;
     border-top: 1px solid var(--border-soft);
   }
+  .dock-asks { max-height: 42vh; overflow-y: auto; }
   .composer { display: flex; gap: 8px; align-items: flex-end; }
   .composer textarea { flex: 1; resize: vertical; }
   .hint { font-size: 12px; margin: 6px 2px 0; }
