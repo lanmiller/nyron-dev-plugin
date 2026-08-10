@@ -10,13 +10,13 @@
   let draft = $state('');
   let error = $state(null);
 
-  async function send(decision) {
+  async function post(body) {
     busy = true; error = null;
     try {
       const r = await fetch('/api/decide', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-morda': '1' },
-        body: JSON.stringify({ project, ask_id: ask.id, decision: String(decision), by: 'CTO@morda' }),
+        body: JSON.stringify({ project, ask_id: ask.id, by: 'CTO@morda', ...body }),
       });
       if (!r.ok) error = (await r.json()).error || `HTTP ${r.status}`;
     } catch (e) {
@@ -26,6 +26,10 @@
       onSent();
     }
   }
+  const send = (decision) => post({ decision: String(decision) });
+  // снятие неактуального вопроса (мёртвые сессии, устаревшие заглушки
+  // сторожа): отмена только из open — решённые забирает ack сессии
+  const dismiss = () => post({ action: 'cancel', reason: 'снят человеком из морды' });
 
   // сессии с uuid-ключом (сторож, заглушки) ведут в окно транскрипта
   let sessionHref = $derived(
@@ -71,6 +75,10 @@
           onkeydown={(e) => e.key === 'Enter' && draft && send(draft)} />
         <button class="btn" disabled={busy || !draft} onclick={() => send(draft)}>отправить</button>
       {/if}
+      <button class="dismiss" disabled={busy} onclick={dismiss}
+        title="вопрос неактуален (сессия умерла, тема закрыта) — снять; сторож не пересоздаст его, пока сессия молчит">
+        снять вопрос
+      </button>
     </div>
   {:else}
     <div class="delivery">
@@ -116,6 +124,12 @@
   .answers .btn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
   .answers .btn small { color: var(--text-3); font-size: 11.5px; font-weight: 400; }
   .answers input { flex: 1; min-width: 200px; }
+  .dismiss {
+    margin-left: auto; background: none; border: none;
+    color: var(--text-4); font-size: 12.5px; text-decoration: underline dotted;
+    padding: 7px 2px;
+  }
+  .dismiss:hover:not(:disabled) { color: var(--hot); }
   .delivery {
     display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     margin-top: 10px; font-size: 12.5px;

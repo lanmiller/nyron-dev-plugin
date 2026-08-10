@@ -29,10 +29,28 @@
       if (my !== seq || p !== project || k !== key) return;
       if (!r.ok) { error = next.error; return; }
       error = null;
+      const first = data === null;
       const stick = nearBottom();
       data = next;
-      if (stick) tick().then(() => window.scrollTo({ top: document.body.scrollHeight }));
+      if (stick) scrollDown(first);
     } catch { /* сервер перезапускается — следующий тик дотянется */ }
+  }
+
+  // Вниз ПОСЛЕ фактической отрисовки: tick() отпускает раньше, чем длинная
+  // лента займёт высоту (жалоба CTO 10.08 — «приходится листать в самый
+  // низ»); на первом показе добиваем повторами, пока высота не устаканится.
+  async function scrollDown(first) {
+    await tick();
+    const to = () => window.scrollTo({ top: document.body.scrollHeight });
+    to();
+    if (!first) return;
+    let h = 0;
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 80));
+      if (document.body.scrollHeight === h) break;
+      h = document.body.scrollHeight;
+      to();
+    }
   }
 
   function nearBottom() {
@@ -122,12 +140,13 @@
           📁 {data.cwd.split('/').at(-1)}{data.cwd_alive === false ? ' · папка снесена' : ''}
         </span>
       {/if}
-      {#if !isDesktop}
-        <!-- claude://resume ИМПОРТИРУЕТ копию CLI-сессии; для Desktop-сессий
-             это дубль с мёртвой папкой воркtree (факт 10.08) — прячем -->
-        <button class="chip open-app" disabled={opening} onclick={openInClaude}
-          title="claude://resume — открыть эту сессию в приложении Claude">открыть в Claude ⧉</button>
-      {/if}
+      <!-- claude://resume всегда создаёт ИМПОРТ-КОПИЮ разговора (сфокусировать
+           существующее Desktop-окно снаружи нечем — факт 10.08); имя честное,
+           у сессий со снесённым воркtree копия попросит выбрать папку -->
+      <button class="chip open-app" disabled={opening} onclick={openInClaude}
+        title="claude://resume — приложение откроет копию этого разговора{data.cwd_alive === false ? '; рабочая папка сессии уже снесена — попросит выбрать другую' : ''}">
+        открыть копию в Claude ⧉
+      </button>
     </div>
     {#if data.reason}<p class="reason quiet">{data.reason}</p>{/if}
   </header>
@@ -169,15 +188,27 @@
 {/if}
 
 <style>
-  .s-head { margin-bottom: 18px; }
+  /* шапка прилипает сверху (CTO 10.08: чат открывается снизу — без шапки
+     не видно, ЧЬЯ это сессия и в каком она состоянии) */
+  .s-head {
+    position: sticky; top: 0; z-index: 5;
+    background: var(--bg-1); margin: -18px 0 14px;
+    padding: 12px 0 10px; border-bottom: 1px solid var(--border-soft);
+  }
   .back { color: var(--text-3); text-decoration: none; font-size: 13px; }
   .back:hover { color: var(--text-1); }
-  h1 { font-size: 24px; margin: 6px 0 8px; }
+  h1 {
+    font-size: 19px; margin: 4px 0 8px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .s-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .open-app { background: none; }
   .open-app:hover:not(:disabled) { border-color: var(--accent); color: var(--text-1); }
   .dead-cwd { color: var(--stall); }
-  .reason { margin: 8px 0 0; font-size: 13px; }
+  .reason {
+    margin: 6px 0 0; font-size: 12.5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .dock {
     position: sticky; bottom: 0; margin-top: 22px;
     background: var(--bg-1); padding: 10px 0 14px;
