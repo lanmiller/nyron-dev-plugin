@@ -85,7 +85,7 @@
       {/each}
     </nav>
 
-    <div class="side-h">Сессии</div>
+    <div class="side-h" title="цвет точки — вердикт сторожа: зелёная — работает; жёлтая — ждёт вашего решения (оформленный ask); оранжевая — спросила в чате и молчит; горчичная — застряла; серая — закончилась; тусклая — сторож её ещё не видел">Сессии <span class="hint-q">?</span></div>
     <nav class="sessions">
       {#each st.sessions as s (s.key)}
         {@const [label, color] = STATE_RU[s.state] || ['', 'var(--text-4)']}
@@ -142,7 +142,12 @@
   nav.projects a.active { background: var(--bg-2); color: var(--text-1); }
   .side-h {
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-    color: var(--text-4); padding: 16px 10px 6px;
+    color: var(--text-4); padding: 16px 10px 6px; cursor: default;
+  }
+  .hint-q {
+    display: inline-block; border: 1px solid var(--border); border-radius: 50%;
+    width: 13px; height: 13px; line-height: 13px; text-align: center;
+    font-size: 9px; margin-left: 4px; color: var(--text-4);
   }
   nav.sessions { display: flex; flex-direction: column; gap: 1px; flex: 1; }
   nav.sessions a {

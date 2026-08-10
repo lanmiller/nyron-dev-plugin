@@ -119,7 +119,21 @@ export function openSession(project, key) {
 }
 
 export function decide({ project, ask_id, decision, by }) {
-  return hubFor(rootByName(project)).decide({ ask_id, decision, by: by || 'morda' });
+  const hub = hubFor(rootByName(project));
+  const r = hub.decide({ ask_id, decision, by: by || 'morda' });
+  // Ответ на ask МЁРТВОЙ сессии никто не заберёт pull-ом (забирает только
+  // сама сессия по своему id) — поэтому решение дублируется в шину
+  // диспетчеру: живые сессии видят его сразу, не дожидаясь воскрешения
+  // автора вопроса (вопрос CTO 10.08: «если я отвечу — что будет?»).
+  if (!r.already_decided) {
+    try {
+      hub.post({
+        from: by || 'morda', to: 'dispatcher', ticket: r.ask.ticket || undefined,
+        text: `решение по ask сессии ${String(r.ask.session).slice(0, 12)}: «${String(r.ask.question).slice(0, 120)}» → «${String(decision).slice(0, 200)}». Исполнить и подтвердить: hub_ack ${ask_id}`,
+      });
+    } catch { /* шина недоступна — решение всё равно в asks */ }
+  }
+  return r;
 }
 
 export function cancelAsk({ project, ask_id, by, reason }) {
