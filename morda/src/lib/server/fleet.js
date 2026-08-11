@@ -234,6 +234,19 @@ export function askAuthor({ project, ask_id, text, by }) {
   return { sent: true, to: a.session, ask_id };
 }
 
+/** Открыть файл системным приложением. Путь проверяется тем же резолвом,
+ *  что и обозреватель: наружу корня проекта не выпускаем. */
+export function openFileOutside(project, rel) {
+  const root = rootByName(project);
+  const base = path.resolve(root);
+  const full = path.resolve(base, rel);
+  if (full !== base && !full.startsWith(base + path.sep))
+    throw new Error('путь вне корня проекта');
+  if (!fs.existsSync(full)) throw new Error('файла нет');
+  execFile('open', [full], () => {});
+  return { opened: rel };
+}
+
 export function cancelAsk({ project, ask_id, by, reason }) {
   return hubFor(rootByName(project)).cancelAsk({ ask_id, by: by || 'morda', reason });
 }

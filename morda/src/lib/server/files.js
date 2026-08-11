@@ -19,7 +19,8 @@ const TEXT_EXT = new Set(['.md', '.txt', '.js', '.mjs', '.cjs', '.ts', '.tsx',
   '.jsx', '.svelte', '.json', '.yml', '.yaml', '.toml', '.py', '.sh', '.bash',
   '.zsh', '.css', '.scss', '.html', '.sql', '.env', '.ini', '.cfg', '.conf',
   '.xml', '.svg', '.gitignore', '.dockerignore', '.example', '.lock', '.rs',
-  '.go', '.java', '.kt', '.rb', '.php', '.vue', '.astro', '.jsonl']);
+  '.go', '.java', '.kt', '.rb', '.php', '.vue', '.astro', '.jsonl',
+  '.csv', '.tsv']);
 
 // картинки отдаются сырым потоком (mode=raw) и показываются как картинки —
 // скриншоты требований и дизайна смотрят прямо в пульте (CTO 11.08)
