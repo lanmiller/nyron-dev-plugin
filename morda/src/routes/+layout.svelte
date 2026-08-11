@@ -9,7 +9,7 @@
 
   let { children } = $props();
 
-  const st = $state({ overview: null, sessions: [], sendError: null });
+  const st = $state({ overview: null, sessions: [], tree: [], sendError: null });
   setContext('morda', st);
 
   // активный проект: из URL окна сессии → из ?p= → первый с открытыми ask
@@ -30,8 +30,15 @@
   const ACTIVE = ['working', 'waiting_decision', 'waiting_silent', 'stalled'];
   const isLive = (s) => s.open_asks || ACTIVE.includes(s.state)
     || (!s.state && Date.now() - new Date(s.mtime).getTime() < 2 * 3600 * 1000);
-  let liveSessions = $derived(st.sessions.filter(isLive));
-  let doneSessions = $derived(st.sessions.filter((s) => !isLive(s)));
+  const live = (ss) => (ss || []).filter(isLive);
+  const done = (ss) => (ss || []).filter((s) => !isLive(s));
+
+  // раскрытые проекты: активный всегда, остальные — по клику человека
+  let opened = $state({});
+  const isOpen = (name) => opened[name] ?? (name === project);
+  function toggleProject(name) {
+    opened = { ...opened, [name]: !isOpen(name) };
+  }
 
   let seq = 0;
   async function refresh() {
@@ -43,13 +50,16 @@
       st.overview = next;
     } catch { /* сервер перезапускается — следующий тик дотянется */ }
   }
+  // дерево «проект → сессии» одним запросом: слева одна навигация
+  // (эталон Claude Desktop, требование CTO 11.08)
   async function refreshSessions() {
-    if (!project) return;
-    const p = project;
     try {
-      const r = await fetch(`/api/sessions/${encodeURIComponent(p)}`);
+      const r = await fetch('/api/tree');
       const next = await r.json();
-      if (project === p && next.sessions) st.sessions = next.sessions;
+      if (next.projects) {
+        st.tree = next.projects;
+        st.sessions = next.projects.find((p) => p.name === project)?.sessions || [];
+      }
     } catch {}
   }
   // Ссылки трекера — попап-окном поверх STOVP (в браузере вы уже
@@ -98,20 +108,11 @@
       <span class="at">{st.overview ? new Date(st.overview.at).toLocaleTimeString('ru') : '…'}</span>
     </div>
 
-    <nav class="projects">
-      {#each st.overview?.projects || [] as p (p.name)}
-        {@const n = openCount(p)}
-        <a href="/?p={encodeURIComponent(p.name)}" class:active={project === p.name}>
-          {p.name}
-          {#if n}<span class="badge">{n}</span>{/if}
-        </a>
-      {/each}
-    </nav>
+    <div class="side-h" title="цвет точки — вердикт сторожа: зелёная — работает; жёлтая — ждёт вашего решения (оформленный ask); оранжевая — спросила в чате и молчит; горчичная — застряла; серая — закончилась; тусклая — сторож её ещё не видел">Проекты и сессии <span class="hint-q">?</span></div>
 
-    <div class="side-h" title="цвет точки — вердикт сторожа: зелёная — работает; жёлтая — ждёт вашего решения (оформленный ask); оранжевая — спросила в чате и молчит; горчичная — застряла; серая — закончилась; тусклая — сторож её ещё не видел">Сессии <span class="hint-q">?</span></div>
-    {#snippet row(s)}
+    {#snippet row(proj, s)}
       {@const [label, color] = STATE_RU[s.state] || ['', 'var(--text-4)']}
-      <a href="/s/{encodeURIComponent(project)}/{s.key}"
+      <a href="/s/{encodeURIComponent(proj)}/{s.key}"
          class:active={page.params?.key === s.key}
          title="{s.title} · {label || 'вне надзора'}">
         <i class="dot" style="background:{color}"></i>
@@ -120,19 +121,40 @@
         <span class="age">{age(s.mtime)}</span>
       </a>
     {/snippet}
-    <nav class="sessions">
-      {#each liveSessions as s (s.key)}{@render row(s)}{/each}
-      {#if !liveSessions.length}
-        <p class="quiet none">живых сессий нет</p>
-      {/if}
-      <!-- кладбище отработавших волн (воркtree снесены — норма) не должно
-           тонуть вперемешку с живыми (CTO 10.08) -->
-      {#if doneSessions.length}
-        <details class="done-group">
-          <summary>завершённые ({doneSessions.length})</summary>
-          {#each doneSessions as s (s.key)}{@render row(s)}{/each}
-        </details>
-      {/if}
+
+    <!-- Дерево: проект → его сессии (эталон Claude Desktop). Свёрнутый
+         проект всё равно показывает бейдж открытых вопросов — затор виден
+         не раскрывая. -->
+    <nav class="tree">
+      {#each st.tree as p (p.name)}
+        {@const ov = st.overview?.projects?.find((x) => x.name === p.name)}
+        {@const n = ov ? openCount(ov) : 0}
+        {@const ls = live(p.sessions)}
+        {@const ds = done(p.sessions)}
+        <div class="proj" class:current={project === p.name}>
+          <button class="proj-head" onclick={() => toggleProject(p.name)}
+            title="{p.name} · живых {ls.length}">
+            <span class="caret" class:open={isOpen(p.name)}>›</span>
+            <span class="pname">{p.name}</span>
+            {#if n}<span class="badge">{n}</span>{/if}
+            <span class="age">{ls.length || ''}</span>
+          </button>
+          {#if isOpen(p.name)}
+            <div class="proj-body">
+              {#each ls as s (s.key)}{@render row(p.name, s)}{/each}
+              {#if !ls.length}<p class="quiet none">живых нет</p>{/if}
+              <!-- кладбище отработавших волн не мешается с живыми (CTO 10.08) -->
+              {#if ds.length}
+                <details class="done-group">
+                  <summary>завершённые ({ds.length})</summary>
+                  {#each ds as s (s.key)}{@render row(p.name, s)}{/each}
+                </details>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/each}
+      {#if !st.tree.length}<p class="quiet none">читаю проекты…</p>{/if}
     </nav>
 
     {#if st.overview?.copies?.length}
@@ -164,14 +186,23 @@
   .brand .mark { color: var(--accent); }
   .brand b { font-family: var(--serif); font-size: 17px; font-weight: 500; }
   .brand .at { margin-left: auto; font-size: 11px; color: var(--text-4); }
-  nav.projects { display: flex; flex-direction: column; gap: 2px; }
-  nav.projects a {
-    display: flex; align-items: center; gap: 6px;
-    padding: 6px 10px; border-radius: var(--r);
-    color: var(--text-2); text-decoration: none; font-size: 14px;
+  nav.tree { display: flex; flex-direction: column; gap: 1px; flex: 1; }
+  .proj { display: flex; flex-direction: column; }
+  .proj-head {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+    padding: 6px 8px; border-radius: var(--r);
+    background: none; border: 0; cursor: pointer; text-align: left;
+    color: var(--text-2); font: inherit; font-size: 13.5px;
   }
-  nav.projects a:hover { background: var(--bg-2); }
-  nav.projects a.active { background: var(--bg-2); color: var(--text-1); }
+  .proj-head:hover { background: var(--bg-2); }
+  .proj.current > .proj-head { color: var(--text-1); font-weight: 600; }
+  .caret {
+    display: inline-block; flex: none; width: 10px;
+    color: var(--text-4); transition: transform 0.15s;
+  }
+  .caret.open { transform: rotate(90deg); }
+  .pname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .proj-body { display: flex; flex-direction: column; gap: 1px; padding-left: 10px; }
   .side-h {
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
     color: var(--text-4); padding: 16px 10px 6px; cursor: default;
@@ -181,18 +212,17 @@
     width: 13px; height: 13px; line-height: 13px; text-align: center;
     font-size: 9px; margin-left: 4px; color: var(--text-4);
   }
-  nav.sessions { display: flex; flex-direction: column; gap: 1px; flex: 1; }
-  nav.sessions a {
+    nav.tree a {
     display: flex; align-items: center; gap: 7px;
     padding: 5px 10px; border-radius: 8px;
     color: var(--text-2); text-decoration: none; font-size: 13px;
     min-width: 0;
   }
-  nav.sessions a:hover { background: var(--bg-2); }
-  nav.sessions a.active { background: var(--bg-2); color: var(--text-1); }
-  nav.sessions .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
-  nav.sessions .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-  nav.sessions .age { font-size: 11px; color: var(--text-4); flex: none; }
+  nav.tree a:hover { background: var(--bg-2); }
+  nav.tree a.active { background: var(--bg-2); color: var(--text-1); }
+  nav.tree .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  nav.tree .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  nav.tree .age { font-size: 11px; color: var(--text-4); flex: none; }
   .none { padding: 4px 10px; font-size: 13px; }
   .done-group > summary {
     cursor: pointer; color: var(--text-4); font-size: 12px;

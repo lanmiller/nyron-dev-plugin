@@ -44,7 +44,7 @@ const T = await import(/* @vite-ignore */ path.join(PLUGIN_HUB, 'transcript.mjs'
 // локальная Map копила бы открытые SQLite-дескрипторы (ревью Sol 09.08).
 const dbs = (globalThis.__mordaHubs ??= new Map()); // root → HubDb
 
-function projects() {
+export function projects() {
   const p = path.join(MORDA_ROOT, 'projects.json');
   if (!fs.existsSync(p)) return null;
   return JSON.parse(fs.readFileSync(p, 'utf8'));
