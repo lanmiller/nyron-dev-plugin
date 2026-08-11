@@ -18,6 +18,11 @@
  * Волна 1 (фундамент) добавила снизу мост в Tailwind 4 / shadcn: токены лока
  * — по-прежнему источник правды, тема Tailwind только ССЫЛАЕТСЯ на них. Ни
  * одно значение здесь не продублировано вторым числом.
+ *
+ * Волна 2 (компонентная база) добавила три вещи: слои каскада (правила лока
+ * уехали в @layer components — см. ниже почему), точечный сброс UA-стилей
+ * внутри shadcn-поддеревьев вместо полного preflight и недостающие
+ * custom-варианты, без которых половина классов shadcn не компилируется.
  */
 
 /* ---------- Tailwind 4: только тема и утилиты, БЕЗ preflight ----------
@@ -26,8 +31,12 @@
    пульта и рендер маркдауна в транскрипте стоят на этих умолчаниях в полутора
    десятках мест — с ним морда поехала бы визуально в ту же секунду. Экраны
    переписывает следующая волна: вместе с ней включается и preflight.
-   Практическое следствие сейчас: shadcn-компоненты красятся темой ниже, но
-   рассчитывать на «нулевые отступы по умолчанию» внутри них ещё нельзя. */
+   Волна 2 проверяла это не рассуждением, а пробой: один и тот же
+   замороженный DOM `/`, окна сессии и макета, отрисованный старым и новым
+   CSS, совпал попиксельно (38,5 млн пикселей, 0 расхождений) — при
+   включённом preflight так не вышло бы. Чтобы shadcn-компоненты при этом не
+   жили на UA-умолчаниях, ниже стоит мини-сброс, ограниченный поддеревьями
+   с меткой data-slot. */
 @layer theme, base, components, utilities;
 @import 'tailwindcss/theme.css' layer(theme);
 @import 'tailwindcss/utilities.css' layer(utilities);
@@ -37,6 +46,39 @@
    у shadcn-компонентов срабатывали их же dark:-правки, рассчитанные ровно на
    такой фон. Светлой ветки у лока нет и не планируется. */
 @custom-variant dark (&:is(.dark *));
+
+/* Указатель мыши. Лок собран mobile-first: цели пальца — база, плотная
+   раскладка — надстройка. Компонентам shadcn нужен тот же рычаг классом,
+   поэтому медиазапрос из низа файла продублирован здесь вариантом:
+   `fine:min-h-0` читается как «под мышью — плотно». */
+@custom-variant fine (@media (pointer: fine));
+
+/* Варианты состояний bits-ui. Их ставит `shadcn-svelte init`, а волна 1
+   собирала тему руками — и они потерялись. Без них `data-open:animate-in`
+   и `data-active:*` не превращаются НИ ВО ЧТО: выпадающее меню появляется
+   рывком, активная вкладка не подсвечивается. Источник — tailwind.css
+   пакета shadcn-svelte; :where внутри держит нулевую специфичность, чтобы
+   вариант не перебивал класс, к которому приклеен. */
+@custom-variant data-open {
+  &:where([data-state='open']), &:where([data-open]:not([data-open='false'])) { @slot; }
+}
+@custom-variant data-closed {
+  &:where([data-state='closed']), &:where([data-closed]:not([data-closed='false'])) { @slot; }
+}
+@custom-variant data-checked {
+  &:where([data-state='checked']), &:where([data-checked]:not([data-checked='false'])) { @slot; }
+}
+@custom-variant data-unchecked {
+  &:where([data-state='unchecked']), &:where([data-unchecked]:not([data-unchecked='false'])) { @slot; }
+}
+@custom-variant data-disabled {
+  &:where([data-disabled='true']), &:where([data-disabled]:not([data-disabled='false'])) { @slot; }
+}
+@custom-variant data-active {
+  &:where([data-state='active']), &:where([data-active]:not([data-active='false'])) { @slot; }
+}
+@custom-variant data-horizontal { &:where([data-orientation='horizontal']) { @slot; } }
+@custom-variant data-vertical { &:where([data-orientation='vertical']) { @slot; } }
 
 @theme {
   /* --- палитра: только лок --- */
@@ -68,6 +110,11 @@
   --color-accent-foreground: var(--text-1);
   --color-primary: var(--accent);
   --color-primary-foreground: var(--accent-ink);
+
+  /* Затемнение под модалкой и шторкой. Отдельный токен, а не bg-black/40:
+     чистый чёрный из палитры вычищен выше, да и холодная чернота под тёплым
+     графитом читается грязью. */
+  --color-scrim: var(--scrim);
 
   --color-border: var(--border);
   --color-border-soft: var(--border-soft);
@@ -175,6 +222,7 @@
   --hot: #e5734b;
   --stall: #b3a53c;
   --dead: #8a857d;
+  --scrim: rgb(18 17 16 / 0.62);   /* тот же графит, только глуше холста */
 
   /* --- типографика: 7 ступеней вместо 12 значений на глаз --- */
   --fs-micro: 11px;     /* бейджи, надзаголовки секций */
@@ -209,354 +257,404 @@
   --serif: ui-serif, 'Iowan Old Style', Georgia, serif;
   --mono: ui-monospace, 'SF Mono', Menlo, monospace;
 }
-
-* { box-sizing: border-box; }
-html { overflow-x: clip; }        /* страницу нельзя утащить вбок жестом */
-body {
-  margin: 0;
-  overflow-x: clip;
-  overscroll-behavior-x: none;    /* горизонтальный свайп не уводит холст */
-  background: var(--bg-1);
-  color: var(--text-1);
-  font: var(--fs-md)/var(--lh) var(--sans);
-}
-a { color: inherit; }
-button { font: inherit; cursor: pointer; }
-h1, h2.display { font-family: var(--serif); font-weight: 500; }
-
-/* Фокус с клавиатуры — был не описан НИГДЕ (аудит 11.08). Одно правило на
-   всё интерактивное: без него интерфейс невидим для клавиатуры. */
-:where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  border-radius: var(--r-sm);
-}
-
-/* ---------- атомы ---------- */
-
-.mono { font-family: var(--mono); font-size: 0.86em; }
-.quiet { color: var(--text-4); }
-
-/* надзаголовок секции: «ЖДУТ ВАС», «ПРОЕКТЫ И СЕССИИ» */
-.eyebrow {
-  font-size: var(--fs-micro); text-transform: uppercase;
-  letter-spacing: 0.08em; color: var(--text-3); font-weight: 600;
-}
-
-.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
-
-/* Иконка (обёртка — lib/Icon.svelte). Один штрих на весь пульт: набор lucide
-   нарисован под 2px при 24px, на наших 16px это выглядит жирнее текста и
-   перетягивает внимание на себя — в режиме Operate иконка идёт в строку с
-   текстом, а не спорит с ним. Штрих задаётся здесь, а не в компоненте, чтобы
-   менять его в одном месте. */
-.icon { flex: none; vertical-align: -0.14em; }
-.icon :is(g, path, circle, rect, line, polyline, polygon, ellipse) {
-  stroke-width: 1.5;
-}
-
-.badge {
-  background: var(--accent); color: var(--accent-ink);
-  border-radius: var(--r-pill); font-size: 10.5px; font-weight: 700;
-  padding: 1px 7px; vertical-align: middle;
-}
-.badge.mute { background: var(--bg-3); color: var(--text-2); }
-
-.chip {
-  display: inline-flex; align-items: center; gap: var(--sp-3);
-  border: 1px solid var(--border); border-radius: var(--r-pill);
-  padding: 1px 9px; font-size: var(--fs-xs); color: var(--text-2);
-  background: var(--bg-2); white-space: nowrap;
-}
-button.chip:hover:not(:disabled) { border-color: var(--accent); color: var(--text-1); }
-
-/* ---------- кнопки ---------- */
-
-.btn {
-  background: var(--bg-2); color: var(--text-1);
-  border: 1px solid var(--border); border-radius: var(--r);
-  padding: 7px 14px;
-  transition: border-color var(--t-fast), background var(--t-fast);
-}
-.btn:hover:not(:disabled) { border-color: var(--accent); }
-.btn:active:not(:disabled) { background: var(--bg-3); }
-.btn:disabled { opacity: 0.4; cursor: default; }
-.btn.primary {
-  background: var(--accent); color: var(--accent-ink);
-  border-color: var(--accent); font-weight: 600;
-}
-.btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
-.btn.sm { padding: 5px 11px; font-size: var(--fs-sm); }
-.btn.busy { position: relative; color: transparent; pointer-events: none; }
-.btn.busy::after {
-  content: ''; position: absolute; inset: 0; margin: auto;
-  width: 13px; height: 13px; border-radius: 50%;
-  border: 2px solid var(--text-3); border-top-color: transparent;
-  animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* третичное действие в ряду: «уточнить у автора», «снять вопрос» */
-.link {
-  background: none; border: 0; padding: 0;
-  color: var(--text-3); font: inherit; font-size: var(--fs-xs);
-  text-decoration: none; cursor: pointer;
-  transition: color var(--t-fast);
-}
-.link:hover:not(:disabled) { color: var(--accent); }
-.link:disabled { opacity: 0.4; cursor: default; }
-.link.danger:hover:not(:disabled) { color: var(--hot); }
-
-/* ---------- поля ---------- */
-
-input[type='text'], input[type='search'], textarea, select {
-  background: var(--bg-0); color: var(--text-1);
-  border: 1px solid var(--border); border-radius: var(--r);
-  padding: var(--sp-4) var(--sp-5); font: inherit;
-  transition: border-color var(--t-fast);
-}
-input:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--text-4); }
-::placeholder { color: var(--text-4); }
-
-/* Композер: поле и кнопка отправки в одной рамке, кнопка — круглая иконка
-   внутри (эталон Claude, CTO 11.08: «зачем эта гигантская кнопка»). */
-.composer-box {
-  display: flex; align-items: flex-end; gap: var(--sp-3);
-  background: var(--bg-0); border: 1px solid var(--border);
-  border-radius: var(--r-lg); padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5);
-  transition: border-color var(--t-fast);
-}
-.composer-box:focus-within { border-color: var(--accent); }
-.composer-box textarea {
-  flex: 1; background: none; border: 0; padding: var(--sp-3) 0;
-  color: var(--text-1); font: inherit; resize: none; outline: none;
-  max-height: 40vh; min-height: 1.5em;
-}
-.composer-box textarea:focus-visible { outline: none; }
-.send {
-  flex: none; width: 34px; height: 34px; border-radius: 50%;
-  background: var(--accent); color: var(--accent-ink);
-  border: 0; display: grid; place-items: center; font-size: 15px;
-  transition: filter var(--t-fast), opacity var(--t-fast);
-}
-.send:hover:not(:disabled) { filter: brightness(1.08); }
-.send:disabled { opacity: 0.35; cursor: default; }
-
-/* ---------- поверхности ---------- */
-
-/* Панель правой колонки: заголовок + тело, сворачивается и разворачивается.
-   Эталон — рабочие панели Claude Desktop (фоновые задачи, файлы, браузер). */
-.panel {
-  background: var(--bg-2); border: 1px solid var(--border);
-  border-radius: var(--r); overflow: hidden;
-  display: flex; flex-direction: column;
-}
-.panel > header {
-  display: flex; align-items: center; gap: var(--sp-4);
-  padding: var(--sp-5) var(--sp-6);
-  border-bottom: 1px solid var(--border-soft);
-}
-.panel > header h3 {
-  margin: 0; font-size: var(--fs-md); font-weight: 600; flex: 1;
-}
-.panel > header .tools { display: flex; gap: var(--sp-4); margin-left: auto; }
-.panel > .body { padding: var(--sp-5) var(--sp-6); overflow: auto; }
-.panel > .body.flush { padding: 0; }
-
-/* Свёртка панели: заголовок — кнопка, стрелка показывает состояние
-   (CTO 11.08: «развороты, свороты — нормальный UX управления»). */
-.panel > header .fold {
-  background: none; border: 0; padding: 0; margin-right: var(--sp-2);
-  color: var(--text-4); font: inherit; line-height: 1;
-  transition: transform var(--t-fast), color var(--t-fast);
-}
-.panel > header .fold:hover { color: var(--text-1); }
-.panel > header .fold.open { transform: rotate(90deg); }
-.panel.collapsed > .body { display: none; }
-.panel.collapsed > header { border-bottom: 0; }
-
-/* строка списка внутри панели: задача, файл, сессия */
-.row {
-  display: flex; align-items: center; gap: var(--sp-4);
-  padding: var(--sp-3) var(--sp-5); border-radius: var(--r-sm);
-  color: var(--text-2); text-decoration: none; font-size: var(--fs-sm);
-  min-width: 0; transition: background var(--t-fast);
-}
-.row:hover { background: var(--bg-3); }
-.row.active { background: var(--bg-3); color: var(--text-1); }
-.row .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row .trail { color: var(--text-4); font-size: var(--fs-xs); flex: none; }
-
-/* пустое состояние учит интерфейсу, а не сообщает «пусто» */
-.empty {
-  color: var(--text-4); font-size: var(--fs-sm);
-  padding: var(--sp-6); text-align: center;
-}
-
-.err {
-  color: var(--hot); background: var(--bg-2);
-  border: 1px solid var(--hot); border-radius: var(--r);
-  padding: var(--sp-5) var(--sp-6);
-}
-.ok-note { color: var(--ok); font-size: var(--fs-xs); }
-
-/* ключ тикета в тексте — кликабелен, открывается попапом (см. +layout) */
-a.ticket {
-  color: var(--accent); text-decoration: none;
-  border-bottom: 1px dotted currentColor;
-}
-a.ticket:hover { border-bottom-style: solid; }
-
-/* сегментированный переключатель: масштаб вьюпорта в панели браузера,
-   режимы просмотра. Эталон — переключатель Responsive/Mobile/Tablet в
-   браузере Claude Desktop (CTO 11.08: «масштабер надо точно») */
-.seg {
-  display: inline-flex; background: var(--bg-0); border: 1px solid var(--border);
-  border-radius: var(--r-pill); padding: 2px; gap: 2px;
-}
-.seg button {
-  background: none; border: 0; border-radius: var(--r-pill);
-  color: var(--text-3); font: inherit; font-size: var(--fs-xs);
-  padding: var(--sp-2) var(--sp-5); white-space: nowrap;
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.seg button:hover { color: var(--text-1); }
-.seg button.on { background: var(--bg-3); color: var(--text-1); }
-.seg .dim { color: var(--text-4); margin-left: var(--sp-3); font-size: var(--fs-micro); }
-
-/* Разделитель колонок: панели тянутся за него, чат остаётся центром
-   (модель Claude Desktop — CTO 11.08 «окна открываются и тянутся, а чат
-   основной в центре»). Полоса узкая, зона захвата шире неё. */
-.splitter {
-  flex: none; width: 5px; cursor: col-resize; position: relative;
-  background: none; border: 0; padding: 0; align-self: stretch;
-}
-.splitter::before {
-  content: ''; position: absolute; inset: 0 2px;
-  background: var(--border-soft); border-radius: 2px;
-  transition: background var(--t-fast);
-}
-.splitter:hover::before, .splitter.dragging::before { background: var(--accent); }
-.splitter::after {           /* зона захвата шире видимой полосы */
-  content: ''; position: absolute; inset: 0 -5px;
-}
-
-/* окно наблюдения за браузером сессии: рамка держит выбранный размер */
-.viewport {
-  border: 1px solid var(--border); border-radius: var(--r-sm);
-  background: var(--bg-0); overflow: hidden; margin: 0 auto;
-}
-
-/* ---------- файлы: дерево и просмотрщик ----------
-   Кирпичи обозревателя вынесены в систему (правило CTO 11.08: компонент
-   сразу в дизайн-систему), чтобы панель файлов эпика, вложения требований
-   и просмотр в окне сессии собирались из одного и того же. */
-.filetree { display: flex; flex-direction: column; gap: 1px; }
-.filetree .row { width: 100%; background: none; border: 0; text-align: left; font: inherit; }
-.filetree .caret {
-  color: var(--text-4); display: inline-block; width: 10px; flex: none;
-  transition: transform var(--t-fast);
-}
-.filetree .caret.open { transform: rotate(90deg); }
-.filetree .row.dir { color: var(--text-1); }
-
-/* шапка просмотра: имя файла и его вес */
-.viewer-head { display: flex; gap: var(--sp-5); align-items: baseline; margin-bottom: var(--sp-5); }
-.viewer-head .quiet { font-size: var(--fs-xs); }
-
-/* картинка вложения: скриншоты требований и дизайна */
-.shot {
-  max-width: 100%; border: 1px solid var(--border);
-  border-radius: var(--r-sm); background: var(--bg-0); display: block;
-}
-
-/* формат, который встроенный браузер не рисует (PDF) — честный выход */
-.viewer-fallback {
-  display: flex; flex-direction: column; gap: var(--sp-5);
-  align-items: center; padding: var(--sp-8); color: var(--text-3);
-}
-
-/* код файла как есть */
-.filecode {
-  background: var(--bg-0); border: 1px solid var(--border-soft);
-  border-radius: var(--r-sm); padding: var(--sp-5); margin: 0;
-  font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
-  white-space: pre; overflow-x: auto;
-}
-
-/* Таблицы: половина документации и брифов написана ими. Широкое катается
-   внутри своего блока — страница по горизонтали не едет. */
-.tw { overflow-x: auto; margin: var(--sp-5) 0; }
-.tw table { border-collapse: collapse; font-size: var(--fs-sm); min-width: 100%; }
-.tw th, .tw td {
-  border: 1px solid var(--border-soft); padding: var(--sp-3) var(--sp-5);
-  text-align: left; vertical-align: top;
-}
-.tw th { background: var(--bg-0); color: var(--text-1); font-weight: 600; white-space: nowrap; }
-.tw td { color: var(--text-2); }
-.tw tbody tr:hover td { background: var(--bg-3); }
-
-/* скелет загрузки вместо крутилки посреди контента (правило Operate) */
-.skeleton {
-  background: linear-gradient(90deg, var(--bg-2), var(--bg-3), var(--bg-2));
-  background-size: 200% 100%; border-radius: var(--r-sm);
-  animation: shimmer 1.4s ease-in-out infinite; height: 1em;
-}
-@keyframes shimmer { to { background-position: -200% 0; } }
-
-@media (prefers-reduced-motion: reduce) {
-  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-}
-
-/* ---------- mobile-first ----------
-   База — телефон: цели пальца, крупный ввод, одна колонка. Мышь и широкий
-   экран НАДСТРАИВАЮТСЯ поверх (min-width / pointer: fine), а не наоборот
-   (решение CTO 11.08: «строил бы mobile-first — из него проще десктоп»).
-   Заодно правило целей задаётся по РОЛИ элемента: раскладка по классам не
-   срабатывала — локальные стили компонентов перебивали .row. */
-:where(nav a:not(.ticket), nav button:not(.fold), .row, .tab, .proj-head, li a) {
-  min-height: var(--tap);
-}
-.panel > header .fold { min-width: 40px; min-height: 40px; margin-left: -8px; }
-/* зона нажатия ключа тикета — псевдоэлементом: отступы делали его блочным
-   и рвали строку (регресс, пойман прогоном 11.08) */
-a.ticket { position: relative; }
-a.ticket::after { content: ''; position: absolute; inset: -12px -6px; }
-.seg button { min-height: 40px; }
-.btn { padding: 11px 16px; min-height: var(--tap); }
-.btn.sm { padding: 8px 13px; min-height: 36px; }
-.link { min-height: 32px; display: inline-flex; align-items: center; font-size: var(--fs-sm); }
-.row { padding: var(--sp-4) var(--sp-5); min-height: var(--tap); font-size: var(--fs-md); }
-.chip { padding: var(--sp-3) 11px; font-size: var(--fs-sm); }
-input[type='text'], input[type='search'], textarea, select {
-  font-size: 16px;      /* меньше 16 — iOS зумит страницу при фокусе */
-  padding: 11px var(--sp-5);
-}
-summary { min-height: 34px; display: flex; align-items: center; }
-.panel > .body { padding: var(--sp-5); }
-/* широкое (код, таблицы, штампы) катается внутри своего блока — страница
-   по горизонтали не едет ни на одной ширине */
-pre, table { max-width: 100%; overflow-x: auto; }
-
-/* мышь: то же самое, но плотнее — курсор точнее пальца */
-@media (pointer: fine) {
-  :where(nav a:not(.ticket), nav button:not(.fold), .row, .tab, .proj-head, li a) {
-    min-height: 0;
+/* ---------- мини-preflight: только внутри компонентов shadcn ----------
+   Полный preflight ломает экраны (см. шапку), но компоненты shadcn писались
+   в расчёте на него: заголовок диалога — это <h2>, описание карточки — <p>,
+   и с браузерными умолчаниями они разъезжаются отступами и кеглем. Метка
+   data-slot есть у каждого узла shadcn и НЕТ ни на одном нашем экране —
+   значит сброс физически не может задеть действующую вёрстку. Слой base
+   ниже утилит: любой класс на компоненте по-прежнему главнее сброса. */
+@layer base {
+  [data-slot],
+  [data-slot] :is(h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd, ul, ol) {
+    margin: 0;
   }
-  .panel > header .fold { min-width: 0; min-height: 0; margin-left: 0; }
-  a.ticket::after { content: none; }
-  .seg button { min-height: 0; }
-  .btn { padding: 7px 14px; min-height: 0; }
-  .btn.sm { padding: 5px 11px; min-height: 0; }
-  .link { min-height: 0; display: inline; font-size: var(--fs-xs); }
-  .row { padding: var(--sp-3) var(--sp-5); min-height: 0; font-size: var(--fs-sm); }
-  .chip { padding: 1px 9px; font-size: var(--fs-xs); }
+  [data-slot] :is(h1, h2, h3, h4, h5, h6) { font-size: inherit; font-weight: inherit; }
+  [data-slot] :is(ul, ol) { padding-left: 0; list-style: none; }
+
+  /* Элементы форм. Браузер красит <button> собственным светло-серым фоном
+     (ButtonFace) и рисует ему рамку — заводской shadcn про это не знает,
+     потому что рассчитывает на preflight. Без этих трёх строк варианты
+     `ghost` и `link` и неактивные вкладки выглядят светлыми плашками
+     посреди тёмного пульта (поймано снимком витрины, а не рассуждением). */
+  [data-slot]:is(button, input, textarea, select),
+  [data-slot] :is(button, input, textarea, select) {
+    background-color: transparent;
+    background-image: none;
+    border: 0 solid;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+  }
+  [data-slot]:is(button, [role='button']),
+  [data-slot] :is(button, [role='button']) { cursor: pointer; }
+}
+
+/* ---------- дизайн-лок: слой components ----------
+   Правила лока живут в слое, а не «просто в файле», из-за одного механизма
+   каскада: неслоёный CSS главнее ЛЮБОГО слоя, независимо от специфичности.
+   Пока эти правила были вне слоёв, `input[type='text']` из лока перебивал
+   `bg-transparent` у shadcn-Input, а `button { font: inherit }` — размер
+   шрифта кнопки: компоненты нельзя было настроить утилитами вообще. Слой
+   components стоит перед utilities — теперь утилита выигрывает у правила
+   лока, а само правило по-прежнему главнее браузерных умолчаний.
+   Проверено снимками: на действующих экранах перенос не сдвинул ни пикселя
+   (стили внутри .svelte-компонентов и так были главнее — их селекторы
+   Svelte достраивает своим классом). */
+@layer components {
+  * { box-sizing: border-box; }
+  html { overflow-x: clip; }        /* страницу нельзя утащить вбок жестом */
+  body {
+    margin: 0;
+    overflow-x: clip;
+    overscroll-behavior-x: none;    /* горизонтальный свайп не уводит холст */
+    background: var(--bg-1);
+    color: var(--text-1);
+    font: var(--fs-md)/var(--lh) var(--sans);
+  }
+  a { color: inherit; }
+  button { font: inherit; cursor: pointer; }
+  h1, h2.display { font-family: var(--serif); font-weight: 500; }
+
+  /* Фокус с клавиатуры — был не описан НИГДЕ (аудит 11.08). Одно правило на
+     всё интерактивное: без него интерфейс невидим для клавиатуры. */
+  :where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-radius: var(--r-sm);
+  }
+
+  /* ---------- атомы ---------- */
+
+  .mono { font-family: var(--mono); font-size: 0.86em; }
+  .quiet { color: var(--text-4); }
+
+  /* надзаголовок секции: «ЖДУТ ВАС», «ПРОЕКТЫ И СЕССИИ» */
+  .eyebrow {
+    font-size: var(--fs-micro); text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--text-3); font-weight: 600;
+  }
+
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+  /* Иконка (обёртка — lib/Icon.svelte). Один штрих на весь пульт: набор lucide
+     нарисован под 2px при 24px, на наших 16px это выглядит жирнее текста и
+     перетягивает внимание на себя — в режиме Operate иконка идёт в строку с
+     текстом, а не спорит с ним. Штрих задаётся здесь, а не в компоненте, чтобы
+     менять его в одном месте. */
+  .icon { flex: none; vertical-align: -0.14em; }
+  .icon :is(g, path, circle, rect, line, polyline, polygon, ellipse) {
+    stroke-width: 1.5;
+  }
+
+  .badge {
+    background: var(--accent); color: var(--accent-ink);
+    border-radius: var(--r-pill); font-size: 10.5px; font-weight: 700;
+    padding: 1px 7px; vertical-align: middle;
+  }
+  .badge.mute { background: var(--bg-3); color: var(--text-2); }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: var(--sp-3);
+    border: 1px solid var(--border); border-radius: var(--r-pill);
+    padding: 1px 9px; font-size: var(--fs-xs); color: var(--text-2);
+    background: var(--bg-2); white-space: nowrap;
+  }
+  button.chip:hover:not(:disabled) { border-color: var(--accent); color: var(--text-1); }
+
+  /* ---------- кнопки ---------- */
+
+  .btn {
+    background: var(--bg-2); color: var(--text-1);
+    border: 1px solid var(--border); border-radius: var(--r);
+    padding: 7px 14px;
+    transition: border-color var(--t-fast), background var(--t-fast);
+  }
+  .btn:hover:not(:disabled) { border-color: var(--accent); }
+  .btn:active:not(:disabled) { background: var(--bg-3); }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn.primary {
+    background: var(--accent); color: var(--accent-ink);
+    border-color: var(--accent); font-weight: 600;
+  }
+  .btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+  .btn.sm { padding: 5px 11px; font-size: var(--fs-sm); }
+  .btn.busy { position: relative; color: transparent; pointer-events: none; }
+  .btn.busy::after {
+    content: ''; position: absolute; inset: 0; margin: auto;
+    width: 13px; height: 13px; border-radius: 50%;
+    border: 2px solid var(--text-3); border-top-color: transparent;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* третичное действие в ряду: «уточнить у автора», «снять вопрос» */
+  .link {
+    background: none; border: 0; padding: 0;
+    color: var(--text-3); font: inherit; font-size: var(--fs-xs);
+    text-decoration: none; cursor: pointer;
+    transition: color var(--t-fast);
+  }
+  .link:hover:not(:disabled) { color: var(--accent); }
+  .link:disabled { opacity: 0.4; cursor: default; }
+  .link.danger:hover:not(:disabled) { color: var(--hot); }
+
+  /* ---------- поля ---------- */
+
   input[type='text'], input[type='search'], textarea, select {
-    font-size: inherit; padding: var(--sp-4) var(--sp-5);
+    background: var(--bg-0); color: var(--text-1);
+    border: 1px solid var(--border); border-radius: var(--r);
+    padding: var(--sp-4) var(--sp-5); font: inherit;
+    transition: border-color var(--t-fast);
   }
-  summary { min-height: 0; display: list-item; }
-}
+  input:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--text-4); }
+  ::placeholder { color: var(--text-4); }
 
-@media (min-width: 901px) {
-  .panel > .body { padding: var(--sp-5) var(--sp-6); }
+  /* Композер: поле и кнопка отправки в одной рамке, кнопка — круглая иконка
+     внутри (эталон Claude, CTO 11.08: «зачем эта гигантская кнопка»). */
+  .composer-box {
+    display: flex; align-items: flex-end; gap: var(--sp-3);
+    background: var(--bg-0); border: 1px solid var(--border);
+    border-radius: var(--r-lg); padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5);
+    transition: border-color var(--t-fast);
+  }
+  .composer-box:focus-within { border-color: var(--accent); }
+  .composer-box textarea {
+    flex: 1; background: none; border: 0; padding: var(--sp-3) 0;
+    color: var(--text-1); font: inherit; resize: none; outline: none;
+    max-height: 40vh; min-height: 1.5em;
+  }
+  .composer-box textarea:focus-visible { outline: none; }
+  .send {
+    flex: none; width: 34px; height: 34px; border-radius: 50%;
+    background: var(--accent); color: var(--accent-ink);
+    border: 0; display: grid; place-items: center; font-size: 15px;
+    transition: filter var(--t-fast), opacity var(--t-fast);
+  }
+  .send:hover:not(:disabled) { filter: brightness(1.08); }
+  .send:disabled { opacity: 0.35; cursor: default; }
+
+  /* ---------- поверхности ---------- */
+
+  /* Панель правой колонки: заголовок + тело, сворачивается и разворачивается.
+     Эталон — рабочие панели Claude Desktop (фоновые задачи, файлы, браузер). */
+  .panel {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--r); overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .panel > header {
+    display: flex; align-items: center; gap: var(--sp-4);
+    padding: var(--sp-5) var(--sp-6);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .panel > header h3 {
+    margin: 0; font-size: var(--fs-md); font-weight: 600; flex: 1;
+  }
+  .panel > header .tools { display: flex; gap: var(--sp-4); margin-left: auto; }
+  .panel > .body { padding: var(--sp-5) var(--sp-6); overflow: auto; }
+  .panel > .body.flush { padding: 0; }
+
+  /* Свёртка панели: заголовок — кнопка, стрелка показывает состояние
+     (CTO 11.08: «развороты, свороты — нормальный UX управления»). */
+  .panel > header .fold {
+    background: none; border: 0; padding: 0; margin-right: var(--sp-2);
+    color: var(--text-4); font: inherit; line-height: 1;
+    transition: transform var(--t-fast), color var(--t-fast);
+  }
+  .panel > header .fold:hover { color: var(--text-1); }
+  .panel > header .fold.open { transform: rotate(90deg); }
+  .panel.collapsed > .body { display: none; }
+  .panel.collapsed > header { border-bottom: 0; }
+
+  /* строка списка внутри панели: задача, файл, сессия */
+  .row {
+    display: flex; align-items: center; gap: var(--sp-4);
+    padding: var(--sp-3) var(--sp-5); border-radius: var(--r-sm);
+    color: var(--text-2); text-decoration: none; font-size: var(--fs-sm);
+    min-width: 0; transition: background var(--t-fast);
+  }
+  .row:hover { background: var(--bg-3); }
+  .row.active { background: var(--bg-3); color: var(--text-1); }
+  .row .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .trail { color: var(--text-4); font-size: var(--fs-xs); flex: none; }
+
+  /* пустое состояние учит интерфейсу, а не сообщает «пусто» */
+  .empty {
+    color: var(--text-4); font-size: var(--fs-sm);
+    padding: var(--sp-6); text-align: center;
+  }
+
+  .err {
+    color: var(--hot); background: var(--bg-2);
+    border: 1px solid var(--hot); border-radius: var(--r);
+    padding: var(--sp-5) var(--sp-6);
+  }
+  .ok-note { color: var(--ok); font-size: var(--fs-xs); }
+
+  /* ключ тикета в тексте — кликабелен, открывается попапом (см. +layout) */
+  a.ticket {
+    color: var(--accent); text-decoration: none;
+    border-bottom: 1px dotted currentColor;
+  }
+  a.ticket:hover { border-bottom-style: solid; }
+
+  /* сегментированный переключатель: масштаб вьюпорта в панели браузера,
+     режимы просмотра. Эталон — переключатель Responsive/Mobile/Tablet в
+     браузере Claude Desktop (CTO 11.08: «масштабер надо точно») */
+  .seg {
+    display: inline-flex; background: var(--bg-0); border: 1px solid var(--border);
+    border-radius: var(--r-pill); padding: 2px; gap: 2px;
+  }
+  .seg button {
+    background: none; border: 0; border-radius: var(--r-pill);
+    color: var(--text-3); font: inherit; font-size: var(--fs-xs);
+    padding: var(--sp-2) var(--sp-5); white-space: nowrap;
+    transition: background var(--t-fast), color var(--t-fast);
+  }
+  .seg button:hover { color: var(--text-1); }
+  .seg button.on { background: var(--bg-3); color: var(--text-1); }
+  .seg .dim { color: var(--text-4); margin-left: var(--sp-3); font-size: var(--fs-micro); }
+
+  /* Разделитель колонок: панели тянутся за него, чат остаётся центром
+     (модель Claude Desktop — CTO 11.08 «окна открываются и тянутся, а чат
+     основной в центре»). Полоса узкая, зона захвата шире неё. */
+  .splitter {
+    flex: none; width: 5px; cursor: col-resize; position: relative;
+    background: none; border: 0; padding: 0; align-self: stretch;
+  }
+  .splitter::before {
+    content: ''; position: absolute; inset: 0 2px;
+    background: var(--border-soft); border-radius: 2px;
+    transition: background var(--t-fast);
+  }
+  .splitter:hover::before, .splitter.dragging::before { background: var(--accent); }
+  .splitter::after {           /* зона захвата шире видимой полосы */
+    content: ''; position: absolute; inset: 0 -5px;
+  }
+
+  /* окно наблюдения за браузером сессии: рамка держит выбранный размер */
+  .viewport {
+    border: 1px solid var(--border); border-radius: var(--r-sm);
+    background: var(--bg-0); overflow: hidden; margin: 0 auto;
+  }
+
+  /* ---------- файлы: дерево и просмотрщик ----------
+     Кирпичи обозревателя вынесены в систему (правило CTO 11.08: компонент
+     сразу в дизайн-систему), чтобы панель файлов эпика, вложения требований
+     и просмотр в окне сессии собирались из одного и того же. */
+  .filetree { display: flex; flex-direction: column; gap: 1px; }
+  .filetree .row { width: 100%; background: none; border: 0; text-align: left; font: inherit; }
+  .filetree .caret {
+    color: var(--text-4); display: inline-block; width: 10px; flex: none;
+    transition: transform var(--t-fast);
+  }
+  .filetree .caret.open { transform: rotate(90deg); }
+  .filetree .row.dir { color: var(--text-1); }
+
+  /* шапка просмотра: имя файла и его вес */
+  .viewer-head { display: flex; gap: var(--sp-5); align-items: baseline; margin-bottom: var(--sp-5); }
+  .viewer-head .quiet { font-size: var(--fs-xs); }
+
+  /* картинка вложения: скриншоты требований и дизайна */
+  .shot {
+    max-width: 100%; border: 1px solid var(--border);
+    border-radius: var(--r-sm); background: var(--bg-0); display: block;
+  }
+
+  /* формат, который встроенный браузер не рисует (PDF) — честный выход */
+  .viewer-fallback {
+    display: flex; flex-direction: column; gap: var(--sp-5);
+    align-items: center; padding: var(--sp-8); color: var(--text-3);
+  }
+
+  /* код файла как есть */
+  .filecode {
+    background: var(--bg-0); border: 1px solid var(--border-soft);
+    border-radius: var(--r-sm); padding: var(--sp-5); margin: 0;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
+    white-space: pre; overflow-x: auto;
+  }
+
+  /* Таблицы: половина документации и брифов написана ими. Широкое катается
+     внутри своего блока — страница по горизонтали не едет. */
+  .tw { overflow-x: auto; margin: var(--sp-5) 0; }
+  .tw table { border-collapse: collapse; font-size: var(--fs-sm); min-width: 100%; }
+  .tw th, .tw td {
+    border: 1px solid var(--border-soft); padding: var(--sp-3) var(--sp-5);
+    text-align: left; vertical-align: top;
+  }
+  .tw th { background: var(--bg-0); color: var(--text-1); font-weight: 600; white-space: nowrap; }
+  .tw td { color: var(--text-2); }
+  .tw tbody tr:hover td { background: var(--bg-3); }
+
+  /* скелет загрузки вместо крутилки посреди контента (правило Operate) */
+  .skeleton {
+    background: linear-gradient(90deg, var(--bg-2), var(--bg-3), var(--bg-2));
+    background-size: 200% 100%; border-radius: var(--r-sm);
+    animation: shimmer 1.4s ease-in-out infinite; height: 1em;
+  }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+
+  /* ---------- mobile-first ----------
+     База — телефон: цели пальца, крупный ввод, одна колонка. Мышь и широкий
+     экран НАДСТРАИВАЮТСЯ поверх (min-width / pointer: fine), а не наоборот
+     (решение CTO 11.08: «строил бы mobile-first — из него проще десктоп»).
+     Заодно правило целей задаётся по РОЛИ элемента: раскладка по классам не
+     срабатывала — локальные стили компонентов перебивали .row. */
+  :where(nav a:not(.ticket), nav button:not(.fold), .row, .tab, .proj-head, li a) {
+    min-height: var(--tap);
+  }
+  .panel > header .fold { min-width: 40px; min-height: 40px; margin-left: -8px; }
+  /* зона нажатия ключа тикета — псевдоэлементом: отступы делали его блочным
+     и рвали строку (регресс, пойман прогоном 11.08) */
+  a.ticket { position: relative; }
+  a.ticket::after { content: ''; position: absolute; inset: -12px -6px; }
+  .seg button { min-height: 40px; }
+  .btn { padding: 11px 16px; min-height: var(--tap); }
+  .btn.sm { padding: 8px 13px; min-height: 36px; }
+  .link { min-height: 32px; display: inline-flex; align-items: center; font-size: var(--fs-sm); }
+  .row { padding: var(--sp-4) var(--sp-5); min-height: var(--tap); font-size: var(--fs-md); }
+  .chip { padding: var(--sp-3) 11px; font-size: var(--fs-sm); }
+  input[type='text'], input[type='search'], textarea, select {
+    font-size: 16px;      /* меньше 16 — iOS зумит страницу при фокусе */
+    padding: 11px var(--sp-5);
+  }
+  /* Поля shadcn под то же правило: у них нет атрибута type, селектор выше их
+     не ловит. Кегль задан здесь, а не классом в компоненте, — иначе утилита
+     text-* перебила бы защиту от зума и вернула её же баг. */
+  [data-slot='input'], [data-slot='textarea'] { font-size: 16px; }
+  summary { min-height: 34px; display: flex; align-items: center; }
+  .panel > .body { padding: var(--sp-5); }
+  /* широкое (код, таблицы, штампы) катается внутри своего блока — страница
+     по горизонтали не едет ни на одной ширине */
+  pre, table { max-width: 100%; overflow-x: auto; }
+
+  /* мышь: то же самое, но плотнее — курсор точнее пальца */
+  @media (pointer: fine) {
+    :where(nav a:not(.ticket), nav button:not(.fold), .row, .tab, .proj-head, li a) {
+      min-height: 0;
+    }
+    .panel > header .fold { min-width: 0; min-height: 0; margin-left: 0; }
+    a.ticket::after { content: none; }
+    .seg button { min-height: 0; }
+    .btn { padding: 7px 14px; min-height: 0; }
+    .btn.sm { padding: 5px 11px; min-height: 0; }
+    .link { min-height: 0; display: inline; font-size: var(--fs-xs); }
+    .row { padding: var(--sp-3) var(--sp-5); min-height: 0; font-size: var(--fs-sm); }
+    .chip { padding: 1px 9px; font-size: var(--fs-xs); }
+    input[type='text'], input[type='search'], textarea, select {
+      font-size: inherit; padding: var(--sp-4) var(--sp-5);
+    }
+    [data-slot='input'], [data-slot='textarea'] { font-size: var(--fs-md); }
+    summary { min-height: 0; display: list-item; }
+  }
+
+  @media (min-width: 901px) {
+    .panel > .body { padding: var(--sp-5) var(--sp-6); }
+  }
 }

@@ -4,9 +4,31 @@
   // рисовать стили заново в каждом файле (аудит 11.08 — 42/100).
   import Icon from '$lib/Icon.svelte';
 
+  // Компоненты shadcn, приведённые к локу (волна 2). На витрине они стоят
+  // рядом со старыми кирпичами намеренно: если пара выглядит по-разному —
+  // значит компонент не приведён и его нельзя нести в экраны.
+  import { Button } from '$lib/ui/button/index.js';
+  import { Input } from '$lib/ui/input/index.js';
+  import { Textarea } from '$lib/ui/textarea/index.js';
+  import { Badge } from '$lib/ui/badge/index.js';
+  import * as Card from '$lib/ui/card/index.js';
+  import { Separator } from '$lib/ui/separator/index.js';
+  import * as Tabs from '$lib/ui/tabs/index.js';
+  import * as DropdownMenu from '$lib/ui/dropdown-menu/index.js';
+  import * as Sheet from '$lib/ui/sheet/index.js';
+  import * as Dialog from '$lib/ui/dialog/index.js';
+  import * as Tooltip from '$lib/ui/tooltip/index.js';
+  import { Skeleton } from '$lib/ui/skeleton/index.js';
+  import { ScrollArea } from '$lib/ui/scroll-area/index.js';
+  import * as Collapsible from '$lib/ui/collapsible/index.js';
+
   let busy = $state(false);
   let val = $state('');
   let picked = $state('панель');
+  let tab = $state('лента');
+  let sheetOpen = $state(false);
+  let dialogOpen = $state(false);
+  let folded = $state(false);
   // масштабер вьюпорта — как в браузере Claude Desktop
   const VIEWPORTS = [['Свободно', null], ['Телефон', '375 × 812'],
     ['Планшет', '768 × 1024'], ['Десктоп', '1280 × 800']];
@@ -138,6 +160,34 @@
     <button class="link danger">опасное третичное</button>
     <a class="link" href="/design">ссылка-действие</a>
   </div>
+
+  <h3 class="sub">Компонент <b class="mono">Button</b> — то же самое вариантами</h3>
+  <div class="demo">
+    <Button>Отправить</Button>
+    <Button variant="outline">Обычная</Button>
+    <Button variant="secondary">Плоская</Button>
+    <Button variant="ghost">Инструмент</Button>
+    <Button variant="destructive">Снять волну</Button>
+    <Button variant="link" class="px-0">третичное действие</Button>
+    <Button disabled>Недоступна</Button>
+    <Button variant="outline" disabled>Недоступна</Button>
+  </div>
+  <div class="demo">
+    <Button size="lg">Крупная</Button>
+    <Button size="sm" variant="outline">Мелкая</Button>
+    <Button size="xs" variant="outline">Микро</Button>
+    <Button size="icon" variant="outline" aria-label="файлы проекта"><Icon name="folder-tree" /></Button>
+    <Button size="icon-sm" variant="ghost" aria-label="открыть снаружи"><Icon name="external-link" /></Button>
+    <Button variant="outline" href="/design">Ссылка-кнопка</Button>
+    <Button variant="outline"><Icon name="git-branch" />С иконкой</Button>
+  </div>
+  <p class="quiet note">
+    Размеры mobile-first: базово кнопка ростом с цель пальца (44px), под
+    мышью ужимается вариантом <b class="mono">fine:</b> до плотной раскладки
+    лока — те же 7×14px, что у <b class="mono">.btn</b>. Фокус кнопка себе не
+    рисует: обводку даёт одно правило <b class="mono">:focus-visible</b> на
+    весь пульт (проверьте табом — у обеих кнопок она одинаковая).
+  </p>
 </section>
 
 <section>
@@ -146,6 +196,25 @@
     <input type="text" placeholder="что уточнить у волны…" bind:value={val} />
     <select bind:value={picked}><option>панель</option><option>карточка</option></select>
     <button class="btn primary" disabled={!val.trim()}>Спросить</button>
+  </div>
+
+  <h3 class="sub">Компоненты <b class="mono">Input</b> и <b class="mono">Textarea</b></h3>
+  <div class="demo">
+    <Input class="max-w-72" placeholder="что уточнить у волны…" bind:value={val} />
+    <Input class="max-w-52" placeholder="недоступно" disabled />
+    <Button disabled={!val.trim()}>Спросить</Button>
+  </div>
+  <div class="demo">
+    <Textarea class="max-w-96" placeholder="ответ волне — растёт под текст…" />
+  </div>
+  <p class="quiet note">
+    Кегль поля задан не классом, а правилом лока: на телефоне 16px, иначе
+    iOS зумит страницу при фокусе. Ошибочное состояние — атрибутом
+    <b class="mono">aria-invalid</b>, а не своим классом: подсветка и
+    доступность не расходятся.
+  </p>
+  <div class="demo">
+    <Input class="max-w-72" aria-invalid="true" value="ключ тикета не найден" />
   </div>
 </section>
 
@@ -159,6 +228,22 @@
     <span class="chip">Desktop</span>
     <span class="mono">ai-evolve@500dc3e</span>
   </div>
+
+  <h3 class="sub">Компонент <b class="mono">Badge</b> — счётчик и плашка в одном</h3>
+  <div class="demo">
+    <Badge>3</Badge>
+    <Badge variant="secondary">12</Badge>
+    <Badge variant="outline">Desktop</Badge>
+    <Badge variant="ok">доставлено</Badge>
+    <Badge variant="warn">ждёт решения</Badge>
+    <Badge variant="destructive">молчит</Badge>
+    <Badge variant="outline" href="/design">кликабельная</Badge>
+  </div>
+  <p class="quiet note">
+    Смысловые варианты (<b class="mono">ok</b>, <b class="mono">warn</b>,
+    <b class="mono">destructive</b>) существуют, чтобы состояние сессии не
+    красили заново в каждом файле «на глаз».
+  </p>
 </section>
 
 <section>
@@ -230,6 +315,213 @@
       </div>
     </article>
   </div>
+
+  <h3 class="sub">Компонент <b class="mono">Card</b> — та же панель по частям</h3>
+  <div class="panels">
+    <Card.Root>
+      <Card.Header>
+        <Card.Title>Волна Ф3 ждёт решения</Card.Title>
+        <Card.Description>CRDT fail-closed · DEV-1214 → 1216</Card.Description>
+        <Card.Action>
+          <Badge variant="warn">2</Badge>
+        </Card.Action>
+      </Card.Header>
+      <Card.Content>
+        <p class="m-0">
+          Нужен ли ребейз перед мержем? Ветка отстала на четыре коммита,
+          конфликтов нет.
+        </p>
+      </Card.Content>
+      <Card.Footer>
+        <Button size="sm">Ответить</Button>
+        <Button size="sm" variant="outline">Уточнить у автора</Button>
+      </Card.Footer>
+    </Card.Root>
+
+    <Card.Root size="sm">
+      <Card.Header><Card.Title>Плотная карточка</Card.Title></Card.Header>
+      <Card.Content>
+        <div class="rows">
+          <Skeleton class="h-4 w-3/4" />
+          <Skeleton class="h-4 w-1/2" />
+          <Skeleton class="h-4 w-2/3" />
+        </div>
+      </Card.Content>
+    </Card.Root>
+  </div>
+  <p class="quiet note">
+    Скелет внутри — тот же <b class="mono">.skeleton</b>, что и слева:
+    компонент не заводит второе мерцание, а размер ему задают утилитами
+    (<b class="mono">h-4 w-3/4</b>) — слой утилит главнее слоя лока.
+  </p>
+</section>
+
+<section>
+  <h2 class="eyebrow">Вкладки</h2>
+  <div class="demo">
+    <Tabs.Root bind:value={tab}>
+      <Tabs.List>
+        <Tabs.Trigger value="лента">Лента</Tabs.Trigger>
+        <Tabs.Trigger value="файлы">Файлы</Tabs.Trigger>
+        <Tabs.Trigger value="браузер">Браузер</Tabs.Trigger>
+      </Tabs.List>
+      <Tabs.Content value="лента"><p class="quiet tabbody">транскрипт сессии</p></Tabs.Content>
+      <Tabs.Content value="файлы"><p class="quiet tabbody">дерево проекта</p></Tabs.Content>
+      <Tabs.Content value="браузер"><p class="quiet tabbody">окно наблюдения</p></Tabs.Content>
+    </Tabs.Root>
+  </div>
+  <div class="demo">
+    <Tabs.Root value="обзор">
+      <Tabs.List variant="line">
+        <Tabs.Trigger value="обзор">Обзор</Tabs.Trigger>
+        <Tabs.Trigger value="решения">Решения</Tabs.Trigger>
+        <Tabs.Trigger value="история">История</Tabs.Trigger>
+      </Tabs.List>
+    </Tabs.Root>
+  </div>
+  <p class="quiet note">
+    Капсула — тот же кирпич, что <b class="mono">.seg</b> выше: активный
+    сегмент показывает приподнятая поверхность, а не тень. Вариант
+    <b class="mono">line</b> подчёркивает активный раздел акцентом — для
+    крупных разделов окна сессии.
+  </p>
+</section>
+
+<section>
+  <h2 class="eyebrow">Выпадающее меню, подсказка, свёртка</h2>
+  <div class="demo">
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger>
+        {#snippet child({ props })}
+          <Button variant="outline" {...props}>Действия сессии<Icon name="panel-right" /></Button>
+        {/snippet}
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content>
+        <DropdownMenu.Label>Волна Ф3</DropdownMenu.Label>
+        <DropdownMenu.Item><Icon name="terminal" />Открыть в терминале</DropdownMenu.Item>
+        <DropdownMenu.Item><Icon name="folder-tree" />Файлы проекта</DropdownMenu.Item>
+        <DropdownMenu.Item>
+          <Icon name="git-branch" />Ветка и коммит
+          <DropdownMenu.Shortcut>⌘B</DropdownMenu.Shortcut>
+        </DropdownMenu.Item>
+        <DropdownMenu.Separator />
+        <DropdownMenu.Item variant="destructive"><Icon name="triangle-alert" />Снять волну</DropdownMenu.Item>
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
+
+    <Tooltip.Provider>
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          {#snippet child({ props })}
+            <Button variant="ghost" size="icon" aria-label="что это значит" {...props}>
+              <Icon name="circle-help" />
+            </Button>
+          {/snippet}
+        </Tooltip.Trigger>
+        <Tooltip.Content>Сессия ждёт вашего решения</Tooltip.Content>
+      </Tooltip.Root>
+    </Tooltip.Provider>
+
+    <Collapsible.Root bind:open={folded}>
+      <Collapsible.Trigger>
+        {#snippet child({ props })}
+          <Button variant="secondary" {...props}>
+            {folded ? 'свернуть' : 'развернуть'} контекст
+          </Button>
+        {/snippet}
+      </Collapsible.Trigger>
+      <Collapsible.Content>
+        <p class="quiet tabbody">спрашивает: Диспетчер остатков релиза · 2 дн</p>
+      </Collapsible.Content>
+    </Collapsible.Root>
+  </div>
+  <p class="quiet note">
+    Подсказка — приподнятая поверхность, а не инверсия в светлое: белая
+    плашка в тёмном пульте читается как чужой элемент. Меню и подсказка
+    появляются за 120 мс — движение только про состояние.
+  </p>
+</section>
+
+<section>
+  <h2 class="eyebrow">Шторка и диалог — поверхности поверх работы</h2>
+  <div class="demo">
+    <Sheet.Root bind:open={sheetOpen}>
+      <Sheet.Trigger>
+        {#snippet child({ props })}
+          <Button variant="outline" {...props}>Открыть шторку</Button>
+        {/snippet}
+      </Sheet.Trigger>
+      <Sheet.Content side="right">
+        <Sheet.Header>
+          <Sheet.Title>Файлы проекта</Sheet.Title>
+          <Sheet.Description>ai-evolve · ветка main</Sheet.Description>
+        </Sheet.Header>
+        <div class="sheetbody">
+          <div class="row"><span class="grow">morda/src/app.css</span><span class="trail">18 КБ</span></div>
+          <div class="row"><span class="grow">morda/src/lib/ui/button/button.svelte</span><span class="trail">4 КБ</span></div>
+          <div class="row"><span class="grow">nyron-dev/hub/server.mjs</span><span class="trail">31 КБ</span></div>
+        </div>
+        <Sheet.Footer>
+          <Button variant="outline" onclick={() => (sheetOpen = false)}>Закрыть</Button>
+        </Sheet.Footer>
+      </Sheet.Content>
+    </Sheet.Root>
+
+    <Dialog.Root bind:open={dialogOpen}>
+      <Dialog.Trigger>
+        {#snippet child({ props })}
+          <Button variant="destructive" {...props}>Снять волну…</Button>
+        {/snippet}
+      </Dialog.Trigger>
+      <Dialog.Content>
+        <Dialog.Header>
+          <Dialog.Title>Снять волну Ф3?</Dialog.Title>
+          <Dialog.Description>
+            Сессия закроется, незакоммиченные правки останутся в рабочей копии.
+          </Dialog.Description>
+        </Dialog.Header>
+        <Dialog.Footer>
+          <Button variant="outline" onclick={() => (dialogOpen = false)}>Отмена</Button>
+          <Button variant="destructive" onclick={() => (dialogOpen = false)}>Снять</Button>
+        </Dialog.Footer>
+      </Dialog.Content>
+    </Dialog.Root>
+  </div>
+  <p class="quiet note">
+    На телефоне правая колонка пульта — это и есть шторка. Затемнение под
+    ней берёт свой токен (<b class="mono">--scrim</b>): чистый чёрный из
+    палитры вычищен, а холодная чернота под тёплым графитом читается грязью.
+  </p>
+</section>
+
+<section>
+  <h2 class="eyebrow">Разделитель, скелет, область прокрутки</h2>
+  <div class="demo sep">
+    <span class="quiet">15 сессий</span>
+    <Separator orientation="vertical" />
+    <span class="quiet">3 ждут решения</span>
+    <Separator orientation="vertical" />
+    <span class="quiet">ветка main</span>
+  </div>
+  <Separator class="my-4" />
+  <div class="panels">
+    <div class="rows">
+      <Skeleton class="h-4 w-full" />
+      <Skeleton class="h-4 w-4/5" />
+      <Skeleton class="h-4 w-2/5" />
+    </div>
+    <ScrollArea class="h-32">
+      <div class="rows">
+        {#each ['Волна Ф3', 'Волна Ф2', 'Блок 1 диспетчер', 'Блок 2 диспетчер', 'Блок 3 диспетчер', 'Финишер мержевой', 'Канон занятости', 'Паспорт волны'] as name}
+          <div class="row"><i class="dot" style="background: var(--ok)"></i><span class="grow">{name}</span></div>
+        {/each}
+      </div>
+    </ScrollArea>
+  </div>
+  <p class="quiet note">
+    Область прокрутки нужна там, где список длиннее панели, а системная
+    полоса на Маке появляется только во время скролла и теряется.
+  </p>
 </section>
 
 <section>
@@ -356,6 +648,18 @@
   .sp span { font-size: var(--fs-micro); }
   .demo { display: flex; gap: var(--sp-4); flex-wrap: wrap; align-items: center; }
   .note { font-size: var(--fs-xs); margin: var(--sp-4) 0 0; }
+  /* подзаголовок пары «старый кирпич — новый компонент» */
+  .sub {
+    font-size: var(--fs-sm); font-weight: 600; color: var(--text-3);
+    margin: var(--sp-7) 0 var(--sp-4);
+  }
+  .rows { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .tabbody { font-size: var(--fs-xs); margin: var(--sp-4) 0 0; }
+  /* Строка статуса. Высота задана явно не для красоты: вертикальный
+     разделитель тянется на height:100%, а от контейнера с автовысотой
+     сто процентов — это ноль, и разделителя просто не видно. */
+  .sep { align-items: center; height: 20px; }
+  .sheetbody { display: flex; flex-direction: column; padding: 0 var(--sp-5); overflow: auto; }
   .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--sp-5); align-items: start; }
   .panels input[type='search'] { width: 100%; }
   .splitdemo { display: flex; align-items: stretch; gap: var(--sp-4); height: 110px; }
