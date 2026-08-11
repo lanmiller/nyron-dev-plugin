@@ -255,12 +255,46 @@ export function cancelAsk({ project, ask_id, by, reason }) {
 
 // Список сессий читает голову каждого транскрипта — при поллинге раз в 5с
 // это лишние мегабайты; короткий TTL-кэш достаточен (окно свежести 10с).
-const sessListCache = new Map(); // root → { at, list }
+const sessListCache = new Map(); // root → { at, sig, list }
+
+/** Отпечаток набора транскриптов: сколько файлов и когда правился самый
+ *  свежий. Полный обход у нас стоит 1.7 с (610 файлов, 1.7 ГБ) и на это
+ *  время затыкает сервер — окно сессии открывалось секундами (CTO 11.08).
+ *  Заголовок и точка входа от дописывания строк НЕ меняются, поэтому
+ *  перечитываем головы, только когда состав или свежесть каталога сдвинулись. */
+function transcriptsSig(root) {
+  const dirs = [
+    path.join(os.homedir(), '.claude', 'projects',
+      '-' + path.resolve(root).replace(/^\//, '').replace(/[/.]/g, '-')),
+  ];
+  let n = 0, newest = 0;
+  for (const d of dirs) {
+    let files = [];
+    try { files = fs.readdirSync(d); } catch { continue; }
+    for (const f of files) {
+      if (!f.endsWith('.jsonl')) continue;
+      n++;
+      try {
+        const m = fs.statSync(path.join(d, f)).mtimeMs;
+        if (m > newest) newest = m;
+      } catch {}
+    }
+  }
+  return `${n}:${Math.round(newest)}`;
+}
+
 function listSessionsCached(root) {
   const c = sessListCache.get(root);
-  if (c && Date.now() - c.at < 10_000) return c.list;
+  const fresh = Date.now() - (c?.at || 0) < 3000;
+  if (c && fresh) return c.list;                    // частые тики — без stat
+  let sig = null;
+  try { sig = transcriptsSig(root); } catch {}
+  if (c && sig && sig === c.sig) {                  // ничего не изменилось
+    c.at = Date.now();
+    return c.list;
+  }
   const list = T.listSessions(root);
-  sessListCache.set(root, { at: Date.now(), list });
+  sessListCache.set(root, { at: Date.now(), sig, list });
   return list;
 }
 
@@ -294,9 +328,38 @@ export function sessions(project) {
 /** Окно сессии: транскрипт + состояние + её ask + режим ввода.
  *  Ask — живые ПЛЮС недавние acknowledged: без них цепочка доставки
  *  обрывалась на подтверждении (ревью Sol r1). */
+// Транскрипт диспетчера — мегабайты; поллинг раз в 5 с перечитывал его
+// целиком, и окно открывалось секундами (жалоба CTO 11.08 «на мобилке всё
+// умерло»). Короткий кэш: свежесть 3 с достаточна для чтения ленты.
+const sessCache = new Map(); // root|key → { sig, r }
+const WINDOW_BYTES = 3 * 1024 * 1024;   // хвост разговора: старше — история
+function readSessionCached(root, key) {
+  const k = `${root}|${key}`;
+  const c = sessCache.get(k);
+  // отпечаток файла дешевле перечитывания: молчащую сессию не читаем вовсе,
+  // а живую перечитываем ровно когда она дописала строку
+  let sig = null;
+  if (c?.r?.file) {
+    try {
+      const st = fs.statSync(c.r.file);
+      sig = `${st.size}:${st.mtimeMs}`;
+      if (sig === c.sig) return c.r;
+    } catch { /* файл переехал — перечитаем */ }
+  }
+  // читаем хвост, а не весь файл: у диспетчеров это мегабайты, а окно всё
+  // равно показывает конец разговора (флаг truncated честно об этом говорит)
+  const r = T.readSession(root, key, { maxBytes: WINDOW_BYTES });
+  if (r?.file) {
+    try { const st = fs.statSync(r.file); sig = `${st.size}:${st.mtimeMs}`; } catch {}
+  }
+  sessCache.set(k, { sig, r });
+  if (sessCache.size > 40) sessCache.delete(sessCache.keys().next().value);
+  return r;
+}
+
 export function session(project, key) {
   const root = rootByName(project);
-  const r = T.readSession(root, key);
+  const r = readSessionCached(root, key);
   if (!r) return null;
   const hub = hubFor(root);
   const w = hub.watchStates().find((x) => x.key === key) || null;

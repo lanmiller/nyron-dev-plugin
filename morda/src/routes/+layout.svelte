@@ -294,7 +294,9 @@
     display: block; position: fixed; inset: 0; z-index: 35;
     background: rgba(0, 0, 0, 0.5); border: 0;
   }
-  main { padding: var(--sp-5) var(--sp-5) calc(var(--sp-7) + var(--safe-b)); }
+  /* под фиксированным композером окна сессии — запас, иначе последние
+     реплики уезжают под него (CTO 11.08) */
+  main { padding: var(--sp-5) var(--sp-5) calc(120px + var(--safe-b)); }
 
   @media (min-width: 901px) {
     .mobile-bar { display: none; }

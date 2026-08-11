@@ -142,6 +142,10 @@
     return m ? m[1] : 'Claude';
   }
 
+  // На узком экране карточки вопросов съедали пол-экрана над вводом
+  // (CTO 11.08: «на мобилке слабо»). Теперь они шторка: строка-кнопка с
+  // числом, разворачивается поверх ленты, композер всегда на месте.
+  let sheet = $state(false);
   let openAsks = $derived((data?.asks || []).filter((a) => a.status === 'open'));
   // в доке — только живое: открытые и ответы в пути; подтверждённое своё
   // отработало и чат не перекрывает (CTO 10.08)
@@ -156,7 +160,18 @@
 {#if error}
   <p class="err">{error}</p>
 {:else if !data}
-  <p class="quiet">Читаю транскрипт…</p>
+  <!-- каркас рисуется сразу: у диспетчеров транскрипт мегабайтный, и пустой
+       экран на несколько секунд читался как «всё умерло» (CTO 11.08) -->
+  <header class="s-head">
+    <a href="/?p={encodeURIComponent(project)}" class="back">← {project}</a>
+    <h1 class="quiet">Открываю сессию…</h1>
+    <div class="s-meta"><span class="mono quiet">{key.slice(0, 8)}</span></div>
+  </header>
+  <div class="feed-skeleton">
+    {#each [72, 45, 88, 60] as w}
+      <div class="skeleton" style="width: {w}%"></div>
+    {/each}
+  </div>
 {:else}
   <header class="s-head">
     <a href="/?p={encodeURIComponent(project)}" class="back">← {project}</a>
@@ -189,9 +204,17 @@
   <Transcript items={data.items} {project} sessionKey={key} tracker={data.tracker} />
 
   <div class="dock">
+    <!-- Узкий экран: сводка-кнопка вместо стопки карточек -->
+    {#if openAsks.length || data.pending_hitl}
+      <button class="sheet-toggle" onclick={() => (sheet = !sheet)}>
+        <span class="badge">{openAsks.length + (data.pending_hitl ? 1 : 0)}</span>
+        <span class="grow">{sheet ? 'скрыть вопросы' : 'вопросы ждут решения'}</span>
+        <span class="caret" class:open={sheet}>›</span>
+      </button>
+    {/if}
     <!-- вопросы — в прокрутке, композер всегда виден (CTO 10.08: пачка
          карточек не должна выталкивать ввод за экран) -->
-    <div class="dock-asks">
+    <div class="dock-asks" class:sheet-open={sheet}>
       {#if data.pending_hitl}
         <!-- родная форма AskUserQuestion ждёт человека В ОКНЕ ПРИЛОЖЕНИЯ:
              морда её показывает, но кликнуть вариант можно только там -->
@@ -284,12 +307,34 @@
     margin: 6px 0 0; font-size: 12.5px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  /* mobile-first: композер приколочен к низу окна и переживает любую
+     прокрутку; лента освобождает под него место снизу */
+  .feed-skeleton { display: flex; flex-direction: column; gap: var(--sp-5); margin-top: var(--sp-6); }
+  .feed-skeleton .skeleton { height: 1.1em; }
   .dock {
-    position: sticky; bottom: 0; margin-top: 22px;
-    background: var(--bg-1); padding: 10px 0 14px;
-    border-top: 1px solid var(--border-soft);
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 25;
+    background: var(--bg-1); border-top: 1px solid var(--border-soft);
+    padding: var(--sp-4) var(--sp-5) calc(var(--sp-4) + var(--safe-b));
   }
-  .dock-asks { max-height: 42vh; overflow-y: auto; }
+  .sheet-toggle {
+    display: flex; align-items: center; gap: var(--sp-4); width: 100%;
+    background: none; border: 0; color: var(--text-2); font: inherit;
+    font-size: var(--fs-sm); padding: var(--sp-3) 0;
+  }
+  .sheet-toggle .grow { flex: 1; text-align: left; }
+  .sheet-toggle .caret { transition: transform var(--t-fast); color: var(--text-4); }
+  .sheet-toggle .caret.open { transform: rotate(-90deg); }
+  .dock-asks { display: none; max-height: 60vh; overflow-y: auto; margin-bottom: var(--sp-4); }
+  .dock-asks.sheet-open { display: block; }
+
+  @media (min-width: 901px) {
+    .dock {
+      position: sticky; left: auto; right: auto; margin-top: 22px;
+      padding: 10px 0 14px;
+    }
+    .sheet-toggle { display: none; }
+    .dock-asks { display: block; max-height: 42vh; margin-bottom: 0; }
+  }
   .hitl {
     background: var(--bg-2); border: 1px solid var(--border);
     border-color: var(--warn);
