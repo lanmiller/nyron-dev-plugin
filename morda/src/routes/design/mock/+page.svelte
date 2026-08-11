@@ -3,14 +3,27 @@
   // (разведка → эпик → диспетчер → волны), справа поверхности сессии
   // (задачи с субагентами и стадиями воркфлоу, файлы, коммит-бар).
   // Смысл макета — договориться глазами ДО подключения к живым данным.
+  //
+  // Волна 3: собран из тех же компонентов, что и живые экраны (Tabs, Card,
+  // Collapsible, Button, Badge, Skeleton) — иначе макет показывает не то,
+  // из чего пульт на самом деле собирается.
+  import Icon from '$lib/Icon.svelte';
+  import { Button } from '$lib/ui/button/index.js';
+  import { Badge } from '$lib/ui/badge/index.js';
+  import { Input } from '$lib/ui/input/index.js';
+  import { Skeleton } from '$lib/ui/skeleton/index.js';
+  import * as Card from '$lib/ui/card/index.js';
+  import * as Tabs from '$lib/ui/tabs/index.js';
+  import * as Collapsible from '$lib/ui/collapsible/index.js';
+
   let tab = $state('tasks');
   const VIEWPORTS = [['Свободно', null], ['Телефон', '375 × 812'],
     ['Планшет', '768 × 1024'], ['Десктоп', '1280 × 800']];
   let vp = $state('Свободно');
 
   // свёрнутые панели — человек сам решает, что держать раскрытым
-  let folded = $state({});
-  const fold = (k) => (folded = { ...folded, [k]: !folded[k] });
+  let open = $state({ run: true, ag: true, wf: true });
+  const fold = (k) => (open = { ...open, [k]: !open[k] });
 
   // Панели тянутся за разделитель, чат остаётся центром — как в Claude
   // Desktop (CTO 11.08). Ширину помним между заходами.
@@ -91,6 +104,19 @@
   сгруппирована как она устроена. Живых данных здесь нет — смотрим вёрстку.
 </p>
 
+<!-- шапка панели: стрелка свёртки + название + счётчик -->
+{#snippet panelHead(k, title, count)}
+  <Collapsible.Trigger>
+    {#snippet child({ props })}
+      <button class="phead" {...props}>
+        <Icon name="chevron-right" size={13} class="caret {open[k] ? 'open' : ''}" />
+        <h3 class="flex-1 text-left text-base">{title}</h3>
+        {#if count}<Badge variant="secondary">{count}</Badge>{/if}
+      </button>
+    {/snippet}
+  </Collapsible.Trigger>
+{/snippet}
+
 <div class="mock">
   <!-- ЛЕВО: дерево работы -->
   <nav class="tree">
@@ -99,17 +125,17 @@
       {#if group.kind === 'epic'}
         <div class="epic">
           <div class="epic-head">
-            <span class="caret">⌄</span>
+            <Icon name="chevron-right" size={13} class="caret open" />
             <a class="ticket" href="https://nyron.atlassian.net/browse/{group.key}">{group.key}</a>
             <span class="grow">{group.name}</span>
-            {#if group.waiting}<span class="badge">{group.waiting}</span>{/if}
+            {#if group.waiting}<Badge>{group.waiting}</Badge>{/if}
           </div>
           <div class="epic-meta quiet">{group.st} · волн {group.waves} · спека и ресёрчи внутри</div>
           {#each group.disp as d}
             <div class="disp">
               <div class="row"><i class="dot" style="background: {COLOR[d.st]}"></i><span class="grow">{d.t}</span><span class="trail">{d.age}</span></div>
               {#each d.waves as w}
-                <div class="row wave"><i class="dot" style="background: {COLOR[w.st]}"></i><span class="grow">{w.t}</span>{#if w.asks}<span class="badge">{w.asks}</span>{/if}<span class="trail">{w.age}</span></div>
+                <div class="row wave"><i class="dot" style="background: {COLOR[w.st]}"></i><span class="grow">{w.t}</span>{#if w.asks}<Badge>{w.asks}</Badge>{/if}<span class="trail">{w.age}</span></div>
               {/each}
             </div>
           {/each}
@@ -127,11 +153,11 @@
 
   <!-- ЦЕНТР: разговор -->
   <main class="talk">
-    <header class="talk-head">
-      <h2>Волна Ф3: CRDT fail-closed + staged/reveal</h2>
+    <header>
+      <h2 class="display">Волна Ф3: CRDT fail-closed + staged/reveal</h2>
       <div class="chips">
-        <span class="chip"><i class="dot" style="background: var(--warn)"></i>ждёт вас</span>
-        <span class="chip">CLI</span>
+        <Badge variant="outline"><i class="dot" style="background: var(--warn)"></i>ждёт вас</Badge>
+        <Badge variant="outline">CLI</Badge>
         <a class="ticket" href="https://nyron.atlassian.net/browse/DEV-1215">DEV-1215</a>
       </div>
     </header>
@@ -141,19 +167,20 @@
       Развилка по базе. Собрал три пути и последствия каждого — вопрос ушёл
       вам карточкой, работа приостановлена до решения.
     </div>
-    <details class="tool"><summary><span class="mono">⛭ субагент</span> backend-dev — staged/reveal в сервисе</summary>
+    <details class="tool">
+      <summary><span class="mono"><Icon name="bot" size={13} /> субагент</span> backend-dev — staged/reveal в сервисе</summary>
       <p class="quiet">Разворачивается во вложенный транскрипт: видно, что он делал.</p>
     </details>
 
     <div class="commitbar">
       <span class="mono">ai-evolve</span>
-      <span class="chip">wave-f3</span>
+      <Badge variant="outline"><Icon name="git-branch" size={12} />wave-f3</Badge>
       <span class="diff"><b class="plus">+412</b> <b class="minus">−37</b></span>
-      <button class="btn sm">Коммит</button>
+      <Button size="sm">Коммит</Button>
     </div>
     <div class="composer">
-      <input type="text" placeholder="написать волне…" />
-      <button class="btn primary">Отправить</button>
+      <Input class="flex-1" placeholder="написать волне…" />
+      <Button>Отправить</Button>
     </div>
   </main>
 
@@ -163,98 +190,105 @@
 
   <!-- ПРАВО: поверхности сессии -->
   <aside class="side" style="width: {sideW}px">
-    <div class="tabs">
-      <button class="tab" class:on={tab === 'tasks'} onclick={() => (tab = 'tasks')}>Задачи</button>
-      <button class="tab" class:on={tab === 'files'} onclick={() => (tab = 'files')}>Файлы</button>
-      <button class="tab" class:on={tab === 'browser'} onclick={() => (tab = 'browser')}>Браузер</button>
-    </div>
+    <Tabs.Root bind:value={tab} class="flex min-w-0 flex-col gap-2">
+      <Tabs.List>
+        <Tabs.Trigger value="tasks">Задачи</Tabs.Trigger>
+        <Tabs.Trigger value="files">Файлы</Tabs.Trigger>
+        <Tabs.Trigger value="browser">Браузер</Tabs.Trigger>
+      </Tabs.List>
 
-    {#if tab === 'tasks'}
-      <article class="panel" class:collapsed={folded.run}>
-        <header>
-          <button class="fold" class:open={!folded.run} onclick={() => fold('run')}
-            aria-label={folded.run ? 'развернуть' : 'свернуть'}>›</button>
-          <h3>Идёт сейчас</h3>
-          <span class="badge mute">{RUNNING.length}</span>
-        </header>
-        <div class="body flush">
-          {#each RUNNING as r}
-            <div class="row"><i class="dot" style="background: var(--accent)"></i><span class="grow">{r.name}</span><span class="trail">{r.age}</span></div>
-          {/each}
-        </div>
-      </article>
+      <Tabs.Content value="tasks" class="flex flex-col gap-2">
+        <Collapsible.Root open={open.run} onOpenChange={() => fold('run')}>
+          <Card.Root class="gap-0 py-0">
+            {@render panelHead('run', 'Идёт сейчас', RUNNING.length)}
+            <Collapsible.Content class="pb-1">
+              {#each RUNNING as r}
+                <div class="row"><i class="dot" style="background: var(--accent)"></i><span class="grow">{r.name}</span><span class="trail">{r.age}</span></div>
+              {/each}
+            </Collapsible.Content>
+          </Card.Root>
+        </Collapsible.Root>
 
-      <article class="panel" class:collapsed={folded.ag}>
-        <header>
-          <button class="fold" class:open={!folded.ag} onclick={() => fold('ag')}
-            aria-label={folded.ag ? 'развернуть' : 'свернуть'}>›</button>
-          <h3>Субагенты</h3>
-          <span class="badge mute">{AGENTS.length}</span>
-        </header>
-        <div class="body flush">
-          {#each AGENTS as a}
-            <details class="ag">
-              <summary>
-                <i class="dot" style="background: {COLOR[a.st]}"></i>
-                <span class="grow">{a.name}</span>
-                <span class="trail">{a.model} · {a.age}</span>
-              </summary>
-              <p class="ag-task">{a.task}</p>
-            </details>
-          {/each}
-        </div>
-      </article>
+        <Collapsible.Root open={open.ag} onOpenChange={() => fold('ag')}>
+          <Card.Root class="gap-0 py-0">
+            {@render panelHead('ag', 'Субагенты', AGENTS.length)}
+            <Collapsible.Content class="pb-1">
+              {#each AGENTS as a}
+                <details class="ag">
+                  <summary>
+                    <i class="dot" style="background: {COLOR[a.st]}"></i>
+                    <span class="grow">{a.name}</span>
+                    <span class="trail">{a.model} · {a.age}</span>
+                  </summary>
+                  <p class="ag-task">{a.task}</p>
+                </details>
+              {/each}
+            </Collapsible.Content>
+          </Card.Root>
+        </Collapsible.Root>
 
-      <article class="panel" class:collapsed={folded.wf}>
-        <header>
-          <button class="fold" class:open={!folded.wf} onclick={() => fold('wf')}
-            aria-label={folded.wf ? 'развернуть' : 'свернуть'}>›</button>
-          <h3>Конвейер</h3>
-        </header>
-        <div class="body">
-          <div class="wf-name quiet">{WF.name}</div>
-          <div class="wf">
-            {#each WF.stages as s, i}
-              <div class="stage" class:done={s.st === 'done'} class:working={s.st === 'working'}>
-                <span class="s-name">{s.s}</span>
-                <span class="s-n">{s.n ? `${s.n} агента` : '—'}</span>
+        <Collapsible.Root open={open.wf} onOpenChange={() => fold('wf')}>
+          <Card.Root class="gap-0 py-0">
+            {@render panelHead('wf', 'Конвейер')}
+            <Collapsible.Content class="px-3.5 pb-3.5">
+              <div class="wf-name quiet">{WF.name}</div>
+              <div class="wf">
+                {#each WF.stages as s, i}
+                  <div class="stage" class:done={s.st === 'done'} class:working={s.st === 'working'}>
+                    <span class="s-name">{s.s}</span>
+                    <span class="s-n">{s.n ? `${s.n} агента` : '—'}</span>
+                  </div>
+                  {#if i < WF.stages.length - 1}
+                    <Icon name="chevron-right" size={13} class="text-ink-4" />
+                  {/if}
+                {/each}
               </div>
-              {#if i < WF.stages.length - 1}<span class="wf-arrow">›</span>{/if}
-            {/each}
-          </div>
-        </div>
-      </article>
-    {:else if tab === 'files'}
-      <article class="panel">
-        <header><h3>Файлы сессии</h3></header>
-        <div class="body">
-          <input type="search" placeholder="фильтр… (?текст — искать в содержимом)" />
-          <div class="flist">
-            {#each FILES as f}
-              <div class="row"><span class="grow mono">{f}</span></div>
-            {/each}
-          </div>
-          <p class="empty">Файлы эпика — спеки и ресёрчи — лежат в карточке эпика, не здесь.</p>
-        </div>
-      </article>
-    {:else}
-      <article class="panel">
-        <header><h3>Браузер сессии</h3><span class="chip">:5199</span></header>
-        <div class="body">
-          <div class="seg" style="margin-bottom: 10px">
-            {#each VIEWPORTS as [name, size]}
-              <button class:on={vp === name} onclick={() => (vp = name)}>
-                {name}{#if size}<span class="dim">{size}</span>{/if}
-              </button>
-            {/each}
-          </div>
-          <div class="viewport" style="width: {vp === 'Телефон' ? '100%' : vp === 'Планшет' ? '100%' : '100%'}; max-width: {vp === 'Телефон' ? '187px' : vp === 'Планшет' ? '280px' : 'none'}; height: 170px">
-            <div class="skeleton" style="height: 100%"></div>
-          </div>
-          <p class="empty">Что смотрит агент. Масштаб переключается — видно, как страница ложится на телефоне.</p>
-        </div>
-      </article>
-    {/if}
+            </Collapsible.Content>
+          </Card.Root>
+        </Collapsible.Root>
+      </Tabs.Content>
+
+      <Tabs.Content value="files">
+        <Card.Root class="gap-2 py-3.5">
+          <Card.Header><Card.Title>Файлы сессии</Card.Title></Card.Header>
+          <Card.Content>
+            <Input type="search" placeholder="фильтр… (?текст — искать в содержимом)" />
+            <div class="flist">
+              {#each FILES as f}
+                <div class="row"><Icon name="file-text" size={13} class="text-ink-4" /><span class="grow mono">{f}</span></div>
+              {/each}
+            </div>
+            <p class="empty">Файлы эпика — спеки и ресёрчи — лежат в карточке эпика, не здесь.</p>
+          </Card.Content>
+        </Card.Root>
+      </Tabs.Content>
+
+      <Tabs.Content value="browser">
+        <Card.Root class="gap-2 py-3.5">
+          <Card.Header>
+            <Card.Title>Браузер сессии</Card.Title>
+            <Card.Action><Badge variant="outline">:5199</Badge></Card.Action>
+          </Card.Header>
+          <Card.Content>
+            <!-- масштабер вьюпорта: тот же кирпич, что вкладки панели -->
+            <Tabs.Root bind:value={vp}>
+              <Tabs.List class="mb-2.5 flex-wrap">
+                {#each VIEWPORTS as [name, size]}
+                  <Tabs.Trigger value={name}>
+                    {name}{#if size}<span class="dim">{size}</span>{/if}
+                  </Tabs.Trigger>
+                {/each}
+              </Tabs.List>
+            </Tabs.Root>
+            <div class="viewport"
+              style="max-width: {vp === 'Телефон' ? '187px' : vp === 'Планшет' ? '280px' : 'none'}; height: 170px">
+              <Skeleton class="h-full w-full" />
+            </div>
+            <p class="empty">Что смотрит агент. Масштаб переключается — видно, как страница ложится на телефоне.</p>
+          </Card.Content>
+        </Card.Root>
+      </Tabs.Content>
+    </Tabs.Root>
   </aside>
 </div>
 
@@ -274,7 +308,6 @@
     display: flex; align-items: center; gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4); font-size: var(--fs-sm); color: var(--text-1);
   }
-  .epic-head .caret { color: var(--text-4); }
   .epic-meta { font-size: var(--fs-micro); padding: 0 var(--sp-4) var(--sp-3) 26px; }
   .disp { padding-left: var(--sp-5); border-left: 1px solid var(--border-soft); margin-left: var(--sp-6); }
   .row.wave { padding-left: var(--sp-6); }
@@ -283,7 +316,7 @@
 
   /* разговор */
   .talk { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; flex: 1; }
-  .talk-head h2 { margin: 0 0 var(--sp-3); font-size: var(--fs-xl); font-family: var(--serif); font-weight: 500; }
+  .talk h2 { margin: 0 0 var(--sp-3); }
   .chips { display: flex; gap: var(--sp-3); align-items: center; }
   .bubble.me {
     align-self: flex-end; background: var(--bg-2); border: 1px solid var(--border);
@@ -302,17 +335,15 @@
   .diff { margin-left: auto; font-size: var(--fs-xs); }
   .plus { color: var(--ok); } .minus { color: var(--hot); }
   .composer { display: flex; gap: var(--sp-4); }
-  .composer input { flex: 1; }
 
   /* поверхности справа */
-  .side { display: flex; flex-direction: column; gap: var(--sp-4); flex: none; min-width: 260px; }
-  .tabs { display: flex; gap: var(--sp-2); }
-  .tab {
-    background: none; border: 1px solid transparent; border-radius: var(--r-pill);
-    color: var(--text-3); padding: var(--sp-2) var(--sp-5); font-size: var(--fs-sm);
+  .side { display: flex; flex-direction: column; flex: none; min-width: 260px; }
+  /* шапка панели — та же строка, что у .panel > header в системе */
+  .phead {
+    display: flex; align-items: center; gap: var(--sp-4); width: 100%;
+    background: none; border: 0; text-align: left; font: inherit;
+    padding: var(--sp-5) var(--sp-6);
   }
-  .tab:hover { color: var(--text-1); }
-  .tab.on { background: var(--bg-2); border-color: var(--border); color: var(--text-1); }
   .ag > summary {
     display: flex; align-items: center; gap: var(--sp-4);
     padding: var(--sp-3) var(--sp-5); cursor: pointer; font-size: var(--fs-sm);
@@ -331,12 +362,9 @@
   .stage.done { border-color: var(--ok); color: var(--text-2); }
   .stage.working { border-color: var(--accent); color: var(--text-1); background: var(--bg-3); }
   .s-name { font-size: var(--fs-xs); }
-  .wf-arrow { color: var(--text-4); }
   .flist { margin-top: var(--sp-4); }
-  .browser-frame {
-    height: 180px; border: 1px solid var(--border); border-radius: var(--r-sm);
-    overflow: hidden; background: var(--bg-0);
-  }
+  .dim { color: var(--text-4); margin-left: var(--sp-3); font-size: var(--fs-micro); }
+
   @media (max-width: 1100px) {
     .mock { flex-direction: column; }
     .tree, .side { width: auto !important; }

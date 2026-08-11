@@ -23,22 +23,24 @@
  * уехали в @layer components — см. ниже почему), точечный сброс UA-стилей
  * внутри shadcn-поддеревьев вместо полного preflight и недостающие
  * custom-варианты, без которых половина классов shadcn не компилируется.
+ *
+ * Волна 3 (экраны) сняла последнюю развилку: экраны собраны из компонентов,
+ * поэтому включён полный preflight, а мини-сброс по [data-slot] выброшен —
+ * два разных сброса в одном файле означали бы две системы умолчаний.
  */
 
-/* ---------- Tailwind 4: только тема и утилиты, БЕЗ preflight ----------
-   Preflight (сброс UA-стилей) сознательно не подключён. Он снимает отступы и
-   размеры у p / h1–h4 / ul и убирает маркеры списков, а действующие экраны
-   пульта и рендер маркдауна в транскрипте стоят на этих умолчаниях в полутора
-   десятках мест — с ним морда поехала бы визуально в ту же секунду. Экраны
-   переписывает следующая волна: вместе с ней включается и preflight.
-   Волна 2 проверяла это не рассуждением, а пробой: один и тот же
-   замороженный DOM `/`, окна сессии и макета, отрисованный старым и новым
-   CSS, совпал попиксельно (38,5 млн пикселей, 0 расхождений) — при
-   включённом preflight так не вышло бы. Чтобы shadcn-компоненты при этом не
-   жили на UA-умолчаниях, ниже стоит мини-сброс, ограниченный поддеревьями
-   с меткой data-slot. */
+/* ---------- Tailwind 4: тема, сброс, утилиты ----------
+   Preflight включён с волны 3. До неё он сносил бы отступы и кегль у p /
+   h1–h4 / ul и маркеры списков прямо под действующими экранами: они стояли
+   на браузерных умолчаниях. Теперь на умолчаниях не стоит ничего — всё, что
+   раньше их использовало (рендер маркдауна в транскрипте и просмотрщике,
+   заголовки и списки экранов), описано явно ниже: .md-body и шкала
+   заголовков. Порядок слоёв важнее самих правил: preflight уезжает в base,
+   то есть ниже лока (components) и утилит — сброс не может перебить ни
+   кирпич системы, ни класс на элементе. */
 @layer theme, base, components, utilities;
 @import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/preflight.css' layer(base);
 @import 'tailwindcss/utilities.css' layer(utilities);
 @import 'tw-animate-css';
 
@@ -257,39 +259,6 @@
   --serif: ui-serif, 'Iowan Old Style', Georgia, serif;
   --mono: ui-monospace, 'SF Mono', Menlo, monospace;
 }
-/* ---------- мини-preflight: только внутри компонентов shadcn ----------
-   Полный preflight ломает экраны (см. шапку), но компоненты shadcn писались
-   в расчёте на него: заголовок диалога — это <h2>, описание карточки — <p>,
-   и с браузерными умолчаниями они разъезжаются отступами и кеглем. Метка
-   data-slot есть у каждого узла shadcn и НЕТ ни на одном нашем экране —
-   значит сброс физически не может задеть действующую вёрстку. Слой base
-   ниже утилит: любой класс на компоненте по-прежнему главнее сброса. */
-@layer base {
-  [data-slot],
-  [data-slot] :is(h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd, ul, ol) {
-    margin: 0;
-  }
-  [data-slot] :is(h1, h2, h3, h4, h5, h6) { font-size: inherit; font-weight: inherit; }
-  [data-slot] :is(ul, ol) { padding-left: 0; list-style: none; }
-
-  /* Элементы форм. Браузер красит <button> собственным светло-серым фоном
-     (ButtonFace) и рисует ему рамку — заводской shadcn про это не знает,
-     потому что рассчитывает на preflight. Без этих трёх строк варианты
-     `ghost` и `link` и неактивные вкладки выглядят светлыми плашками
-     посреди тёмного пульта (поймано снимком витрины, а не рассуждением). */
-  [data-slot]:is(button, input, textarea, select),
-  [data-slot] :is(button, input, textarea, select) {
-    background-color: transparent;
-    background-image: none;
-    border: 0 solid;
-    color: inherit;
-    font: inherit;
-    letter-spacing: inherit;
-  }
-  [data-slot]:is(button, [role='button']),
-  [data-slot] :is(button, [role='button']) { cursor: pointer; }
-}
-
 /* ---------- дизайн-лок: слой components ----------
    Правила лока живут в слое, а не «просто в файле», из-за одного механизма
    каскада: неслоёный CSS главнее ЛЮБОГО слоя, независимо от специфичности.
@@ -302,7 +271,6 @@
    (стили внутри .svelte-компонентов и так были главнее — их селекторы
    Svelte достраивает своим классом). */
 @layer components {
-  * { box-sizing: border-box; }
   html { overflow-x: clip; }        /* страницу нельзя утащить вбок жестом */
   body {
     margin: 0;
@@ -314,7 +282,16 @@
   }
   a { color: inherit; }
   button { font: inherit; cursor: pointer; }
-  h1, h2.display { font-family: var(--serif); font-weight: 500; }
+
+  /* Шкала заголовков. Preflight сравнял h1–h6 с обычным текстом (font-size:
+     inherit) — это правильно для компонентов, но заголовок экрана должен
+     оставаться заголовком без класса-подпорки. Ступени — те же семь из лока,
+     ниже по файлу их никто не переопределяет «на глаз». */
+  h1 { font-family: var(--serif); font-weight: 500; font-size: var(--fs-hero); }
+  h2 { font-size: var(--fs-xl); font-weight: 600; }
+  h2.display { font-family: var(--serif); font-weight: 500; }
+  h3 { font-size: var(--fs-lg); font-weight: 600; }
+  h4 { font-size: var(--fs-md); font-weight: 600; }
 
   /* Фокус с клавиатуры — был не описан НИГДЕ (аудит 11.08). Одно правило на
      всё интерактивное: без него интерфейс невидим для клавиатуры. */
@@ -337,12 +314,20 @@
 
   .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 
+  /* Стрелка раскрытия. Один атом на весь пульт: дерево проектов, дерево
+     файлов, шторка вопросов, панели макета — раньше каждая крутила свою
+     копию, а в трёх местах вместо иконки стоял символ «›». */
+  .caret { color: var(--text-4); flex: none; transition: transform var(--t-fast); }
+  .caret.open { transform: rotate(90deg); }
+
   /* Иконка (обёртка — lib/Icon.svelte). Один штрих на весь пульт: набор lucide
      нарисован под 2px при 24px, на наших 16px это выглядит жирнее текста и
      перетягивает внимание на себя — в режиме Operate иконка идёт в строку с
      текстом, а не спорит с ним. Штрих задаётся здесь, а не в компоненте, чтобы
      менять его в одном месте. */
-  .icon { flex: none; vertical-align: -0.14em; }
+  /* display задан явно: preflight делает любой svg блочным, и иконка внутри
+     строки текста уезжала бы на свою строку. */
+  .icon { display: inline-block; flex: none; vertical-align: -0.14em; }
   .icon :is(g, path, circle, rect, line, polyline, polygon, ellipse) {
     stroke-width: 1.5;
   }
@@ -545,11 +530,6 @@
      и просмотр в окне сессии собирались из одного и того же. */
   .filetree { display: flex; flex-direction: column; gap: 1px; }
   .filetree .row { width: 100%; background: none; border: 0; text-align: left; font: inherit; }
-  .filetree .caret {
-    color: var(--text-4); display: inline-block; width: 10px; flex: none;
-    transition: transform var(--t-fast);
-  }
-  .filetree .caret.open { transform: rotate(90deg); }
   .filetree .row.dir { color: var(--text-1); }
 
   /* шапка просмотра: имя файла и его вес */
@@ -575,6 +555,41 @@
     font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
     white-space: pre; overflow-x: auto;
   }
+
+  /* ---------- текст документа (.md-body) ----------
+     Единственное место, где живёт оформление маркдауна: реплики транскрипта,
+     мысли, просмотр .md-файла. Раньше эти правила стояли трижды — в
+     Transcript и в FileBrowser — и держались на браузерных умолчаниях там,
+     где их не было (отступы абзацев, маркеры списков, кегль заголовков).
+     Preflight умолчания снял, поэтому здесь описано ВСЁ, что рисует md.js:
+     p, h4, ul/ol/li, blockquote, pre/code, a. */
+  .md-body { overflow-wrap: break-word; }
+  .md-body p { margin: 0 0 var(--sp-4); }
+  .md-body > :last-child { margin-bottom: 0; }
+  .md-body h4 { font-size: var(--fs-lg); font-weight: 600; margin: var(--sp-6) 0 var(--sp-2); }
+  .md-body > h4:first-child { margin-top: 0; }
+  .md-body ul, .md-body ol { margin: var(--sp-3) 0; padding-left: 1.4em; }
+  .md-body ul { list-style: disc; }
+  .md-body ol { list-style: decimal; }
+  .md-body li { margin: var(--sp-1) 0; }
+  .md-body blockquote {
+    margin: var(--sp-3) 0; padding: var(--sp-1) var(--sp-6);
+    border-left: 1px solid var(--border); color: var(--text-2);
+  }
+  .md-body pre {
+    background: var(--bg-0); border: 1px solid var(--border-soft);
+    border-radius: var(--r-sm); padding: var(--sp-5) var(--sp-6);
+    margin: var(--sp-3) 0; overflow-x: auto;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.45;
+    white-space: pre-wrap;
+  }
+  .md-body code {
+    background: var(--bg-0); border-radius: var(--r-sm); padding: 1px 5px;
+    font-family: var(--mono); font-size: 0.88em;
+  }
+  /* внутри блока кода подсветка плашкой не нужна — фон уже у <pre> */
+  .md-body pre code { background: none; padding: 0; font-size: inherit; }
+  .md-body a { color: var(--accent); }
 
   /* Таблицы: половина документации и брифов написана ими. Широкое катается
      внутри своего блока — страница по горизонтали не едет. */
@@ -618,6 +633,15 @@
   .btn { padding: 11px 16px; min-height: var(--tap); }
   .btn.sm { padding: 8px 13px; min-height: 36px; }
   .link { min-height: 32px; display: inline-flex; align-items: center; font-size: var(--fs-sm); }
+  /* Третичное действие остаётся мелким на вид (оно и должно теряться в
+     ряду), но пальцем в него надо попадать: зона нажатия расширена
+     псевдоэлементом — тем же приёмом, что у ключа тикета. 8px по вертикали
+     доводят цель до 40px; по горизонтали 6px меньше половины зазора между
+     соседями (--sp-6), так что кнопки не перехватывают чужие нажатия. */
+  :is(.link, [data-variant='link']) { position: relative; }
+  :is(.link, [data-variant='link'])::after {
+    content: ''; position: absolute; inset: -4px -6px;
+  }
   .row { padding: var(--sp-4) var(--sp-5); min-height: var(--tap); font-size: var(--fs-md); }
   .chip { padding: var(--sp-3) 11px; font-size: var(--fs-sm); }
   input[type='text'], input[type='search'], textarea, select {
@@ -628,7 +652,10 @@
      не ловит. Кегль задан здесь, а не классом в компоненте, — иначе утилита
      text-* перебила бы защиту от зума и вернула её же баг. */
   [data-slot='input'], [data-slot='textarea'] { font-size: 16px; }
-  summary { min-height: 34px; display: flex; align-items: center; }
+  /* 40px — та же цель пальца, что у сегментов и полей; плашки транскрипта
+     раскрываются пальцем, а не только курсором (замер волны 3: до этого
+     свёртки были единственными целями меньше 40 на телефоне) */
+  summary { min-height: 40px; display: flex; align-items: center; }
   .panel > .body { padding: var(--sp-5); }
   /* широкое (код, таблицы, штампы) катается внутри своего блока — страница
      по горизонтали не едет ни на одной ширине */
@@ -645,6 +672,7 @@
     .btn { padding: 7px 14px; min-height: 0; }
     .btn.sm { padding: 5px 11px; min-height: 0; }
     .link { min-height: 0; display: inline; font-size: var(--fs-xs); }
+    :is(.link, [data-variant='link'])::after { content: none; }
     .row { padding: var(--sp-3) var(--sp-5); min-height: 0; font-size: var(--fs-sm); }
     .chip { padding: 1px 9px; font-size: var(--fs-xs); }
     input[type='text'], input[type='search'], textarea, select {

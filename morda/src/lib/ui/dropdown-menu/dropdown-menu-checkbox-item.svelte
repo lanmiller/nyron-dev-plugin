@@ -1,7 +1,6 @@
 <script>
 	import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
-	import MinusIcon from '@lucide/svelte/icons/minus';
-	import CheckIcon from '@lucide/svelte/icons/check';
+	import Icon from '$lib/Icon.svelte';
 	import { cn } from "$lib/utils.js";
 	let {
 		ref = $bindable(null),
@@ -30,9 +29,9 @@
 			data-slot="dropdown-menu-checkbox-item-indicator"
 		>
 			{#if indeterminate}
-				<MinusIcon  />
+				<Icon name="minus" />
 			{:else if checked}
-				<CheckIcon  />
+				<Icon name="check" />
 			{/if}
 		</span>
 		{@render childrenProp?.()}

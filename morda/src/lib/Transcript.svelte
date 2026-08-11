@@ -2,8 +2,15 @@
   // Лента транскрипта: реплики (маркдаун), мысли (свёрнуты), плашки
   // инструментов (свёрнуты, разворачиваются в ввод+вывод), субагенты —
   // плашка Agent разворачивается во вложенный транскрипт (дерево).
+  //
+  // Волна 3 нарочно НЕ переводит плашки на Collapsible: в ленте диспетчера
+  // их тысячи, а нативный <details> не держит ни своего состояния, ни
+  // подписки — он и есть самый дешёвый свёрток из возможных (окно сессии
+  // уже разгоняли 16 с → 15 мс, повторять не за чем). Компоненты пришли
+  // туда, где они дают поведение: карточки вопросов, шапка, шторка.
   import Self from './Transcript.svelte';
-  import { md, esc } from '$lib/md.js';
+  import { md } from '$lib/md.js';
+  import Icon from '$lib/Icon.svelte';
 
   let { items, project = null, sessionKey = null, depth = 0, tracker = null } = $props();
 
@@ -50,7 +57,7 @@
       <!-- пачка технических действий: одна строка вместо стены плашек -->
       <details class="toolpack" class:iserr={hasErr(b.tools)}>
         <summary>
-          <span class="tname">⚙ {b.tools.length} действ{b.tools.length < 5 ? 'ия' : 'ий'}</span>
+          <span class="tname"><Icon name="layers" size={13} /> {b.tools.length} действ{b.tools.length < 5 ? 'ия' : 'ий'}</span>
           <span class="tin">{groupLabel(b.tools)}</span>
           {#if hasErr(b.tools)}<span class="terr">есть ошибка</span>{/if}
         </summary>
@@ -73,12 +80,12 @@
     {#if it.kind === 'user' && it.system}
       <!-- служебная вставка рантайма, не реплика человека — свёрнутая плашка -->
       <details class="sysnote">
-        <summary>⚙ {it.system}</summary>
+        <summary><Icon name="info" size={13} /> {it.system}</summary>
         <pre>{it.text}</pre>
       </details>
     {:else if it.kind === 'user'}
       <div class="user">
-        <div class="bubble">
+        <div class="bubble md-body">
           {@html md(it.text, tracker)}
           {#each it.images || [] as src}
             {#if src}
@@ -87,24 +94,24 @@
                   Object.assign(document.createElement('span'),
                     { className: 'imgs', textContent: 'вложение не открылось' })); }} />
             {:else}
-              <span class="imgs">🖼 картинка (не показана: формат или размер)</span>
+              <span class="imgs"><Icon name="image" size={13} /> картинка (не показана: формат или размер)</span>
             {/if}
           {/each}
         </div>
       </div>
     {:else if it.kind === 'assistant'}
-      <div class="assistant">{@html md(it.text, tracker)}</div>
+      <div class="assistant md-body">{@html md(it.text, tracker)}</div>
     {:else if it.kind === 'thinking'}
       <details class="think">
         <summary>мысли</summary>
-        <div class="think-body">{@html md(it.text, tracker)}</div>
+        <div class="think-body md-body">{@html md(it.text, tracker)}</div>
       </details>
     {:else if it.kind === 'tool'}
       {#if it.agent}
         <details class="tool agent"
           ontoggle={(e) => toggleAgent(it.agent, e.currentTarget.open)}>
           <summary>
-            <span class="tname">⛭ субагент</span>
+            <span class="tname"><Icon name="bot" size={13} /> субагент</span>
             <span class="tin">{it.agent.name || it.agent.agentId}{it.agent.agentType ? ` · ${it.agent.agentType}` : ''}{it.agent.description ? ` — ${it.agent.description}` : ''}</span>
             {#if it.is_error}<span class="terr">ошибка</span>{/if}
           </summary>
@@ -159,25 +166,15 @@
     font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap;
     max-height: 40vh; overflow: auto;
   }
-  .assistant { max-width: 100%; overflow-wrap: break-word; }
-  .assistant :global(p), .user :global(p) { margin: 0 0 8px; }
-  .assistant :global(p:last-child), .user :global(p:last-child) { margin-bottom: 0; }
-  .assistant :global(h4) { margin: 12px 0 4px; font-size: 15px; }
-  .assistant :global(pre), .think-body :global(pre), .tout pre {
+  /* Оформление маркдауна — общее правило .md-body в app.css (там же его
+     берёт просмотрщик файлов). Здесь только то, что про место в ленте. */
+  .assistant { max-width: 100%; }
+  .tout pre {
     background: var(--bg-0); border: 1px solid var(--border-soft);
     border-radius: 8px; padding: 10px 12px; overflow-x: auto;
     font-family: var(--mono); font-size: 12.5px; line-height: 1.45;
     white-space: pre-wrap; margin: 6px 0;
   }
-  .assistant :global(code), .user :global(code) {
-    background: var(--bg-0); border-radius: 4px; padding: 1px 5px;
-    font-family: var(--mono); font-size: 0.88em;
-  }
-  .assistant :global(blockquote) {
-    margin: 6px 0; padding: 2px 14px; border-left: 1px solid var(--border);
-    color: var(--text-2);
-  }
-  .assistant :global(a) { color: var(--accent); }
   .think { border-left: 2px solid var(--border-soft); padding-left: 10px; }
   .think > summary { color: var(--text-4); font-size: 12.5px; cursor: pointer; font-style: italic; }
   .think-body { color: var(--text-3); font-size: 13px; margin-top: 4px; }

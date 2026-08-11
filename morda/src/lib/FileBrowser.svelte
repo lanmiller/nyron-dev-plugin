@@ -2,8 +2,19 @@
   // Обозреватель файлов проекта: дерево слева, просмотр справа. Открывается
   // как поверхность, разворачивается на весь экран (эталон Claude Desktop —
   // «доп-окно, кручу по размеру как угодно», CTO 11.08).
+  //
+  // Волна 3: Card как поверхность, ScrollArea под дерево, Input под фильтр,
+  // Skeleton на время чтения файла. Высота поверхности задана (а не растёт
+  // с файлом): иначе открытый на десять экранов файл утаскивал вниз всю
+  // страницу вместе с деревом.
   import { untrack } from 'svelte';
   import { md } from '$lib/md.js';
+  import Icon from '$lib/Icon.svelte';
+  import * as Card from '$lib/ui/card/index.js';
+  import { Button } from '$lib/ui/button/index.js';
+  import { Input } from '$lib/ui/input/index.js';
+  import { Skeleton } from '$lib/ui/skeleton/index.js';
+  import { ScrollArea } from '$lib/ui/scroll-area/index.js';
 
   let { project, tracker = null, onClose = null } = $props();
 
@@ -119,60 +130,85 @@
   });
 </script>
 
-<section class="fb" class:full>
-  <header>
-    <h3>Файлы <span class="quiet">{project}</span></h3>
-    <div class="tools">
-      <button class="link" onclick={() => (full = !full)}>{full ? 'свернуть' : 'развернуть'}</button>
-      {#if onClose}<button class="link" onclick={onClose}>закрыть</button>{/if}
-    </div>
-  </header>
+<Card.Root
+  class="gap-0 py-0 {full
+    ? 'fixed inset-0 z-50 rounded-none wide:inset-4 wide:rounded-lg'
+    : 'h-[78vh] wide:h-[70vh]'}">
+  <div class="flex items-center gap-2 border-b border-border-soft px-3.5 py-2.5">
+    <h3 class="flex-1">Файлы <span class="quiet text-xs font-normal">{project}</span></h3>
+    <Button variant="ghost" size="icon-sm" onclick={() => (full = !full)}
+      title={full ? 'свернуть' : 'развернуть на весь экран'}
+      aria-label={full ? 'свернуть' : 'развернуть на весь экран'}>
+      <Icon name={full ? 'minimize-2' : 'maximize-2'} />
+    </Button>
+    {#if onClose}
+      <Button variant="ghost" size="icon-sm" onclick={onClose} title="закрыть" aria-label="закрыть">
+        <Icon name="x" />
+      </Button>
+    {/if}
+  </div>
 
-  <div class="cols">
-    <div class="tree filetree">
-      <input type="search" placeholder="фильтр… (?текст — искать в содержимом)"
+  <!-- пока файл не выбран, дерево забирает всю высоту: на телефоне иначе
+       видно три строки дерева и полэкрана пустого просмотра -->
+  <div class="cols" class:picked={!!selPath}>
+    <div class="flex min-h-0 flex-col gap-2 border-b border-border-soft p-2 wide:border-b-0 wide:border-r">
+      <Input type="search" class="flex-none"
+        placeholder="фильтр… (?текст — искать в содержимом)"
         bind:value={q} oninput={onSearch} />
 
-      {#if hits}
-        <div class="hits">
-          <div class="eyebrow">{hits.byContent ? 'в содержимом' : 'по имени'}: {hits.entries.length}</div>
+      <!-- дерево длиннее панели всегда: своя прокрутка, страница не растёт -->
+      <ScrollArea class="min-h-0 flex-1">
+        {#if hits}
+          <div class="eyebrow px-2 py-1">{hits.byContent ? 'в содержимом' : 'по имени'}: {hits.entries.length}</div>
           {#each hits.entries as h (h.path)}
             <button class="row" class:active={selPath === h.path} onclick={() => openFile(h.path)}>
+              <Icon name="file-text" size={13} class="text-ink-4" />
               <span class="grow">{h.path}{h.line ? ` : ${h.line}` : ''}</span>
             </button>
             {#if h.excerpt}<p class="excerpt quiet">{h.excerpt}</p>{/if}
           {/each}
           {#if !hits.entries.length}<p class="empty">Ничего не нашлось.</p>{/if}
-        </div>
-      {:else}
-        {#snippet level(p, depth)}
-          {#each openDirs[p] || [] as e (e.path)}
-            {#if e.dir}
-              <button class="row dir" style="padding-left: {8 + depth * 12}px" onclick={() => loadDir(e.path)}>
-                <span class="caret" class:open={openDirs[e.path]}>›</span>
-                <span class="grow">{e.name}</span>
-              </button>
-              {#if openDirs[e.path]}{@render level(e.path, depth + 1)}{/if}
-            {:else}
-              <button class="row" class:active={selPath === e.path}
-                style="padding-left: {20 + depth * 12}px" onclick={() => openFile(e.path)}>
-                <span class="grow">{e.name}</span>
-                <span class="trail">{kb(e.size)}</span>
-              </button>
-            {/if}
-          {/each}
-        {/snippet}
-        {@render level('', 0)}
-        {#if loading['']}<p class="empty">читаю корень…</p>{/if}
-      {/if}
+        {:else}
+          <div class="filetree">
+            {#snippet level(p, depth)}
+              {#each openDirs[p] || [] as e (e.path)}
+                {#if e.dir}
+                  <button class="row dir" style="padding-left: {8 + depth * 12}px" onclick={() => loadDir(e.path)}>
+                    <Icon name="chevron-right" size={13}
+                      class="caret {openDirs[e.path] ? 'open' : ''}" />
+                    <Icon name={openDirs[e.path] ? 'folder-open' : 'folder'} size={13} class="text-ink-3" />
+                    <span class="grow">{e.name}</span>
+                  </button>
+                  {#if openDirs[e.path]}{@render level(e.path, depth + 1)}{/if}
+                {:else}
+                  <button class="row" class:active={selPath === e.path}
+                    style="padding-left: {20 + depth * 12}px" onclick={() => openFile(e.path)}>
+                    <Icon name="file-text" size={13} class="text-ink-4" />
+                    <span class="grow">{e.name}</span>
+                    <span class="trail">{kb(e.size)}</span>
+                  </button>
+                {/if}
+              {/each}
+            {/snippet}
+            {@render level('', 0)}
+          </div>
+          {#if loading['']}
+            <div class="flex flex-col gap-2 p-2">
+              {#each [70, 55, 80, 45] as w}<Skeleton class="h-4" style="width: {w}%" />{/each}
+            </div>
+          {/if}
+        {/if}
+      </ScrollArea>
     </div>
 
     <div class="view">
       {#if error}<p class="err">{error}</p>{/if}
       {#if !selPath}
-        <p class="empty">Выберите файл слева — покажу целиком. Разметка отрисуется, код — как есть.</p>
+        <p class="empty">Выберите файл в дереве — покажу целиком. Разметка отрисуется, код — как есть.</p>
       {:else if !sel}
-        <div class="skeleton" style="width: 60%"></div>
+        <div class="flex flex-col gap-2">
+          {#each [60, 90, 75, 85, 40] as w}<Skeleton class="h-4" style="width: {w}%" />{/each}
+        </div>
       {:else}
         <div class="viewer-head">
           <b class="mono">{sel.path}</b>
@@ -180,24 +216,25 @@
         </div>
         {#if sel.viewer?.startsWith('image/')}
           <!-- скриншоты требований и дизайна смотрим прямо здесь (CTO 11.08) -->
-          <a class="shot-link" href={rawUrl(sel.path)} target="_blank" rel="noopener"
+          <a class="inline-block" href={rawUrl(sel.path)} target="_blank" rel="noopener"
              title="открыть в полном размере">
             <img class="shot" src={rawUrl(sel.path)} alt={sel.path} />
           </a>
         {:else if sel.viewer === 'application/pdf'}
           <!-- встроенный браузер Claude PDF не рисует (нет просмотрщика) —
                даём рамку для обычных браузеров и явный выход наружу -->
-          <object class="pdf" data={rawUrl(sel.path)} type="application/pdf">
+          <object class="pdf" data={rawUrl(sel.path)} type="application/pdf"
+            aria-label="PDF: {sel.path}">
             <div class="viewer-fallback">
               <p>Встроенный браузер не показывает PDF.</p>
-              <a class="btn primary" href={rawUrl(sel.path)} target="_blank" rel="noopener">Открыть вкладкой</a>
-              <button class="btn" onclick={() => openOutside(sel.path)}>Открыть в системе</button>
+              <Button href={rawUrl(sel.path)} target="_blank" rel="noopener">Открыть вкладкой</Button>
+              <Button variant="outline" onclick={() => openOutside(sel.path)}>Открыть в системе</Button>
             </div>
           </object>
-          <p class="pdf-note quiet">
+          <p class="note quiet">
             Пусто? Значит просмотрщика в этом браузере нет —
             <a href={rawUrl(sel.path)} target="_blank" rel="noopener">открыть вкладкой</a>
-            или <button class="link" onclick={() => openOutside(sel.path)}>в системе</button>.
+            или <Button variant="link" size="xs" class="px-0" onclick={() => openOutside(sel.path)}>в системе</Button>.
           </p>
         {:else if sel.binary}
           <p class="empty">Двоичный файл — показывать нечего.</p>
@@ -213,87 +250,38 @@
             </table>
           </div>
           {#if table.length > 500}
-            <p class="quiet pdf-note">Показаны первые 500 строк из {table.length - 1}.</p>
+            <p class="quiet note">Показаны первые 500 строк из {table.length - 1}.</p>
           {/if}
         {:else if isMd(sel.path)}
-          <div class="doc">{@html md(sel.text, tracker)}</div>
+          <div class="md-body doc">{@html md(sel.text, tracker)}</div>
         {:else}
           <pre class="filecode">{sel.text}</pre>
         {/if}
       {/if}
     </div>
   </div>
-</section>
+</Card.Root>
 
 <style>
-  .fb {
-    background: var(--bg-2); border: 1px solid var(--border);
-    border-radius: var(--r); display: flex; flex-direction: column;
-    overflow: hidden; min-height: 320px;
+  /* Раскладка: на телефоне дерево над просмотром, на широком — колонками.
+     Обе колонки катаются сами, поверхность держит заданную высоту. */
+  .cols { display: grid; grid-template-rows: minmax(0, 1fr) auto; flex: 1; min-height: 0; }
+  .cols.picked { grid-template-rows: minmax(0, 2fr) minmax(0, 3fr); }
+  @media (min-width: 901px) {
+    .cols, .cols.picked {
+      grid-template-rows: none; grid-template-columns: minmax(200px, 300px) minmax(0, 1fr);
+    }
   }
-  .fb.full {
-    position: fixed; inset: 16px; z-index: 50;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-  }
-  header {
-    display: flex; align-items: center; gap: var(--sp-4);
-    padding: var(--sp-5) var(--sp-6); border-bottom: 1px solid var(--border-soft);
-  }
-  header h3 { margin: 0; font-size: var(--fs-md); font-weight: 600; flex: 1; }
-  header .quiet { font-weight: 400; font-size: var(--fs-xs); }
-  .tools { display: flex; gap: var(--sp-5); }
-  .cols { display: grid; grid-template-columns: minmax(200px, 300px) minmax(0, 1fr); flex: 1; min-height: 0; }
-  .tree {
-    border-right: 1px solid var(--border-soft); overflow: auto;
-    padding: var(--sp-4); display: flex; flex-direction: column; gap: 1px;
-  }
-  .tree input { width: 100%; margin-bottom: var(--sp-4); }
-  .row {
-    display: flex; align-items: center; gap: var(--sp-3);
-    background: none; border: 0; text-align: left; width: 100%;
-    padding: var(--sp-3) var(--sp-4); border-radius: var(--r-sm);
-    color: var(--text-2); font: inherit; font-size: var(--fs-sm);
-    transition: background var(--t-fast);
-  }
-  .row:hover { background: var(--bg-3); }
-  .row.active { background: var(--bg-3); color: var(--text-1); }
-  .row.dir { color: var(--text-1); }
-  .caret { color: var(--text-4); display: inline-block; width: 10px; transition: transform var(--t-fast); }
-  .caret.open { transform: rotate(90deg); }
-  .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .trail { color: var(--text-4); font-size: var(--fs-micro); flex: none; }
+  .view { overflow: auto; padding: var(--sp-6); min-width: 0; }
   .excerpt {
     font-size: var(--fs-micro); margin: 0 0 var(--sp-3) var(--sp-6);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .view { overflow: auto; padding: var(--sp-6); min-width: 0; }
-  .viewer-head-local { display: flex; gap: var(--sp-5); align-items: baseline; margin-bottom: var(--sp-5); }
-  .fhead .quiet { font-size: var(--fs-xs); }
-  .code {
-    background: var(--bg-0); border: 1px solid var(--border-soft);
-    border-radius: var(--r-sm); padding: var(--sp-5);
-    font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
-    white-space: pre; overflow-x: auto; margin: 0;
-  }
   .doc { max-width: 80ch; }
-  .shot-link { display: inline-block; }
-  .shot {
-    max-width: 100%; border: 1px solid var(--border);
-    border-radius: var(--r-sm); background: var(--bg-0);
+  .pdf {
+    width: 100%; height: 60vh; background: var(--bg-0);
+    border: 1px solid var(--border); border-radius: var(--r-sm);
   }
-  .pdf { width: 100%; height: 70vh; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg-0); }
-  .pdf-fallback { display: flex; flex-direction: column; gap: var(--sp-5); align-items: center; padding: var(--sp-8); }
-  .pdf-note { font-size: var(--fs-xs); margin-top: var(--sp-4); }
-  .pdf-note a { color: var(--accent); }
-  .doc :global(pre) {
-    background: var(--bg-0); border: 1px solid var(--border-soft);
-    border-radius: var(--r-sm); padding: var(--sp-5); overflow-x: auto;
-  }
-  .doc :global(table) { border-collapse: collapse; }
-  .doc :global(a) { color: var(--accent); }
-  @media (max-width: 900px) {
-    .cols { grid-template-columns: 1fr; }
-    .tree { border-right: 0; border-bottom: 1px solid var(--border-soft); max-height: 40vh; }
-    .fb.full { inset: 0; border-radius: 0; }
-  }
+  .note { font-size: var(--fs-xs); margin-top: var(--sp-4); }
+  .note a { color: var(--accent); }
 </style>

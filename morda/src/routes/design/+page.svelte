@@ -296,7 +296,7 @@
 
     <article class="panel collapsed">
       <header>
-        <button class="fold" aria-label="развернуть">›</button>
+        <button class="fold" aria-label="развернуть"><Icon name="chevron-right" size={13} /></button>
         <h3>Свёрнутая панель</h3>
         <span class="badge mute">7</span>
       </header>
@@ -305,7 +305,7 @@
 
     <article class="panel">
       <header>
-        <button class="fold open" aria-label="свернуть">›</button>
+        <button class="fold open" aria-label="свернуть"><Icon name="chevron-right" size={13} /></button>
         <h3>Пусто и загрузка</h3>
       </header>
       <div class="body">
@@ -565,8 +565,8 @@
       <div class="body">
         <input type="search" placeholder="фильтр… (?текст — искать в содержимом)" />
         <div class="filetree" style="margin-top: 8px">
-          <button class="row dir"><span class="caret open">›</span><span class="grow">ai-evolve-docs-test</span></button>
-          <button class="row dir" style="padding-left: 20px"><span class="caret">›</span><span class="grow">requirements</span></button>
+          <button class="row dir"><Icon name="chevron-right" size={13} class="caret open" /><Icon name="folder-open" size={13} /><span class="grow">ai-evolve-docs-test</span></button>
+          <button class="row dir" style="padding-left: 20px"><Icon name="chevron-right" size={13} class="caret" /><Icon name="folder" size={13} /><span class="grow">requirements</span></button>
           <button class="row active" style="padding-left: 32px"><span class="grow">03-form-filled.png</span><span class="trail">172 КБ</span></button>
           <button class="row" style="padding-left: 32px"><span class="grow">spec-staged-reveal.md</span><span class="trail">14 КБ</span></button>
           <button class="row" style="padding-left: 32px"><span class="grow">выгрузка.csv</span><span class="trail">8 КБ</span></button>
@@ -613,6 +613,28 @@
       </div>
     </article>
   </div>
+</section>
+
+<section>
+  <h2 class="eyebrow">Текст документа</h2>
+  <div class="md-body doc-demo">
+    <h4>Заголовок внутри документа</h4>
+    <p>
+      Абзац реплики или файла: <b>жирное</b>, <i>наклонное</i>,
+      <code>код в строке</code> и <a href="/design">ссылка</a>.
+    </p>
+    <ul><li>маркированный пункт</li><li>второй пункт</li></ul>
+    <ol><li>нумерованный пункт</li><li>второй</li></ol>
+    <blockquote>Цитата: так выглядит вставка чужих слов.</blockquote>
+    <pre><code>git rebase origin/main   # блок кода</code></pre>
+  </div>
+  <p class="quiet note">
+    Класс <b class="mono">.md-body</b> — единственное место, где описан вид
+    маркдауна: его носят реплики транскрипта, мысли и просмотр
+    .md-файла. С волны 3 включён полный preflight, и браузерных умолчаний
+    (отступы абзацев, маркеры списков, кегль заголовков) больше нет ни у
+    кого — всё, что видно выше, задано здесь явно.
+  </p>
 </section>
 
 <section>
@@ -670,4 +692,5 @@
   }
   .sd-main { flex: 1; }
   .sd-side { flex: none; }
+  .doc-demo { max-width: 60ch; }
 </style>

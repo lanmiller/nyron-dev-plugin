@@ -2,7 +2,17 @@
   // Карточка запроса на решение. Живёт и на главной, и в окне сессии.
   // Статус доставки (этап 4, требование CTO дословно: «статус доставки
   // виден на карточке») — цепочка решено → доставлено → подтверждено.
+  //
+  // Волна 3: собрана из Card / Button / Badge / Collapsible / Input. Своих
+  // стилей осталось ровно два вида — раскладка рядов и цвет рамки по
+  // состоянию; всё остальное приходит из компонентов.
   import { age, hhmm } from '$lib/states.js';
+  import Icon from '$lib/Icon.svelte';
+  import * as Card from '$lib/ui/card/index.js';
+  import * as Collapsible from '$lib/ui/collapsible/index.js';
+  import { Button } from '$lib/ui/button/index.js';
+  import { Badge } from '$lib/ui/badge/index.js';
+  import { Input } from '$lib/ui/input/index.js';
 
   let { ask, project, linkToSession = true, onSent = () => {} } = $props();
 
@@ -60,141 +70,126 @@
   let authorHref = $derived(
     linkToSession && authorKey ? `/s/${encodeURIComponent(project)}/${authorKey}` : null);
   let sessionHref = $derived(authorHref);
+  let context = $state(false);
 </script>
 
-<article class="ask" class:blocking={ask.urgency === 'blocking'} class:done={ask.status !== 'open'}>
-  <header>
-    {#if sessionHref}
-      <a href={sessionHref} class="q" title="открыть окно сессии"><b>{ask.question}</b></a>
-    {:else}
-      <b>{ask.question}</b>
-    {/if}
-    <span class="meta">
+<Card.Root
+  class="mb-2.5 {ask.urgency === 'blocking' && ask.status === 'open' ? 'border-primary' : ''}
+         {ask.status !== 'open' ? 'border-ok/45' : ''}">
+  <Card.Header>
+    <Card.Title class={ask.status === 'open' ? 'font-semibold' : 'text-ink-2'}>
+      {#if sessionHref}
+        <a href={sessionHref} class="no-underline hover:text-primary" title="открыть окно сессии">{ask.question}</a>
+      {:else}
+        {ask.question}
+      {/if}
+    </Card.Title>
+    <Card.Description>
       спрашивает:&nbsp;
       {#if sessionHref}
-        <a href={sessionHref} class="sess" title="открыть окно сессии · {ask.session}">{ask.session_title || ask.session.slice(0, 8)} ↗</a>
+        <a href={sessionHref} class="text-ink-2 no-underline hover:text-primary"
+           title="открыть окно сессии · {ask.session}">{ask.session_title || ask.session.slice(0, 8)}<Icon name="external-link" size={12} class="ml-0.5" /></a>
       {:else}
-        <b class="from">{ask.session_title || ask.session}</b>
+        <b class="text-ink-2">{ask.session_title || ask.session}</b>
       {/if}
       {ask.ticket ? ` · ${ask.ticket}` : ''} · {age(ask.ts)}
-      {#if ask.urgency === 'blocking' && ask.status === 'open'}· <em>блокирует</em>{/if}
-    </span>
-  </header>
+      {#if ask.urgency === 'blocking' && ask.status === 'open'}
+        <Badge class="ml-1">блокирует</Badge>
+      {/if}
+    </Card.Description>
+  </Card.Header>
 
-  {#if ask.context}<details><summary>контекст</summary><p>{ask.context}</p></details>{/if}
-  {#if ask.stamp}<span class="stamp mono">{ask.stamp.split(' @')[0]}</span>{/if}
-
-  {#if ask.status === 'open'}
-    <div class="answers">
-      {#if ask.type === 'choice' && ask.options}
-        {#each ask.options as o}
-          <button class="btn" disabled={busy} onclick={() => send(o.n)}>
-            <span>{o.n}. {o.label}</span>
-            {#if o.effect}<small>{o.effect}</small>{/if}
-          </button>
-        {/each}
-      {:else if ask.type === 'confirm'}
-        <button class="btn" disabled={busy} onclick={() => send('да')}>да</button>
-        <button class="btn" disabled={busy} onclick={() => send('нет')}>нет</button>
-      {:else}
-        <input type="text" placeholder="ответ…" bind:value={draft}
-          onkeydown={(e) => e.key === 'Enter' && draft && send(draft)} />
-        <button class="btn" disabled={busy || !draft} onclick={() => send(draft)}>отправить</button>
+  {#if ask.context || ask.stamp}
+    <Card.Content class="text-ink-2">
+      {#if ask.context}
+        <Collapsible.Root bind:open={context}>
+          <Collapsible.Trigger>
+            {#snippet child({ props })}
+              <Button variant="link" size="xs" class="px-0" {...props}>
+                <Icon name="chevron-right" size={13} class={context ? 'rotate-90 transition-transform' : 'transition-transform'} />
+                контекст
+              </Button>
+            {/snippet}
+          </Collapsible.Trigger>
+          <Collapsible.Content class="pt-1 text-sm">{ask.context}</Collapsible.Content>
+        </Collapsible.Root>
       {/if}
-      <div class="ask-tools">
-        <button class="link" disabled={busy} onclick={() => (asking = !asking)}
-          title="вопрос непонятен — спросить у того, кто его задал; ask останется открытым">
-          {asking ? '← назад' : 'уточнить у автора'}
-        </button>
-        {#if authorHref}
-          <a class="link" href={authorHref} title="открыть окно этой сессии и общаться там">перейти в её сессию ↗</a>
-        {/if}
-        <button class="dismiss" disabled={busy} onclick={dismiss}
-          title="вопрос неактуален (сессия умерла, тема закрыта) — снять; сторож не пересоздаст его, пока сессия молчит">
-          снять вопрос
-        </button>
-      </div>
-      {#if asking}
-        <div class="probe">
-          <input type="text" placeholder="что уточнить у «{ask.session_title || ask.session}»…"
-            bind:value={probe} onkeydown={(e) => e.key === 'Enter' && askBack()} />
-          <button class="btn small" disabled={busy || !probe.trim()} onclick={askBack}>спросить</button>
-        </div>
+      {#if ask.stamp}
+        <span class="mono mt-2 inline-block rounded-sm bg-muted px-2 py-0.5 text-ink-4">{ask.stamp.split(' @')[0]}</span>
       {/if}
-      {#if probeSent}<p class="sent">{probeSent}</p>{/if}
-    </div>
-  {:else}
-    <div class="delivery">
-      <span class="step on">решено «{ask.decision}» · {ask.decided_by} · {hhmm(ask.decided_ts)}</span>
-      {#if String(ask.decided_by || '').includes('@morda')}
-        <span class="step on" title="решение продублировано постом в шину — живой диспетчер видит его, не дожидаясь pull автора">⇢ диспетчеру в шину</span>
-      {/if}
-      <span class="arrow">→</span>
-      <span class="step" class:on={ask.delivered_ts || ask.acked_ts}
-        title="ответ забирает сама сессия-автор чтением будки (pull)">
-        {ask.delivered_ts ? `сессия забрала ${hhmm(ask.delivered_ts)}`
-          : ask.acked_ts ? 'доставка не фиксировалась' : `ждёт в будке для «${ask.session_title || ask.session}»`}
-      </span>
-      <span class="arrow">→</span>
-      <span class="step" class:on={ask.acked_ts}>
-        {ask.acked_ts ? `подтверждено ${hhmm(ask.acked_ts)}` : 'не подтверждено'}
-      </span>
-    </div>
+    </Card.Content>
   {/if}
 
-  {#if error}<p class="err">Ответ не доставлен: {error}</p>{/if}
-</article>
+  <Card.Content>
+    {#if ask.status === 'open'}
+      <div class="flex flex-wrap items-center gap-2">
+        {#if ask.type === 'choice' && ask.options}
+          {#each ask.options as o}
+            <Button variant="outline" class="flex-col items-start gap-0.5 text-left"
+              disabled={busy} onclick={() => send(o.n)}>
+              <span>{o.n}. {o.label}</span>
+              {#if o.effect}<span class="text-micro font-normal text-ink-3">{o.effect}</span>{/if}
+            </Button>
+          {/each}
+        {:else if ask.type === 'confirm'}
+          <Button variant="outline" disabled={busy} onclick={() => send('да')}>да</Button>
+          <Button variant="outline" disabled={busy} onclick={() => send('нет')}>нет</Button>
+        {:else}
+          <Input class="min-w-52 flex-1" placeholder="ответ…" bind:value={draft}
+            onkeydown={(e) => e.key === 'Enter' && draft && send(draft)} />
+          <Button disabled={busy || !draft} onclick={() => send(draft)}>отправить</Button>
+        {/if}
 
-<style>
-  .ask {
-    background: var(--bg-2); border: 1px solid var(--border);
-    border-radius: var(--r); padding: 12px 14px; margin-bottom: 10px;
-  }
-  /* состояние карточки читается цветом всей рамки: полоса сбоку —
-     узнаваемый признак ИИ-вёрстки (детектор impeccable 11.08) */
-  .ask.blocking { border-color: var(--accent); }
-  .ask.done { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
-  .ask.done header b { color: var(--text-2); font-weight: 500; }
-  header { display: flex; flex-direction: column; gap: 2px; }
-  .meta { color: var(--text-3); font-size: 12.5px; }
-  .meta em { color: var(--accent); font-style: normal; font-weight: 600; }
-  .meta .sess { color: var(--text-2); text-decoration: none; }
-  .meta .sess:hover { color: var(--accent); }
-  .meta .from { color: var(--text-2); font-weight: 600; }
-  header .q { color: inherit; text-decoration: none; }
-  header .q:hover b { color: var(--accent); }
-  details { margin: 8px 0 0; color: var(--text-2); font-size: 13.5px; }
-  summary { cursor: pointer; color: var(--text-3); }
-  .stamp {
-    display: inline-block; margin-top: 8px;
-    color: var(--text-4); background: var(--bg-0); border-radius: 6px; padding: 2px 8px;
-  }
-  .answers { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-  .ask-tools { display: flex; gap: 14px; align-items: center; width: 100%; margin-top: 2px; }
-  .link {
-    background: none; border: 0; padding: 0; cursor: pointer;
-    color: var(--text-3); font: inherit; font-size: 12px; text-decoration: none;
-  }
-  .link:hover { color: var(--accent); }
-  .probe { display: flex; gap: 8px; width: 100%; }
-  .probe input { flex: 1; }
-  .btn.small { padding: 6px 12px; font-size: 13px; }
-  .sent { color: var(--ok); font-size: 12.5px; margin: 6px 0 0; width: 100%; }
-  .answers .btn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-  .answers .btn small { color: var(--text-3); font-size: 11.5px; font-weight: 400; }
-  .answers input { flex: 1; min-width: 200px; }
-  .dismiss {
-    margin-left: auto; background: none; border: none;
-    color: var(--text-4); font-size: 12.5px; text-decoration: underline dotted;
-    padding: 7px 2px;
-  }
-  .dismiss:hover:not(:disabled) { color: var(--hot); }
-  .delivery {
-    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-    margin-top: 10px; font-size: 12.5px;
-  }
-  .delivery .step { color: var(--text-4); }
-  .delivery .step.on { color: var(--text-2); }
-  .delivery .arrow { color: var(--text-4); }
-  .err { margin: 10px 0 0; }
-</style>
+        <!-- третичный ряд: уточнить, перейти, снять — во всю ширину карточки -->
+        <div class="flex w-full items-center gap-3.5">
+          <Button variant="link" size="xs" class="px-0" disabled={busy} onclick={() => (asking = !asking)}
+            title="вопрос непонятен — спросить у того, кто его задал; ask останется открытым">
+            {#if asking}<Icon name="arrow-left" size={13} />назад{:else}уточнить у автора{/if}
+          </Button>
+          {#if authorHref}
+            <Button variant="link" size="xs" class="px-0" href={authorHref}
+              title="открыть окно этой сессии и общаться там">
+              перейти в её сессию<Icon name="external-link" size={13} />
+            </Button>
+          {/if}
+          <Button variant="link" size="xs" class="ml-auto px-0 underline decoration-dotted hover:text-destructive"
+            disabled={busy} onclick={dismiss}
+            title="вопрос неактуален (сессия умерла, тема закрыта) — снять; сторож не пересоздаст его, пока сессия молчит">
+            снять вопрос
+          </Button>
+        </div>
+
+        {#if asking}
+          <div class="flex w-full gap-2">
+            <Input class="flex-1" placeholder="что уточнить у «{ask.session_title || ask.session}»…"
+              bind:value={probe} onkeydown={(e) => e.key === 'Enter' && askBack()} />
+            <Button size="sm" disabled={busy || !probe.trim()} onclick={askBack}>спросить</Button>
+          </div>
+        {/if}
+        {#if probeSent}<p class="w-full text-xs text-ok">{probeSent}</p>{/if}
+      </div>
+    {:else}
+      <!-- цепочка доставки: решено → забрала сессия → подтверждено -->
+      <div class="flex flex-wrap items-center gap-2 text-xs text-ink-4">
+        <span class="text-ink-2">решено «{ask.decision}» · {ask.decided_by} · {hhmm(ask.decided_ts)}</span>
+        {#if String(ask.decided_by || '').includes('@morda')}
+          <span class="text-ink-2" title="решение продублировано постом в шину — живой диспетчер видит его, не дожидаясь pull автора">
+            <Icon name="corner-down-right" size={13} /> диспетчеру в шину
+          </span>
+        {/if}
+        <Icon name="arrow-right" size={13} />
+        <span class={ask.delivered_ts || ask.acked_ts ? 'text-ink-2' : ''}
+          title="ответ забирает сама сессия-автор чтением будки (pull)">
+          {ask.delivered_ts ? `сессия забрала ${hhmm(ask.delivered_ts)}`
+            : ask.acked_ts ? 'доставка не фиксировалась' : `ждёт в будке для «${ask.session_title || ask.session}»`}
+        </span>
+        <Icon name="arrow-right" size={13} />
+        <span class={ask.acked_ts ? 'text-ink-2' : ''}>
+          {ask.acked_ts ? `подтверждено ${hhmm(ask.acked_ts)}` : 'не подтверждено'}
+        </span>
+      </div>
+    {/if}
+
+    {#if error}<p class="err mt-2.5">Ответ не доставлен: {error}</p>{/if}
+  </Card.Content>
+</Card.Root>

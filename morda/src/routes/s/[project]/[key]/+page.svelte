@@ -2,13 +2,22 @@
   // Окно сессии (этап 4, требование CTO дословно: «хочу прям в чат нужный
   // отвечать и открывать чат»): весь разговор из транскрипта, ask этой
   // сессии с ответом на месте, ввод — tmux мгновенно / Desktop зеркало.
+  //
+  // Волна 3: действия сессии описаны ОДНИМ списком (ACTIONS) и показаны
+  // двумя способами — рядом чипов на широком экране и выпадающим меню в
+  // общей шапке на телефоне (кнопка там, список отсюда через контекст).
+  // Раньше это был раздвижной ряд с max-height, который на широком экране
+  // так и оставался схлопнутым — действия просто не показывались.
   import { onMount, getContext, tick } from 'svelte';
   import { page } from '$app/state';
   import Transcript from '$lib/Transcript.svelte';
   import AskCard from '$lib/AskCard.svelte';
   import FileBrowser from '$lib/FileBrowser.svelte';
+  import Icon from '$lib/Icon.svelte';
+  import { Button } from '$lib/ui/button/index.js';
+  import { Badge } from '$lib/ui/badge/index.js';
+  import { Skeleton } from '$lib/ui/skeleton/index.js';
   import { STATE_RU, age } from '$lib/states.js';
-  import Folder from '@lucide/svelte/icons/folder';
 
   const st = getContext('morda');
 
@@ -153,9 +162,25 @@
   // Детали прячем за кнопкой, разговор получает место.
   let details = $state(false);
   let files = $state(false);   // обозреватель файлов проекта этой сессии
-  // действия сессии на телефоне открываются кнопкой в общей шапке
-  const shell = getContext('morda');
-  let actionsOpen = $derived(shell.sessionActions);
+
+  let stateInfo = $derived(STATE_RU[data?.state] || null);
+  let isDesktop = $derived(data?.entrypoint === 'claude-desktop');
+
+  // Действия сессии — один список на два места показа: чипы в шапке
+  // (широкий экран) и пункты меню в общей шапке (телефон).
+  let actions = $derived(data ? [
+    ...(stateInfo ? [{ label: stateInfo[0], dot: stateInfo[1], note: true }] : []),
+    { label: 'копия в Claude', icon: 'external-link', disabled: opening, run: openInClaude,
+      title: 'claude://resume — приложение откроет копию этого разговора' },
+    ...(data.cwd ? [{ label: files ? 'скрыть файлы' : 'файлы проекта', icon: 'folder-tree',
+      on: files, run: () => (files = !files), title: `файлы: ${data.cwd}` }] : []),
+    { label: details ? 'скрыть детали' : 'детали', icon: 'info',
+      on: details, run: () => (details = !details) },
+  ] : []);
+  $effect(() => {
+    st.sessionMenu = actions;
+    return () => { st.sessionMenu = null; };
+  });
 
   // поле растёт под текст, как в Claude: одна строка по умолчанию,
   // Enter отправляет, Shift+Enter — перенос
@@ -191,8 +216,6 @@
     if (openCount < prevOpen) sheet = false;
     prevOpen = openCount;
   });
-  let stateInfo = $derived(STATE_RU[data?.state] || null);
-  let isDesktop = $derived(data?.entrypoint === 'claude-desktop');
 </script>
 
 <svelte:head><title>{data?.title || key?.slice(0, 8)} — STOVP</title></svelte:head>
@@ -203,57 +226,55 @@
   <!-- каркас рисуется сразу: у диспетчеров транскрипт мегабайтный, и пустой
        экран на несколько секунд читался как «всё умерло» (CTO 11.08) -->
   <header class="s-head">
-    <a href="/?p={encodeURIComponent(project)}" class="back">← {project}</a>
-    <h1 class="quiet">Открываю сессию…</h1>
-    <div class="s-meta"><span class="mono quiet">{key.slice(0, 8)}</span></div>
+    <a href="/?p={encodeURIComponent(project)}" class="back">
+      <Icon name="arrow-left" size={13} /> {project}
+    </a>
+    <h1 class="s-title quiet">Открываю сессию…</h1>
   </header>
-  <div class="feed-skeleton">
-    {#each [72, 45, 88, 60] as w}
-      <div class="skeleton" style="width: {w}%"></div>
-    {/each}
+  <div class="flex flex-col gap-2.5 pt-3.5">
+    {#each [72, 45, 88, 60] as w}<Skeleton class="h-4" style="width: {w}%" />{/each}
   </div>
 {:else}
   <header class="s-head">
-    <a href="/?p={encodeURIComponent(project)}" class="back">← {project}</a>
+    <a href="/?p={encodeURIComponent(project)}" class="back">
+      <Icon name="arrow-left" size={13} /> {project}
+    </a>
     <h1 class="s-title">{data.title || '(без названия)'}</h1>
     <!-- Шапка работает, а не подписывает: статус, действия сессии и уже
-         потом технические детали (CTO 11.08 — «сделать её функциональной») -->
-    <div class="s-actions" class:shown={actionsOpen}>
-      {#if stateInfo}
-        <span class="chip"><i class="dot" style="background:{stateInfo[1]}"></i>{stateInfo[0]}</span>
-      {/if}
-      <button class="chip" disabled={opening} onclick={openInClaude}
-        title="claude://resume — приложение откроет копию этого разговора">копия в Claude ⧉</button>
-      {#if data.cwd}
-        <button class="chip" class:on={files} onclick={() => (files = !files)}
-          title="файлы: {data.cwd}">
-          <Folder size={13} /> {files ? 'скрыть файлы' : 'файлы'}
-        </button>
-      {/if}
-      <!-- «детали» тут словом: раскрытие ряда живёт на названии сессии -->
-      <button class="chip" onclick={() => (details = !details)}>
-        {details ? 'скрыть детали' : 'детали'}
-      </button>
+         потом технические детали (CTO 11.08 — «сделать её функциональной»).
+         На телефоне тот же список открывает кнопка в общей шапке. -->
+    <div class="s-actions">
+      {#each actions as a (a.label)}
+        {#if a.note}
+          <Badge variant="outline"><i class="dot" style="background:{a.dot}"></i>{a.label}</Badge>
+        {:else}
+          <Button variant="outline" size="xs" disabled={a.disabled} onclick={a.run}
+            title={a.title} class={a.on ? 'border-primary text-ink-1' : ''}>
+            <Icon name={a.icon} size={13} />{a.label}
+          </Button>
+        {/if}
+      {/each}
     </div>
-    <div class="s-meta" class:shown={details}>
-      <span class="mono quiet">{key.slice(0, 8)}</span>
-      {#if stateInfo}
-        <span class="chip"><i class="dot" style="background:{stateInfo[1]}"></i>{stateInfo[0]}</span>
-      {/if}
-      <span class="chip">{isDesktop ? 'Desktop' : data.entrypoint === 'sdk-cli' ? 'headless' : data.entrypoint || '?'}</span>
-      {#if data.truncated}
-        <span class="chip" title="файл больше лимита окна — показан хвост">хвост, файл {(data.size / 1048576).toFixed(1)} МБ</span>
-      {/if}
-      {#if data.cwd_alive === false}
-        <span class="chip dead-cwd">папка сессии снесена</span>
-      {/if}
-      <span class="chip quiet" title={data.cwd}>{data.cwd || '—'}</span>
-    </div>
+    {#if details}
+      <div class="s-meta">
+        <Badge variant="outline" class="mono">{key.slice(0, 8)}</Badge>
+        <Badge variant="outline">{isDesktop ? 'Desktop' : data.entrypoint === 'sdk-cli' ? 'headless' : data.entrypoint || '?'}</Badge>
+        {#if data.truncated}
+          <Badge variant="outline" title="файл больше лимита окна — показан хвост">хвост, файл {(data.size / 1048576).toFixed(1)} МБ</Badge>
+        {/if}
+        {#if data.cwd_alive === false}
+          <Badge variant="warn">папка сессии снесена</Badge>
+        {/if}
+        <Badge variant="outline" class="max-w-full overflow-hidden text-ink-4" title={data.cwd}>{data.cwd || '—'}</Badge>
+      </div>
+    {/if}
     {#if data.reason}<p class="reason quiet">{data.reason}</p>{/if}
   </header>
 
   {#if files}
-    <FileBrowser {project} tracker={data.tracker} onClose={() => (files = false)} />
+    <div class="mb-3.5">
+      <FileBrowser {project} tracker={data.tracker} onClose={() => (files = false)} />
+    </div>
   {/if}
 
   <Transcript items={data.items} {project} sessionKey={key} tracker={data.tracker} />
@@ -264,13 +285,16 @@
          исчезала вместе с отвеченным вопросом и свернуть было нечем
          (CTO 11.08 «ответил — а как свернуть теперь?») -->
     {#if sheetCount}
-      <button class="sheet-toggle" onclick={() => (sheet = !sheet)}>
-        {#if openCount}<span class="badge">{openCount}</span>{/if}
-        <span class="grow">
-          {sheet ? 'свернуть' : openCount ? 'вопросы ждут решения' : 'ответы в пути'}
-        </span>
-        <span class="caret" class:open={sheet}>›</span>
-      </button>
+      <div class="sheet-row">
+        <Button variant="ghost" size="sm" class="w-full justify-start gap-2"
+          aria-expanded={sheet} onclick={() => (sheet = !sheet)}>
+          {#if openCount}<Badge>{openCount}</Badge>{/if}
+          <span class="flex-1 text-left">
+            {sheet ? 'свернуть' : openCount ? 'вопросы ждут решения' : 'ответы в пути'}
+          </span>
+          <Icon name={sheet ? 'chevron-down' : 'chevron-up'} size={14} class="text-ink-4" />
+        </Button>
+      </div>
     {/if}
     <!-- вопросы — в прокрутке, композер всегда виден (CTO 10.08: пачка
          карточек не должна выталкивать ввод за экран) -->
@@ -305,8 +329,9 @@
             {/each}
           {/each}
           {#if data.pending_hitl.questions.some((q) => q.multiSelect)}
-            <button class="btn primary hitl-submit" disabled={saying || !hitlAny}
-              onclick={sendHitlPicked}>отправить выбранное</button>
+            <Button class="mt-2.5" disabled={saying || !hitlAny} onclick={sendHitlPicked}>
+              отправить выбранное
+            </Button>
           {/if}
           <p class="meta">Выбор уйдёт сессии адресным сообщением (доставит почтальон); свой вариант — текстом в композере ниже. Мгновенно и наверняка — клик в её окне приложения.</p>
         </article>
@@ -327,7 +352,9 @@
           e.preventDefault(); sendText();
         }}></textarea>
       <button class="send" disabled={saying || !draft.trim()} onclick={sendText}
-        aria-label="отправить (Enter)" title="Enter — отправить, Shift+Enter — новая строка">↑</button>
+        aria-label="отправить (Enter)" title="Enter — отправить, Shift+Enter — новая строка">
+        <Icon name="arrow-up" size={16} />
+      </button>
     </div>
     <!-- Как дойдёт сообщение — одной строкой; развёрнутое объяснение и
          кнопки копий приложения только по запросу (на телефоне подсказка
@@ -337,9 +364,9 @@
         ⌘⏎ — отправить, доставка мгновенная в панель сессии.
       {:else}
         Уйдёт адресным постом в будку — сессия заберёт при чтении.
-        <button class="link" onclick={() => (details = !details)}>
+        <Button variant="link" size="xs" class="px-0" onclick={() => (details = !details)}>
           {details ? 'свернуть' : 'подробнее'}
-        </button>
+        </Button>
       {/if}
     </p>
     {#if details && data.input?.mode !== 'tmux'}
@@ -348,7 +375,8 @@
         сообщение при чтении будки, спящую добудит почтальон. Открыть её окно
         руками:
         {#each st.overview?.copies || [] as app (app)}
-          <button class="copy" onclick={() => openCopy(app)}>{copyLabel(app)}</button>
+          <Button variant="outline" size="xs" class="mx-0.5 border-dashed"
+            onclick={() => openCopy(app)}>{copyLabel(app)}</Button>
         {/each}
       </p>
     {/if}
@@ -358,52 +386,44 @@
 {/if}
 
 <style>
-  /* шапка прилипает сверху (CTO 10.08: чат открывается снизу — без шапки
-     не видно, ЧЬЯ это сессия и в каком она состоянии) */
+  /* Шапка липнет под общей полосой (её высота — в --bar-h): лента уходит
+     ПОД неё, а не обрывается. На широком экране полосы нет — липнет к нулю.
+     mobile-first: имя сессии и «назад» живут в общей шапке телефона, здесь
+     они появляются только на широком экране. */
   .s-head {
-    position: sticky; top: 0; z-index: 5;
-    background: var(--bg-1); margin: -18px 0 14px;
-    padding: 12px 0 10px; border-bottom: 1px solid var(--border-soft);
+    position: sticky; top: var(--bar-h, 0px); z-index: 5;
+    background: var(--bg-1); margin: calc(-1 * var(--sp-5)) 0 var(--sp-6);
+    padding: var(--sp-5) 0 var(--sp-4);
+    border-bottom: 1px solid var(--border-soft);
+    display: flex; flex-direction: column; gap: var(--sp-4);
   }
-  .back { color: var(--text-3); text-decoration: none; font-size: 13px; }
+  .back, .s-title { display: none; }
+  .back { color: var(--text-3); text-decoration: none; font-size: var(--fs-sm); }
   .back:hover { color: var(--text-1); }
-  h1 {
-    font-size: 19px; margin: 4px 0 8px;
+  .s-title {
+    font-size: var(--fs-xl); margin: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .s-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .open-app { background: none; }
-  .open-app:hover:not(:disabled) { border-color: var(--accent); color: var(--text-1); }
-  .dead-cwd { color: var(--stall); }
+  /* ряд действий: на телефоне их показывает меню общей шапки */
+  .s-actions { display: none; }
+  .s-meta { display: flex; gap: var(--sp-4); align-items: center; flex-wrap: wrap; }
   .reason {
-    margin: 6px 0 0; font-size: 12.5px;
+    margin: 0; font-size: var(--fs-xs);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  /* mobile-first: композер приколочен к низу окна и переживает любую
-     прокрутку; лента освобождает под него место снизу */
-  /* mobile-first: детали свёрнуты, на широком экране показаны всегда */
-  .s-actions { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; }
-  .s-actions .chip.on { border-color: var(--accent); color: var(--text-1); }
-  .s-meta { display: none; }
-  .s-meta.shown { display: flex; }
   @media (min-width: 901px) {
-    .s-meta { display: flex; }
+    .s-head { top: 0; margin-top: -18px; }
+    .back, .s-title { display: block; }
+    .s-actions { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; }
   }
-  .feed-skeleton { display: flex; flex-direction: column; gap: var(--sp-5); margin-top: var(--sp-6); }
-  .feed-skeleton .skeleton { height: 1.1em; }
+
+  /* mobile-first: композер приколочен к низу окна и переживает любую
+     прокрутку; лента освобождает под него место снизу (--dock-h) */
   .dock {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 25;
     background: var(--bg-1); border-top: 1px solid var(--border-soft);
     padding: var(--sp-4) var(--sp-5) calc(var(--sp-4) + var(--safe-b));
   }
-  .sheet-toggle {
-    display: flex; align-items: center; gap: var(--sp-4); width: 100%;
-    background: none; border: 0; color: var(--text-2); font: inherit;
-    font-size: var(--fs-sm); padding: var(--sp-3) 0;
-  }
-  .sheet-toggle .grow { flex: 1; text-align: left; }
-  .sheet-toggle .caret { transition: transform var(--t-fast); color: var(--text-4); }
-  .sheet-toggle .caret.open { transform: rotate(-90deg); }
   .dock-asks { display: none; max-height: 60vh; overflow-y: auto; margin-bottom: var(--sp-4); }
   .dock-asks.sheet-open { display: block; }
 
@@ -412,65 +432,32 @@
       position: sticky; left: auto; right: auto; margin-top: 22px;
       padding: 10px 0 14px;
     }
-    .sheet-toggle { display: none; }
+    .sheet-row { display: none; }   /* на широком экране карточки видны всегда */
     .dock-asks { display: block; max-height: 42vh; margin-bottom: 0; }
   }
+
+  /* Родная форма приложения: жёлтая рамка = ждёт человека НЕ здесь. */
   .hitl {
-    background: var(--bg-2); border: 1px solid var(--border);
-    border-color: var(--warn);
-    border-radius: var(--r); padding: 12px 14px; margin-bottom: 10px;
+    background: var(--bg-2); border: 1px solid var(--warn);
+    border-radius: var(--r); padding: var(--sp-5) var(--sp-6); margin-bottom: var(--sp-5);
   }
-  .hitl header { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
-  .hitl .meta { color: var(--text-3); font-size: 12.5px; margin: 6px 0 0; }
+  .hitl header { display: flex; flex-direction: column; gap: var(--sp-1); margin-bottom: var(--sp-4); }
+  .hitl .meta { color: var(--text-3); font-size: var(--fs-xs); margin: var(--sp-3) 0 0; }
   .hitl .opt {
     display: block; width: 100%; text-align: left;
     background: var(--bg-1); color: var(--text-1);
-    border: 1px solid var(--border-soft); border-radius: 8px;
-    padding: 6px 12px; margin-top: 6px; font-size: 13.5px;
+    border: 1px solid var(--border-soft); border-radius: var(--r-sm);
+    padding: var(--sp-3) var(--sp-5); margin-top: var(--sp-3); font-size: var(--fs-sm);
   }
   .hitl .opt:hover:not(:disabled) { border-color: var(--warn); }
   .hitl .opt:disabled { opacity: 0.5; }
   .hitl .opt b { display: block; }
-  .hitl .opt span { color: var(--text-3); font-size: 12.5px; }
-  .hitl label.opt { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
-  .hitl label.opt input { margin-top: 4px; accent-color: var(--accent); }
+  .hitl .opt span { color: var(--text-3); font-size: var(--fs-xs); }
+  .hitl label.opt { display: flex; gap: var(--sp-5); align-items: flex-start; cursor: pointer; }
+  .hitl label.opt input { margin-top: var(--sp-2); accent-color: var(--accent); }
   .hitl label.opt.picked { border-color: var(--warn); }
   .hitl .opt-body { flex: 1; }
-  .hitl-submit { margin-top: 10px; }
-  /* На телефоне заголовок и действия живут в общей шапке: своя шапка
-     дублировала имя и торчала обрывками чипов под липкой полосой
-     (CTO 11.08 — «сделай лаконичной»). */
-  .s-title, .back { display: none; }
-  .s-head { margin: 0; }
-  /* раздвижной второй ряд шапки: действия появляются прямо под именем
-     сессии, а не отдельной плашкой в ленте (CTO 11.08) */
-  /* Продолжение шапки, а не плашка в ленте: липнет под общей полосой,
-     тем же фоном, раскрывается тапом по названию сессии (CTO 11.08). */
-  .s-actions {
-    display: flex; overflow: hidden; gap: var(--sp-3); flex-wrap: wrap;
-    position: sticky; top: var(--bar-h, 56px); z-index: 20;
-    background: var(--bg-0); margin: 0 calc(-1 * var(--sp-5));
-    padding: 0 var(--sp-5);
-    max-height: 0; opacity: 0;
-    transition: max-height var(--t), opacity var(--t-fast), padding var(--t);
-  }
-  .s-actions.shown {
-    max-height: 160px; opacity: 1;
-    padding: var(--sp-4) var(--sp-5);
-    border-bottom: 1px solid var(--border);
-    /* мягкая тень показывает, что лента уходит ПОД ряд, а не обрывается
-       (CTO 11.08: «непонятно, что идёт обрезка») */
-    box-shadow: 0 8px 12px -8px rgba(0, 0, 0, 0.75);
-  }
-  @media (min-width: 901px) {
-    .s-title, .back { display: block; }
-    .s-actions { display: flex; }
-  }
-  .hint { font-size: 12px; margin: 6px 2px 0; }
-  .hint .copy {
-    background: none; border: 1px dashed var(--border); color: var(--text-3);
-    border-radius: 8px; padding: 2px 9px; font-size: 12px; margin: 0 2px;
-  }
-  .hint .copy:hover { color: var(--text-1); border-color: var(--accent); border-style: solid; }
+
+  .hint { font-size: var(--fs-xs); margin: var(--sp-3) var(--sp-1) 0; }
   .ok-note { color: var(--ok); }
 </style>
