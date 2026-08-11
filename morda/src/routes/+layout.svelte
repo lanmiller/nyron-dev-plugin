@@ -4,6 +4,7 @@
   // Поллинг живёт здесь один: страницы берут данные из контекста.
   import { onMount, setContext } from 'svelte';
   import { page } from '$app/state';
+  import { afterNavigate } from '$app/navigation';
   import { STATE_RU, age } from '$lib/states.js';
   import '../app.css';
 
@@ -32,6 +33,12 @@
     || (!s.state && Date.now() - new Date(s.mtime).getTime() < 2 * 3600 * 1000);
   const live = (ss) => (ss || []).filter(isLive);
   const done = (ss) => (ss || []).filter((s) => !isLive(s));
+
+  // выдвижная навигация на узком экране; закрывается при переходе
+  let navOpen = $state(false);
+  afterNavigate(() => { navOpen = false; });  // эффект по page.url гасил открытие сразу
+  let totalOpen = $derived((st.overview?.projects || [])
+    .reduce((n, p) => n + (p.asks?.filter((a) => a.status === 'open').length || 0), 0));
 
   // раскрытые проекты: активный всегда, остальные — по клику человека
   let opened = $state({});
@@ -100,7 +107,20 @@
   }
 </script>
 
-<div class="shell">
+<!-- Мобильная шапка: на узком экране сайдбар уезжает, навигация — по кнопке
+     (кейс CTO 11.08 — вести флот с телефона) -->
+<header class="mobile-bar">
+  <button class="burger" onclick={() => (navOpen = !navOpen)} aria-label="проекты и сессии">
+    {navOpen ? '✕' : '☰'}
+  </button>
+  <b class="m-title">{page.params?.project || project || 'STOVP'}</b>
+  {#if totalOpen}<span class="badge">{totalOpen}</span>{/if}
+</header>
+
+<div class="shell" class:nav-open={navOpen}>
+  {#if navOpen}
+    <button class="scrim" onclick={() => (navOpen = false)} aria-label="закрыть навигацию"></button>
+  {/if}
   <aside>
     <div class="brand">
       <span class="mark">✳</span>
@@ -242,4 +262,35 @@
   }
   .copies button:hover { color: var(--text-1); border-color: var(--accent); border-style: solid; }
   main { flex: 1; min-width: 0; padding: 18px 32px 60px; max-width: 1620px; }
+  /* --- узкий экран: сайдбар выезжает поверх, шапка с кнопкой --- */
+  .mobile-bar { display: none; }
+  .scrim { display: none; }
+  @media (max-width: 720px) {
+    .mobile-bar {
+      display: flex; align-items: center; gap: var(--sp-4);
+      position: sticky; top: 0; z-index: 30;
+      background: var(--bg-0); border-bottom: 1px solid var(--border-soft);
+      padding: var(--sp-3) var(--sp-4);
+      padding-top: calc(var(--sp-3) + env(safe-area-inset-top, 0px));
+    }
+    .burger {
+      background: none; border: 0; color: var(--text-1);
+      font-size: 20px; width: var(--tap); height: var(--tap);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .m-title { font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    aside {
+      position: fixed; top: 0; bottom: 0; left: 0; z-index: 40;
+      width: min(84vw, 320px); height: 100dvh;
+      transform: translateX(-102%); transition: transform var(--t);
+      padding-top: calc(var(--sp-6) + env(safe-area-inset-top, 0px));
+    }
+    .shell.nav-open aside { transform: none; }
+    .scrim {
+      display: block; position: fixed; inset: 0; z-index: 35;
+      background: rgba(0, 0, 0, 0.5); border: 0;
+    }
+    main { padding: var(--sp-5) var(--sp-5) calc(var(--sp-7) + var(--safe-b)); }
+  }
+
 </style>

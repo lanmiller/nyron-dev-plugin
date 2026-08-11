@@ -1,34 +1,71 @@
-/* Дизайн-лок морды (этап 4, Refero-ресёрч 09.08.2026).
+/* Дизайн-система STOVP (11.08.2026).
  *
- * Первичный референс: Claude (claude.ai, style 5369aa4f) в тёмной теме
- * Claude Desktop — тёплый графит, терракота #d97757 строго в роли акцента
- * (бренд / активное / блокирующее), мягкие радиусы ~10px, serif только
- * в крупных заголовках.
- * Вторичный: Linear changelog (style 11d3e58a) — глубина слоями поверхностей
- * и границами, БЕЗ теней; mono для всего технического (штампы, ключи, код).
- * Заимствование из Warp: код-блоки на приподнятой поверхности.
- * Отвергнуто: сине-чёрный ахромат, чистый белый текст, тени, вторая хрома.
+ * Дизайн-лок (этап 4, Refero-ресёрч 09.08): первичный референс — Claude
+ * (claude.ai, style 5369aa4f) в тёмной теме: тёплый графит, терракота
+ * #d97757 строго в роли акцента (бренд / активное / блокирующее), мягкие
+ * радиусы ~10px, serif только в крупных заголовках. Вторичный: Linear —
+ * глубина слоями поверхностей и границами, БЕЗ теней; mono для всего
+ * технического. Отвергнуто: сине-чёрный ахромат, чистый белый, тени.
+ *
+ * Слой системы добавлен после аудита 11.08 (оценка 42/100): было 12
+ * размеров шрифта на глаз, радиусы вперемешку, НОЛЬ состояний фокуса,
+ * кнопки рисовались заново в каждом файле. Правило теперь одно: панели
+ * собираются из этих кирпичей, локальные стили — только про раскладку.
+ *
+ * Режим поверхности — Operate (интерфейс исчезает в задаче): фиксированная
+ * шкала, а не текучая; движение 120–200 мс и только про состояние.
  */
 :root {
-  --bg-0: #1f1e1d;      /* глубина: сайдбар, код-блоки */
+  /* --- поверхности и текст --- */
+  --bg-0: #1f1e1d;      /* глубина: сайдбар, код-блоки, поля ввода */
   --bg-1: #262624;      /* холст */
-  --bg-2: #30302e;      /* карточки */
-  --bg-3: #3a3a37;      /* ховер/нажатое */
+  --bg-2: #30302e;      /* карточки и панели */
+  --bg-3: #3a3a37;      /* наведение / нажатое */
   --border: #3d3c39;
   --border-soft: #34332f;
-  --text-1: #eee9e2;
-  --text-2: #b8b2a7;
-  --text-3: #8a857c;
-  --text-4: #6f6b63;
-  --accent: #d97757;    /* терракота — только бренд/активное/блокирующее */
+  --text-1: #eee9e2;    /* основной */
+  --text-2: #b8b2a7;    /* вторичный */
+  --text-3: #8a857c;    /* подписи */
+  --text-4: #6f6b63;    /* приглушённый */
+
+  /* --- смысловые цвета (состояние, не украшение) --- */
+  --accent: #d97757;    /* терракота: бренд / активное / блокирующее */
   --accent-ink: #201914;
   --ok: #7bc47f;
   --warn: #e5a84b;
   --hot: #e5734b;
   --stall: #b3a53c;
   --dead: #8a857d;
-  --r: 10px;            /* мягкий радиус лока (9.6px референса) */
+
+  /* --- типографика: 7 ступеней вместо 12 значений на глаз --- */
+  --fs-micro: 11px;     /* бейджи, надзаголовки секций */
+  --fs-xs: 12px;        /* мета, подписи, техстроки */
+  --fs-sm: 13px;        /* плотные списки, строки дерева */
+  --fs-md: 14px;        /* тело интерфейса */
+  --fs-lg: 16px;        /* заголовок панели, вопрос карточки */
+  --fs-xl: 20px;        /* заголовок окна сессии */
+  --fs-hero: 26px;      /* имя проекта */
+  --lh-tight: 1.35;
+  --lh: 1.5;
+
+  /* --- ритм: одна шкала отступов --- */
+  --sp-1: 2px;  --sp-2: 4px;  --sp-3: 6px;  --sp-4: 8px;
+  --sp-5: 10px; --sp-6: 14px; --sp-7: 20px; --sp-8: 28px;
+
+  /* --- форма --- */
+  --r-sm: 6px;          /* мелкие плашки, поля в плотных рядах */
+  --r: 10px;            /* карточки, кнопки, панели (радиус лока) */
+  --r-lg: 14px;         /* крупные поверхности */
   --r-pill: 999px;
+
+  /* --- движение: только про состояние, 120–200 мс --- */
+  --t-fast: 120ms ease;
+  --t: 180ms ease;
+
+  /* --- сенсорный ввод: кодить с телефона — заявленный кейс CTO 11.08 --- */
+  --tap: 44px;          /* минимальная цель пальца (Apple HIG) */
+  --safe-b: env(safe-area-inset-bottom, 0px);
+
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --serif: ui-serif, 'Iowan Old Style', Georgia, serif;
   --mono: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -39,47 +76,182 @@ body {
   margin: 0;
   background: var(--bg-1);
   color: var(--text-1);
-  font: 14.5px/1.5 var(--sans);
+  font: var(--fs-md)/var(--lh) var(--sans);
 }
 a { color: inherit; }
 button { font: inherit; cursor: pointer; }
 h1, h2.display { font-family: var(--serif); font-weight: 500; }
 
-/* --- разделяемые атомы --- */
-.chip {
-  display: inline-flex; align-items: center; gap: 5px;
-  border: 1px solid var(--border); border-radius: var(--r-pill);
-  padding: 1px 9px; font-size: 12px; color: var(--text-2);
-  background: var(--bg-2); white-space: nowrap;
+/* Фокус с клавиатуры — был не описан НИГДЕ (аудит 11.08). Одно правило на
+   всё интерактивное: без него интерфейс невидим для клавиатуры. */
+:where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--r-sm);
 }
-.chip .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+/* ---------- атомы ---------- */
+
 .mono { font-family: var(--mono); font-size: 0.86em; }
 .quiet { color: var(--text-4); }
-.err {
-  color: var(--hot); background: var(--bg-2);
-  border: 1px solid var(--border); border-left: 3px solid var(--hot);
-  border-radius: var(--r); padding: 10px 14px;
+
+/* надзаголовок секции: «ЖДУТ ВАС», «ПРОЕКТЫ И СЕССИИ» */
+.eyebrow {
+  font-size: var(--fs-micro); text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-3); font-weight: 600;
 }
+
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+.badge {
+  background: var(--accent); color: var(--accent-ink);
+  border-radius: var(--r-pill); font-size: 10.5px; font-weight: 700;
+  padding: 1px 7px; vertical-align: middle;
+}
+.badge.mute { background: var(--bg-3); color: var(--text-2); }
+
+.chip {
+  display: inline-flex; align-items: center; gap: var(--sp-3);
+  border: 1px solid var(--border); border-radius: var(--r-pill);
+  padding: 1px 9px; font-size: var(--fs-xs); color: var(--text-2);
+  background: var(--bg-2); white-space: nowrap;
+}
+button.chip:hover:not(:disabled) { border-color: var(--accent); color: var(--text-1); }
+
+/* ---------- кнопки ---------- */
+
 .btn {
   background: var(--bg-2); color: var(--text-1);
   border: 1px solid var(--border); border-radius: var(--r);
   padding: 7px 14px;
+  transition: border-color var(--t-fast), background var(--t-fast);
 }
 .btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:active:not(:disabled) { background: var(--bg-3); }
 .btn:disabled { opacity: 0.4; cursor: default; }
-.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
-input[type='text'], textarea, select {
+.btn.primary {
+  background: var(--accent); color: var(--accent-ink);
+  border-color: var(--accent); font-weight: 600;
+}
+.btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+.btn.sm { padding: 5px 11px; font-size: var(--fs-sm); }
+.btn.busy { position: relative; color: transparent; pointer-events: none; }
+.btn.busy::after {
+  content: ''; position: absolute; inset: 0; margin: auto;
+  width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid var(--text-3); border-top-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* третичное действие в ряду: «уточнить у автора», «снять вопрос» */
+.link {
+  background: none; border: 0; padding: 0;
+  color: var(--text-3); font: inherit; font-size: var(--fs-xs);
+  text-decoration: none; cursor: pointer;
+  transition: color var(--t-fast);
+}
+.link:hover:not(:disabled) { color: var(--accent); }
+.link:disabled { opacity: 0.4; cursor: default; }
+.link.danger:hover:not(:disabled) { color: var(--hot); }
+
+/* ---------- поля ---------- */
+
+input[type='text'], input[type='search'], textarea, select {
   background: var(--bg-0); color: var(--text-1);
   border: 1px solid var(--border); border-radius: var(--r);
-  padding: 8px 12px; font: inherit;
+  padding: var(--sp-4) var(--sp-5); font: inherit;
+  transition: border-color var(--t-fast);
 }
-input:focus-visible, textarea:focus-visible, .btn:focus-visible {
-  outline: 1.5px solid var(--accent); outline-offset: 1px;
-}
+input:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--text-4); }
 ::placeholder { color: var(--text-4); }
+
+/* ---------- поверхности ---------- */
+
+/* Панель правой колонки: заголовок + тело, сворачивается и разворачивается.
+   Эталон — рабочие панели Claude Desktop (фоновые задачи, файлы, браузер). */
+.panel {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--r); overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.panel > header {
+  display: flex; align-items: center; gap: var(--sp-4);
+  padding: var(--sp-5) var(--sp-6);
+  border-bottom: 1px solid var(--border-soft);
+}
+.panel > header h3 {
+  margin: 0; font-size: var(--fs-md); font-weight: 600; flex: 1;
+}
+.panel > header .tools { display: flex; gap: var(--sp-4); margin-left: auto; }
+.panel > .body { padding: var(--sp-5) var(--sp-6); overflow: auto; }
+.panel > .body.flush { padding: 0; }
+
+/* строка списка внутри панели: задача, файл, сессия */
+.row {
+  display: flex; align-items: center; gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-5); border-radius: var(--r-sm);
+  color: var(--text-2); text-decoration: none; font-size: var(--fs-sm);
+  min-width: 0; transition: background var(--t-fast);
+}
+.row:hover { background: var(--bg-3); }
+.row.active { background: var(--bg-3); color: var(--text-1); }
+.row .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .trail { color: var(--text-4); font-size: var(--fs-xs); flex: none; }
+
+/* пустое состояние учит интерфейсу, а не сообщает «пусто» */
+.empty {
+  color: var(--text-4); font-size: var(--fs-sm);
+  padding: var(--sp-6); text-align: center;
+}
+
+.err {
+  color: var(--hot); background: var(--bg-2);
+  border: 1px solid var(--border); border-left: 3px solid var(--hot);
+  border-radius: var(--r); padding: var(--sp-5) var(--sp-6);
+}
+.ok-note { color: var(--ok); font-size: var(--fs-xs); }
+
 /* ключ тикета в тексте — кликабелен, открывается попапом (см. +layout) */
 a.ticket {
   color: var(--accent); text-decoration: none;
   border-bottom: 1px dotted currentColor;
 }
 a.ticket:hover { border-bottom-style: solid; }
+
+/* скелет загрузки вместо крутилки посреди контента (правило Operate) */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-2), var(--bg-3), var(--bg-2));
+  background-size: 200% 100%; border-radius: var(--r-sm);
+  animation: shimmer 1.4s ease-in-out infinite; height: 1em;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ---------- сенсорный экран ----------
+   Кейс CTO: вести флот и закрывать задачи с телефона. Пальцем работают ТЕ ЖЕ
+   элементы, что мышью, поэтому цели растут, а раскладка меняется в оболочке
+   (сайдбар — выдвижной), не в компонентах. */
+@media (pointer: coarse) {
+  .btn { padding: 11px 16px; min-height: var(--tap); }
+  .btn.sm { padding: 8px 13px; min-height: 36px; }
+  .link { min-height: 32px; display: inline-flex; align-items: center; font-size: var(--fs-sm); }
+  .row { padding: var(--sp-4) var(--sp-5); min-height: var(--tap); font-size: var(--fs-md); }
+  .chip { padding: var(--sp-3) 11px; font-size: var(--fs-sm); }
+  input[type='text'], input[type='search'], textarea, select {
+    font-size: 16px;    /* меньше 16 — iOS зумит страницу при фокусе */
+    padding: 11px var(--sp-5);
+  }
+  summary { min-height: 34px; display: flex; align-items: center; }
+}
+
+@media (max-width: 720px) {
+  body { font-size: var(--fs-md); }
+  .panel > .body { padding: var(--sp-5); }
+  /* горизонтальную прокрутку страницы не допускаем: широкое (код, таблицы,
+     штампы) катается внутри своего блока */
+  pre, table { max-width: 100%; overflow-x: auto; }
+}
