@@ -146,6 +146,10 @@
   // (CTO 11.08: «на мобилке слабо»). Теперь они шторка: строка-кнопка с
   // числом, разворачивается поверх ленты, композер всегда на месте.
   let sheet = $state(false);
+  // На телефоне пять чипов и подсказка про доставку съедали половину экрана
+  // (замер 11.08: шапка 226 px, композер 179 px при высоте окна 812).
+  // Детали прячем за кнопкой, разговор получает место.
+  let details = $state(false);
   let openAsks = $derived((data?.asks || []).filter((a) => a.status === 'open'));
   // в доке — только живое: открытые и ответы в пути; подтверждённое своё
   // отработало и чат не перекрывает (CTO 10.08)
@@ -176,7 +180,22 @@
   <header class="s-head">
     <a href="/?p={encodeURIComponent(project)}" class="back">← {project}</a>
     <h1>{data.title || '(без названия)'}</h1>
-    <div class="s-meta">
+    <!-- Шапка работает, а не подписывает: статус, действия сессии и уже
+         потом технические детали (CTO 11.08 — «сделать её функциональной») -->
+    <div class="s-actions">
+      {#if stateInfo}
+        <span class="chip"><i class="dot" style="background:{stateInfo[1]}"></i>{stateInfo[0]}</span>
+      {/if}
+      <button class="chip" disabled={opening} onclick={openInClaude}
+        title="claude://resume — приложение откроет копию этого разговора">копия в Claude ⧉</button>
+      {#if data.cwd}
+        <button class="chip" onclick={() => (details = !details)}
+          title={data.cwd}>📁 {data.cwd.split('/').at(-1)}</button>
+      {/if}
+      <button class="chip more" onclick={() => (details = !details)}
+        aria-label="технические детали">{details ? '×' : '⋯'}</button>
+    </div>
+    <div class="s-meta" class:shown={details}>
       <span class="mono quiet">{key.slice(0, 8)}</span>
       {#if stateInfo}
         <span class="chip"><i class="dot" style="background:{stateInfo[1]}"></i>{stateInfo[0]}</span>
@@ -270,16 +289,29 @@
         отправить
       </button>
     </div>
+    <!-- Как дойдёт сообщение — одной строкой; развёрнутое объяснение и
+         кнопки копий приложения только по запросу (на телефоне подсказка
+         занимала 84 px из 1063 — CTO 11.08) -->
     <p class="hint quiet">
-      {data.input?.mode === 'tmux'
-        ? '⌘⏎ — отправить. Панель доказанно держит транскрипт этой сессии, доставка мгновенная.'
-        : 'Прямого канала нет (Desktop/headless): сообщение уйдёт адресным постом в будку — рабочая сессия заберёт при чтении, спящую добудит почтальон. Открыть её окно руками:'}
-      {#if data.input?.mode !== 'tmux'}
+      {#if data.input?.mode === 'tmux'}
+        ⌘⏎ — отправить, доставка мгновенная в панель сессии.
+      {:else}
+        Уйдёт адресным постом в будку — сессия заберёт при чтении.
+        <button class="link" onclick={() => (details = !details)}>
+          {details ? 'свернуть' : 'подробнее'}
+        </button>
+      {/if}
+    </p>
+    {#if details && data.input?.mode !== 'tmux'}
+      <p class="hint quiet">
+        Прямого канала нет (Desktop или headless): рабочая сессия заберёт
+        сообщение при чтении будки, спящую добудит почтальон. Открыть её окно
+        руками:
         {#each st.overview?.copies || [] as app (app)}
           <button class="copy" onclick={() => openCopy(app)}>{copyLabel(app)}</button>
         {/each}
-      {/if}
-    </p>
+      </p>
+    {/if}
     {#if sent}<p class="hint ok-note">{sent}</p>{/if}
     {#if sayError}<p class="err">Не отправлено: {sayError}</p>{/if}
   </div>
@@ -309,6 +341,14 @@
   }
   /* mobile-first: композер приколочен к низу окна и переживает любую
      прокрутку; лента освобождает под него место снизу */
+  /* mobile-first: детали свёрнуты, на широком экране показаны всегда */
+  .s-actions { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; }
+  .s-actions .more { min-width: 34px; justify-content: center; }
+  .s-meta { display: none; }
+  .s-meta.shown { display: flex; }
+  @media (min-width: 901px) {
+    .s-meta { display: flex; }
+  }
   .feed-skeleton { display: flex; flex-direction: column; gap: var(--sp-5); margin-top: var(--sp-6); }
   .feed-skeleton .skeleton { height: 1.1em; }
   .dock {

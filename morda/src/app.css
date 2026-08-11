@@ -72,8 +72,11 @@
 }
 
 * { box-sizing: border-box; }
+html { overflow-x: clip; }        /* страницу нельзя утащить вбок жестом */
 body {
   margin: 0;
+  overflow-x: clip;
+  overscroll-behavior-x: none;    /* горизонтальный свайп не уводит холст */
   background: var(--bg-1);
   color: var(--text-1);
   font: var(--fs-md)/var(--lh) var(--sans);
