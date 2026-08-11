@@ -10,7 +10,8 @@
 
   let { children } = $props();
 
-  const st = $state({ overview: null, sessions: [], tree: [], sendError: null });
+  const st = $state({ overview: null, sessions: [], tree: [], sendError: null,
+    sessionActions: false });   // «⋯» в шапке: действия открытой сессии
   setContext('morda', st);
 
   // активный проект: из URL окна сессии → из ?p= → первый с открытыми ask
@@ -37,6 +38,17 @@
   // выдвижная навигация на узком экране; закрывается при переходе
   let navOpen = $state(false);
   afterNavigate(() => { navOpen = false; });  // эффект по page.url гасил открытие сразу
+  // в шапке — имя открытой сессии: своя шапка сессии на телефоне съедала
+  // экран, а при прокрутке уезжала (CTO 11.08)
+  let sessionTitle = $derived.by(() => {
+    const k = page.params?.key;
+    if (!k) return null;
+    for (const p of st.tree) {
+      const s = (p.sessions || []).find((x) => x.key === k);
+      if (s) return s.title;
+    }
+    return null;
+  });
   let totalOpen = $derived((st.overview?.projects || [])
     .reduce((n, p) => n + (p.asks?.filter((a) => a.status === 'open').length || 0), 0));
 
@@ -113,8 +125,12 @@
   <button class="burger" onclick={() => (navOpen = !navOpen)} aria-label="проекты и сессии">
     {navOpen ? '✕' : '☰'}
   </button>
-  <b class="m-title">{page.params?.project || project || 'STOVP'}</b>
+  <b class="m-title">{sessionTitle || page.params?.project || project || 'STOVP'}</b>
   {#if totalOpen}<span class="badge">{totalOpen}</span>{/if}
+  {#if page.params?.key}
+    <button class="bar-more" onclick={() => (st.sessionActions = !st.sessionActions)}
+      aria-label="действия сессии">{st.sessionActions ? '×' : '⋯'}</button>
+  {/if}
 </header>
 
 <div class="shell" class:nav-open={navOpen}>
@@ -301,6 +317,7 @@
   @media (min-width: 901px) {
     .mobile-bar { display: none; }
     .scrim { display: none; }
+    .bar-more { display: none; }
     aside {
       position: sticky; top: 0; left: auto; z-index: auto;
       width: 264px; height: 100vh; transform: none;

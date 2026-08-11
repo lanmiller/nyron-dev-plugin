@@ -169,6 +169,30 @@ input[type='text'], input[type='search'], textarea, select {
 input:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--text-4); }
 ::placeholder { color: var(--text-4); }
 
+/* Композер: поле и кнопка отправки в одной рамке, кнопка — круглая иконка
+   внутри (эталон Claude, CTO 11.08: «зачем эта гигантская кнопка»). */
+.composer-box {
+  display: flex; align-items: flex-end; gap: var(--sp-3);
+  background: var(--bg-0); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5);
+  transition: border-color var(--t-fast);
+}
+.composer-box:focus-within { border-color: var(--accent); }
+.composer-box textarea {
+  flex: 1; background: none; border: 0; padding: var(--sp-3) 0;
+  color: var(--text-1); font: inherit; resize: none; outline: none;
+  max-height: 40vh; min-height: 1.5em;
+}
+.composer-box textarea:focus-visible { outline: none; }
+.send {
+  flex: none; width: 34px; height: 34px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink);
+  border: 0; display: grid; place-items: center; font-size: 15px;
+  transition: filter var(--t-fast), opacity var(--t-fast);
+}
+.send:hover:not(:disabled) { filter: brightness(1.08); }
+.send:disabled { opacity: 0.35; cursor: default; }
+
 /* ---------- поверхности ---------- */
 
 /* Панель правой колонки: заголовок + тело, сворачивается и разворачивается.

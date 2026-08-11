@@ -150,6 +150,19 @@
   // (замер 11.08: шапка 226 px, композер 179 px при высоте окна 812).
   // Детали прячем за кнопкой, разговор получает место.
   let details = $state(false);
+  // действия сессии на телефоне открываются кнопкой в общей шапке
+  const shell = getContext('morda');
+  let actionsOpen = $derived(shell.sessionActions);
+
+  // поле растёт под текст, как в Claude: одна строка по умолчанию,
+  // Enter отправляет, Shift+Enter — перенос
+  let ta = $state(null);
+  function grow() {
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, window.innerHeight * 0.4) + 'px';
+  }
+  $effect(() => { if (draft === '' && ta) ta.style.height = 'auto'; });
   let openAsks = $derived((data?.asks || []).filter((a) => a.status === 'open'));
   // в доке — только живое: открытые и ответы в пути; подтверждённое своё
   // отработало и чат не перекрывает (CTO 10.08)
@@ -179,10 +192,10 @@
 {:else}
   <header class="s-head">
     <a href="/?p={encodeURIComponent(project)}" class="back">← {project}</a>
-    <h1>{data.title || '(без названия)'}</h1>
+    <h1 class="s-title">{data.title || '(без названия)'}</h1>
     <!-- Шапка работает, а не подписывает: статус, действия сессии и уже
          потом технические детали (CTO 11.08 — «сделать её функциональной») -->
-    <div class="s-actions">
+    <div class="s-actions" class:shown={actionsOpen}>
       {#if stateInfo}
         <span class="chip"><i class="dot" style="background:{stateInfo[1]}"></i>{stateInfo[0]}</span>
       {/if}
@@ -278,16 +291,15 @@
       {/each}
     </div>
 
-    <div class="composer">
-      <textarea rows="2"
-        placeholder={data.input?.mode === 'tmux'
-          ? `написать в чат (${data.input.pane.session} · ${data.input.pane.pane}) — мгновенно…`
-          : 'написать сессии — адресным постом в будку…'}
-        bind:value={draft}
-        onkeydown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && sendText()}></textarea>
-      <button class="btn primary" disabled={saying || !draft.trim()} onclick={sendText}>
-        отправить
-      </button>
+    <div class="composer-box">
+      <textarea rows="1" bind:this={ta} bind:value={draft} oninput={grow}
+        placeholder={data.input?.mode === 'tmux' ? 'написать в чат сессии…' : 'написать сессии…'}
+        onkeydown={(e) => {
+          if (e.key !== 'Enter' || e.shiftKey) return;
+          e.preventDefault(); sendText();
+        }}></textarea>
+      <button class="send" disabled={saying || !draft.trim()} onclick={sendText}
+        aria-label="отправить (Enter)" title="Enter — отправить, Shift+Enter — новая строка">↑</button>
     </div>
     <!-- Как дойдёт сообщение — одной строкой; развёрнутое объяснение и
          кнопки копий приложения только по запросу (на телефоне подсказка
@@ -397,8 +409,17 @@
   .hitl label.opt.picked { border-color: var(--warn); }
   .hitl .opt-body { flex: 1; }
   .hitl-submit { margin-top: 10px; }
-  .composer { display: flex; gap: 8px; align-items: flex-end; }
-  .composer textarea { flex: 1; resize: vertical; }
+  /* На телефоне заголовок и действия живут в общей шапке: своя шапка
+     дублировала имя и торчала обрывками чипов под липкой полосой
+     (CTO 11.08 — «сделай лаконичной»). */
+  .s-title, .back { display: none; }
+  .s-head { margin: 0; }
+  .s-actions { display: none; }
+  .s-actions.shown { display: flex; margin-bottom: var(--sp-5); }
+  @media (min-width: 901px) {
+    .s-title, .back { display: block; }
+    .s-actions { display: flex; }
+  }
   .hint { font-size: 12px; margin: 6px 2px 0; }
   .hint .copy {
     background: none; border: 1px dashed var(--border); color: var(--text-3);
