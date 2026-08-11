@@ -187,6 +187,18 @@ input:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--
 .panel > .body { padding: var(--sp-5) var(--sp-6); overflow: auto; }
 .panel > .body.flush { padding: 0; }
 
+/* Свёртка панели: заголовок — кнопка, стрелка показывает состояние
+   (CTO 11.08: «развороты, свороты — нормальный UX управления»). */
+.panel > header .fold {
+  background: none; border: 0; padding: 0; margin-right: var(--sp-2);
+  color: var(--text-4); font: inherit; line-height: 1;
+  transition: transform var(--t-fast), color var(--t-fast);
+}
+.panel > header .fold:hover { color: var(--text-1); }
+.panel > header .fold.open { transform: rotate(90deg); }
+.panel.collapsed > .body { display: none; }
+.panel.collapsed > header { border-bottom: 0; }
+
 /* строка списка внутри панели: задача, файл, сессия */
 .row {
   display: flex; align-items: center; gap: var(--sp-4);
@@ -207,8 +219,8 @@ input:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--
 
 .err {
   color: var(--hot); background: var(--bg-2);
-  border: 1px solid var(--border); border-left: 3px solid var(--hot);
-  border-radius: var(--r); padding: var(--sp-5) var(--sp-6);
+  border: 1px solid var(--hot); border-radius: var(--r);
+  padding: var(--sp-5) var(--sp-6);
 }
 .ok-note { color: var(--ok); font-size: var(--fs-xs); }
 
@@ -257,7 +269,6 @@ a.ticket:hover { border-bottom-style: solid; }
 .viewport {
   border: 1px solid var(--border); border-radius: var(--r-sm);
   background: var(--bg-0); overflow: hidden; margin: 0 auto;
-  transition: width var(--t), height var(--t);
 }
 
 /* ---------- файлы: дерево и просмотрщик ----------
@@ -321,27 +332,55 @@ a.ticket:hover { border-bottom-style: solid; }
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
-/* ---------- сенсорный экран ----------
-   Кейс CTO: вести флот и закрывать задачи с телефона. Пальцем работают ТЕ ЖЕ
-   элементы, что мышью, поэтому цели растут, а раскладка меняется в оболочке
-   (сайдбар — выдвижной), не в компонентах. */
-@media (pointer: coarse) {
-  .btn { padding: 11px 16px; min-height: var(--tap); }
-  .btn.sm { padding: 8px 13px; min-height: 36px; }
-  .link { min-height: 32px; display: inline-flex; align-items: center; font-size: var(--fs-sm); }
-  .row { padding: var(--sp-4) var(--sp-5); min-height: var(--tap); font-size: var(--fs-md); }
-  .chip { padding: var(--sp-3) 11px; font-size: var(--fs-sm); }
-  input[type='text'], input[type='search'], textarea, select {
-    font-size: 16px;    /* меньше 16 — iOS зумит страницу при фокусе */
-    padding: 11px var(--sp-5);
+/* ---------- mobile-first ----------
+   База — телефон: цели пальца, крупный ввод, одна колонка. Мышь и широкий
+   экран НАДСТРАИВАЮТСЯ поверх (min-width / pointer: fine), а не наоборот
+   (решение CTO 11.08: «строил бы mobile-first — из него проще десктоп»).
+   Заодно правило целей задаётся по РОЛИ элемента: раскладка по классам не
+   срабатывала — локальные стили компонентов перебивали .row. */
+:where(nav a:not(.ticket), nav button:not(.fold), .row, .tab, .proj-head, li a) {
+  min-height: var(--tap);
+}
+.panel > header .fold { min-width: 40px; min-height: 40px; margin-left: -8px; }
+/* зона нажатия ключа тикета — псевдоэлементом: отступы делали его блочным
+   и рвали строку (регресс, пойман прогоном 11.08) */
+a.ticket { position: relative; }
+a.ticket::after { content: ''; position: absolute; inset: -12px -6px; }
+.seg button { min-height: 40px; }
+.btn { padding: 11px 16px; min-height: var(--tap); }
+.btn.sm { padding: 8px 13px; min-height: 36px; }
+.link { min-height: 32px; display: inline-flex; align-items: center; font-size: var(--fs-sm); }
+.row { padding: var(--sp-4) var(--sp-5); min-height: var(--tap); font-size: var(--fs-md); }
+.chip { padding: var(--sp-3) 11px; font-size: var(--fs-sm); }
+input[type='text'], input[type='search'], textarea, select {
+  font-size: 16px;      /* меньше 16 — iOS зумит страницу при фокусе */
+  padding: 11px var(--sp-5);
+}
+summary { min-height: 34px; display: flex; align-items: center; }
+.panel > .body { padding: var(--sp-5); }
+/* широкое (код, таблицы, штампы) катается внутри своего блока — страница
+   по горизонтали не едет ни на одной ширине */
+pre, table { max-width: 100%; overflow-x: auto; }
+
+/* мышь: то же самое, но плотнее — курсор точнее пальца */
+@media (pointer: fine) {
+  :where(nav a:not(.ticket), nav button:not(.fold), .row, .tab, .proj-head, li a) {
+    min-height: 0;
   }
-  summary { min-height: 34px; display: flex; align-items: center; }
+  .panel > header .fold { min-width: 0; min-height: 0; margin-left: 0; }
+  a.ticket::after { content: none; }
+  .seg button { min-height: 0; }
+  .btn { padding: 7px 14px; min-height: 0; }
+  .btn.sm { padding: 5px 11px; min-height: 0; }
+  .link { min-height: 0; display: inline; font-size: var(--fs-xs); }
+  .row { padding: var(--sp-3) var(--sp-5); min-height: 0; font-size: var(--fs-sm); }
+  .chip { padding: 1px 9px; font-size: var(--fs-xs); }
+  input[type='text'], input[type='search'], textarea, select {
+    font-size: inherit; padding: var(--sp-4) var(--sp-5);
+  }
+  summary { min-height: 0; display: list-item; }
 }
 
-@media (max-width: 720px) {
-  body { font-size: var(--fs-md); }
-  .panel > .body { padding: var(--sp-5); }
-  /* горизонтальную прокрутку страницы не допускаем: широкое (код, таблицы,
-     штампы) катается внутри своего блока */
-  pre, table { max-width: 100%; overflow-x: auto; }
+@media (min-width: 901px) {
+  .panel > .body { padding: var(--sp-5) var(--sp-6); }
 }

@@ -8,6 +8,10 @@
     ['Планшет', '768 × 1024'], ['Десктоп', '1280 × 800']];
   let vp = $state('Свободно');
 
+  // свёрнутые панели — человек сам решает, что держать раскрытым
+  let folded = $state({});
+  const fold = (k) => (folded = { ...folded, [k]: !folded[k] });
+
   // Панели тянутся за разделитель, чат остаётся центром — как в Claude
   // Desktop (CTO 11.08). Ширину помним между заходами.
   let sideW = $state(340);
@@ -166,8 +170,13 @@
     </div>
 
     {#if tab === 'tasks'}
-      <article class="panel">
-        <header><h3>Идёт сейчас</h3><div class="tools"><button class="link">свернуть</button></div></header>
+      <article class="panel" class:collapsed={folded.run}>
+        <header>
+          <button class="fold" class:open={!folded.run} onclick={() => fold('run')}
+            aria-label={folded.run ? 'развернуть' : 'свернуть'}>›</button>
+          <h3>Идёт сейчас</h3>
+          <span class="badge mute">{RUNNING.length}</span>
+        </header>
         <div class="body flush">
           {#each RUNNING as r}
             <div class="row"><i class="dot" style="background: var(--accent)"></i><span class="grow">{r.name}</span><span class="trail">{r.age}</span></div>
@@ -175,8 +184,13 @@
         </div>
       </article>
 
-      <article class="panel">
-        <header><h3>Субагенты</h3><span class="badge mute">{AGENTS.length}</span></header>
+      <article class="panel" class:collapsed={folded.ag}>
+        <header>
+          <button class="fold" class:open={!folded.ag} onclick={() => fold('ag')}
+            aria-label={folded.ag ? 'развернуть' : 'свернуть'}>›</button>
+          <h3>Субагенты</h3>
+          <span class="badge mute">{AGENTS.length}</span>
+        </header>
         <div class="body flush">
           {#each AGENTS as a}
             <details class="ag">
@@ -191,8 +205,12 @@
         </div>
       </article>
 
-      <article class="panel">
-        <header><h3>Конвейер</h3></header>
+      <article class="panel" class:collapsed={folded.wf}>
+        <header>
+          <button class="fold" class:open={!folded.wf} onclick={() => fold('wf')}
+            aria-label={folded.wf ? 'развернуть' : 'свернуть'}>›</button>
+          <h3>Конвейер</h3>
+        </header>
         <div class="body">
           <div class="wf-name quiet">{WF.name}</div>
           <div class="wf">

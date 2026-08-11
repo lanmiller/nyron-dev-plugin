@@ -291,7 +291,7 @@
   }
   .doc :global(table) { border-collapse: collapse; }
   .doc :global(a) { color: var(--accent); }
-  @media (max-width: 720px) {
+  @media (max-width: 900px) {
     .cols { grid-template-columns: 1fr; }
     .tree { border-right: 0; border-bottom: 1px solid var(--border-soft); max-height: 40vh; }
     .fb.full { inset: 0; border-radius: 0; }

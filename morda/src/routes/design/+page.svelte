@@ -171,8 +171,20 @@
       </div>
     </article>
 
+    <article class="panel collapsed">
+      <header>
+        <button class="fold" aria-label="развернуть">›</button>
+        <h3>Свёрнутая панель</h3>
+        <span class="badge mute">7</span>
+      </header>
+      <div class="body"><p class="empty">содержимое скрыто</p></div>
+    </article>
+
     <article class="panel">
-      <header><h3>Пусто и загрузка</h3></header>
+      <header>
+        <button class="fold open" aria-label="свернуть">›</button>
+        <h3>Пусто и загрузка</h3>
+      </header>
       <div class="body">
         <p class="empty">Живых сессий нет — волны отработали, вопросов не осталось.</p>
         <div class="skeleton" style="width: 70%"></div>

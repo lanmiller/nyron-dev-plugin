@@ -9,6 +9,29 @@
 
   let agents = $state({}); // agentId → { items } | { error } | 'loading'
 
+  // Подряд идущие вызовы инструментов сворачиваются в одну строку: в ленте
+  // диспетчера это стена из Bash и hub_read, которая топит смысл (CTO 11.08
+  // «слишком много места занимают, группировать»). Субагенты и реплики
+  // группу разрывают — они и есть содержание.
+  let blocks = $derived.by(() => {
+    const out = [];
+    for (const it of items) {
+      const plain = it.kind === 'tool' && !it.agent;
+      const last = out.at(-1);
+      if (plain && last?.group) last.tools.push(it);
+      else if (plain) out.push({ group: true, tools: [it] });
+      else out.push({ item: it });
+    }
+    return out;
+  });
+  // «Bash ×3 · hub_read ×2» — что именно делала сессия, без разворачивания
+  function groupLabel(tools) {
+    const by = new Map();
+    for (const t of tools) by.set(t.name, (by.get(t.name) || 0) + 1);
+    return [...by].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(' · ');
+  }
+  const hasErr = (tools) => tools.some((t) => t.is_error);
+
   async function toggleAgent(a, open) {
     if (!open || agents[a.agentId] || !project || !sessionKey) return;
     agents[a.agentId] = 'loading';
@@ -22,7 +45,31 @@
 </script>
 
 <div class="feed" class:nested={depth > 0}>
-  {#each items as it, i (i)}
+  {#each blocks as b, bi (bi)}
+    {#if b.group && b.tools.length > 1}
+      <!-- пачка технических действий: одна строка вместо стены плашек -->
+      <details class="toolpack" class:iserr={hasErr(b.tools)}>
+        <summary>
+          <span class="tname">⚙ {b.tools.length} действ{b.tools.length < 5 ? 'ия' : 'ий'}</span>
+          <span class="tin">{groupLabel(b.tools)}</span>
+          {#if hasErr(b.tools)}<span class="terr">есть ошибка</span>{/if}
+        </summary>
+        <div class="packbody">
+          {#each b.tools as it (it)}
+            <details class="tool" class:iserr={it.is_error}>
+              <summary>
+                <span class="tname">{it.name}</span>
+                <span class="tin">{it.input}</span>
+                {#if it.is_error}<span class="terr">ошибка</span>{/if}
+              </summary>
+              {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
+              <div class="tout"><b>вывод</b><pre>{it.result || '(пусто)'}</pre></div>
+            </details>
+          {/each}
+        </div>
+      </details>
+    {:else}
+      {@const it = b.group ? b.tools[0] : b.item}
     {#if it.kind === 'user' && it.system}
       <!-- служебная вставка рантайма, не реплика человека — свёрнутая плашка -->
       <details class="sysnote">
@@ -79,6 +126,7 @@
           {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
           <div class="tout"><b>вывод</b><pre>{it.result || '(пусто)'}</pre></div>
         </details>
+      {/if}
       {/if}
     {/if}
   {/each}
@@ -150,4 +198,16 @@
   .tout { padding: 4px 10px 8px; }
   .tout b { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-4); font-weight: 600; }
   .pad { padding: 8px 10px; }
+  /* пачка действий: свёрнутая — одна строка; развёрнутая — те же плашки */
+  .toolpack {
+    background: var(--bg-2); border: 1px solid var(--border-soft);
+    border-radius: 8px; font-size: 13px;
+  }
+  .toolpack.iserr { border-left: 1px solid var(--hot); }
+  .toolpack > summary {
+    display: flex; gap: 8px; align-items: baseline; cursor: pointer;
+    padding: 6px 10px; min-width: 0; color: var(--text-3);
+  }
+  .toolpack[open] > summary { border-bottom: 1px solid var(--border-soft); }
+  .packbody { display: flex; flex-direction: column; gap: 4px; padding: 6px; }
 </style>

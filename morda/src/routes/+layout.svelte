@@ -198,11 +198,9 @@
 <style>
   .shell { display: flex; min-height: 100vh; }
   aside {
-    width: 264px; flex: none; background: var(--bg-0);
+    flex: none; background: var(--bg-0);
     border-right: 1px solid var(--border-soft);
-    display: flex; flex-direction: column;
-    position: sticky; top: 0; height: 100vh; overflow-y: auto;
-    padding: 14px 10px 12px;
+    display: flex; flex-direction: column; overflow-y: auto;
   }
   .brand { display: flex; align-items: baseline; gap: 8px; padding: 0 8px 12px; }
   .brand .mark { color: var(--accent); }
@@ -268,36 +266,46 @@
     border-radius: 8px; padding: 3px 10px; font-size: 12px; margin: 2px 2px 0 8px;
   }
   .copies button:hover { color: var(--text-1); border-color: var(--accent); border-style: solid; }
-  main { flex: 1; min-width: 0; padding: 18px 32px 60px; max-width: 1620px; }
+  main { flex: 1; min-width: 0; max-width: 1620px; }
   /* --- узкий экран: сайдбар выезжает поверх, шапка с кнопкой --- */
-  .mobile-bar { display: none; }
-  .scrim { display: none; }
-  @media (max-width: 720px) {
-    .mobile-bar {
-      display: flex; align-items: center; gap: var(--sp-4);
-      position: sticky; top: 0; z-index: 30;
-      background: var(--bg-0); border-bottom: 1px solid var(--border-soft);
-      padding: var(--sp-3) var(--sp-4);
-      padding-top: calc(var(--sp-3) + env(safe-area-inset-top, 0px));
-    }
-    .burger {
-      background: none; border: 0; color: var(--text-1);
-      font-size: 20px; width: var(--tap); height: var(--tap);
-      display: flex; align-items: center; justify-content: center;
-    }
-    .m-title { font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    aside {
-      position: fixed; top: 0; bottom: 0; left: 0; z-index: 40;
-      width: min(84vw, 320px); height: 100dvh;
-      transform: translateX(-102%); transition: transform var(--t);
-      padding-top: calc(var(--sp-6) + env(safe-area-inset-top, 0px));
-    }
-    .shell.nav-open aside { transform: none; }
-    .scrim {
-      display: block; position: fixed; inset: 0; z-index: 35;
-      background: rgba(0, 0, 0, 0.5); border: 0;
-    }
-    main { padding: var(--sp-5) var(--sp-5) calc(var(--sp-7) + var(--safe-b)); }
+  /* mobile-first: база — выдвижной сайдбар и шапка с кнопкой; широкий
+     экран получает стационарную колонку (правило CTO 11.08) */
+  .mobile-bar {
+    display: flex; align-items: center; gap: var(--sp-4);
+    position: sticky; top: 0; z-index: 30;
+    background: var(--bg-0); border-bottom: 1px solid var(--border-soft);
+    padding: var(--sp-3) var(--sp-4);
+    padding-top: calc(var(--sp-3) + env(safe-area-inset-top, 0px));
   }
+  .burger {
+    background: none; border: 0; color: var(--text-1);
+    font-size: 20px; width: var(--tap); height: var(--tap);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .m-title { font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  aside {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 40;
+    width: min(84vw, 320px); height: 100dvh;
+    transform: translateX(-102%); transition: transform var(--t);
+    padding-top: calc(var(--sp-6) + env(safe-area-inset-top, 0px));
+  }
+  .shell.nav-open aside { transform: none; }
+  .scrim {
+    display: block; position: fixed; inset: 0; z-index: 35;
+    background: rgba(0, 0, 0, 0.5); border: 0;
+  }
+  main { padding: var(--sp-5) var(--sp-5) calc(var(--sp-7) + var(--safe-b)); }
+
+  @media (min-width: 901px) {
+    .mobile-bar { display: none; }
+    .scrim { display: none; }
+    aside {
+      position: sticky; top: 0; left: auto; z-index: auto;
+      width: 264px; height: 100vh; transform: none;
+      padding: 14px 10px 12px;
+    }
+    main { padding: 18px 32px 60px; }
+  }
+
 
 </style>
