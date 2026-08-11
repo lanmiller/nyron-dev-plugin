@@ -6,6 +6,9 @@
   import { page } from '$app/state';
   import { afterNavigate } from '$app/navigation';
   import { STATE_RU, age } from '$lib/states.js';
+  import Menu from '@lucide/svelte/icons/menu';
+  import X from '@lucide/svelte/icons/x';
+  import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
   import '../app.css';
 
   let { children } = $props();
@@ -136,20 +139,20 @@
      (кейс CTO 11.08 — вести флот с телефона) -->
 <header class="mobile-bar" bind:this={barEl}>
   <button class="burger" onclick={() => (navOpen = !navOpen)} aria-label="проекты и сессии">
-    {navOpen ? '✕' : '☰'}
+    {#if navOpen}<X size={20} />{:else}<Menu size={20} />{/if}
   </button>
-  {#if page.params?.key}
-    <!-- тап по названию раскрывает действия сессии: отдельная кнопка с
-         крестиком читалась как «закрыть» (CTO 11.08) -->
-    <button class="m-title as-button" onclick={() => (st.sessionActions = !st.sessionActions)}
-      aria-expanded={st.sessionActions}>
-      <span class="t">{sessionTitle || page.params.key.slice(0, 8)}</span>
-      <span class="caret" class:open={st.sessionActions}>›</span>
-    </button>
-  {:else}
-    <b class="m-title">{project || 'STOVP'}</b>
-  {/if}
+  <b class="m-title">{sessionTitle || project || 'STOVP'}</b>
   {#if totalOpen}<span class="badge">{totalOpen}</span>{/if}
+  {#if page.params?.key}
+    <!-- действия сессии: отдельная понятная кнопка, название остаётся
+         названием (CTO 11.08: «стало кнопкой — плохо и непонятно») -->
+    <button class="bar-btn" class:on={st.sessionActions}
+      onclick={() => (st.sessionActions = !st.sessionActions)}
+      aria-expanded={st.sessionActions} aria-label="действия сессии"
+      title="действия сессии">
+      <SlidersHorizontal size={18} />
+    </button>
+  {/if}
 </header>
 
 <div class="shell" class:nav-open={navOpen}>
@@ -308,14 +311,17 @@
   .mobile-bar {
     display: flex; align-items: center; gap: var(--sp-4);
     position: sticky; top: 0; z-index: 30;
-    background: var(--bg-0); border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-0); border-bottom: 1px solid var(--border);
+    /* лента уходит ПОД шапку — без слоя это читалось как обрыв текста
+       (CTO 11.08: «почему обрезка идёт») */
+    box-shadow: 0 8px 12px -8px rgba(0, 0, 0, 0.75);
     padding: var(--sp-3) var(--sp-4);
     padding-top: calc(var(--sp-3) + env(safe-area-inset-top, 0px));
   }
   .burger {
     background: none; border: 0; color: var(--text-1);
-    font-size: 20px; width: var(--tap); height: var(--tap);
-    display: flex; align-items: center; justify-content: center;
+    width: var(--tap); height: var(--tap); flex: none;
+    display: grid; place-items: center;
   }
   .m-title { font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   aside {

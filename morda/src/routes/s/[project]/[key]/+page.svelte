@@ -6,7 +6,9 @@
   import { page } from '$app/state';
   import Transcript from '$lib/Transcript.svelte';
   import AskCard from '$lib/AskCard.svelte';
+  import FileBrowser from '$lib/FileBrowser.svelte';
   import { STATE_RU, age } from '$lib/states.js';
+  import Folder from '@lucide/svelte/icons/folder';
 
   const st = getContext('morda');
 
@@ -150,6 +152,7 @@
   // (замер 11.08: шапка 226 px, композер 179 px при высоте окна 812).
   // Детали прячем за кнопкой, разговор получает место.
   let details = $state(false);
+  let files = $state(false);   // обозреватель файлов проекта этой сессии
   // действия сессии на телефоне открываются кнопкой в общей шапке
   const shell = getContext('morda');
   let actionsOpen = $derived(shell.sessionActions);
@@ -222,8 +225,10 @@
       <button class="chip" disabled={opening} onclick={openInClaude}
         title="claude://resume — приложение откроет копию этого разговора">копия в Claude ⧉</button>
       {#if data.cwd}
-        <button class="chip" onclick={() => (details = !details)}
-          title={data.cwd}>📁 {data.cwd.split('/').at(-1)}</button>
+        <button class="chip" class:on={files} onclick={() => (files = !files)}
+          title="файлы: {data.cwd}">
+          <Folder size={13} /> {files ? 'скрыть файлы' : 'файлы'}
+        </button>
       {/if}
       <!-- «детали» тут словом: раскрытие ряда живёт на названии сессии -->
       <button class="chip" onclick={() => (details = !details)}>
@@ -239,21 +244,17 @@
       {#if data.truncated}
         <span class="chip" title="файл больше лимита окна — показан хвост">хвост, файл {(data.size / 1048576).toFixed(1)} МБ</span>
       {/if}
-      {#if data.cwd}
-        <span class="chip" class:dead-cwd={data.cwd_alive === false} title={data.cwd}>
-          📁 {data.cwd.split('/').at(-1)}{data.cwd_alive === false ? ' · папка снесена' : ''}
-        </span>
+      {#if data.cwd_alive === false}
+        <span class="chip dead-cwd">папка сессии снесена</span>
       {/if}
-      <!-- claude://resume всегда создаёт ИМПОРТ-КОПИЮ разговора (сфокусировать
-           существующее Desktop-окно снаружи нечем — факт 10.08); имя честное,
-           у сессий со снесённым воркtree копия попросит выбрать папку -->
-      <button class="chip open-app" disabled={opening} onclick={openInClaude}
-        title="claude://resume — приложение откроет копию этого разговора{data.cwd_alive === false ? '; рабочая папка сессии уже снесена — попросит выбрать другую' : ''}">
-        открыть копию в Claude ⧉
-      </button>
+      <span class="chip quiet" title={data.cwd}>{data.cwd || '—'}</span>
     </div>
     {#if data.reason}<p class="reason quiet">{data.reason}</p>{/if}
   </header>
+
+  {#if files}
+    <FileBrowser {project} tracker={data.tracker} onClose={() => (files = false)} />
+  {/if}
 
   <Transcript items={data.items} {project} sessionKey={key} tracker={data.tracker} />
 
@@ -382,7 +383,7 @@
      прокрутку; лента освобождает под него место снизу */
   /* mobile-first: детали свёрнуты, на широком экране показаны всегда */
   .s-actions { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; }
-  .s-actions .more { min-width: 34px; justify-content: center; }
+  .s-actions .chip.on { border-color: var(--accent); color: var(--text-1); }
   .s-meta { display: none; }
   .s-meta.shown { display: flex; }
   @media (min-width: 901px) {
@@ -456,7 +457,10 @@
   .s-actions.shown {
     max-height: 160px; opacity: 1;
     padding: var(--sp-4) var(--sp-5);
-    border-bottom: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border);
+    /* мягкая тень показывает, что лента уходит ПОД ряд, а не обрывается
+       (CTO 11.08: «непонятно, что идёт обрезка») */
+    box-shadow: 0 8px 12px -8px rgba(0, 0, 0, 0.75);
   }
   @media (min-width: 901px) {
     .s-title, .back { display: block; }
