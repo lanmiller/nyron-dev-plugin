@@ -3,12 +3,14 @@
   // Сессии и состояния сторожа — в сайдбаре (клик по строке = окно сессии).
   import { getContext } from 'svelte';
   import AskCard from '$lib/AskCard.svelte';
+  import FileBrowser from '$lib/FileBrowser.svelte';
   import { age } from '$lib/states.js';
 
   const st = getContext('morda');
   const active = getContext('morda-project');
 
   let project = $derived(st.overview?.projects?.find((p) => p.name === active.name));
+  let showFiles = $state(false);
   let openAsks = $derived((project?.asks || []).filter((a) => a.status === 'open'));
   let pendingAsks = $derived((project?.asks || []).filter((a) => a.status !== 'open'));
 </script>
@@ -16,7 +18,19 @@
 {#if project}
   {#if project.error}<p class="err">{project.name}: {project.error}</p>{/if}
 
-  <h1>{project.name}</h1>
+  <div class="ptitle">
+    <h1>{project.name}</h1>
+    <button class="chip" onclick={() => (showFiles = !showFiles)}>
+      {showFiles ? '× файлы' : '📁 файлы проекта'}
+    </button>
+  </div>
+
+  {#if showFiles}
+    <section>
+      <FileBrowser project={project.name} tracker={project.tracker}
+        onClose={() => (showFiles = false)} />
+    </section>
+  {/if}
 
   <section>
     <h2>Ждут вас {#if openAsks.length}<span class="badge">{openAsks.length}</span>{/if}</h2>
@@ -75,6 +89,8 @@
 {/if}
 
 <style>
+  .ptitle { display: flex; align-items: center; gap: var(--sp-5); }
+  .ptitle h1 { flex: none; }
   .inbox { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
   .inbox li {
     background: var(--bg-2); border: 1px solid var(--border);

@@ -53,7 +53,7 @@ export function projects() {
 // root НИКОГДА не приходит с клиента (ревью Sol: произвольный путь из POST
 // создавал бы .nyron-hub где угодно) — только имя проекта, резолв по
 // allowlist projects.json.
-function rootByName(name) {
+export function rootByName(name) {
   const p = (projects() || []).find((x) => x.name === name);
   if (!p) throw new Error(`неизвестный проект: ${name}`);
   return p.root;
@@ -151,6 +151,7 @@ export function overview() {
             ...hub.asks({ status: 'acknowledged' }).asks.slice(-3).map(named)],
           watch: hub.watchStates(),
           recent: hub.recent(8),
+          tracker: trackerFor(root),
           // Ответы человеку: сессии пишут ему постом (например на встречный
           // вопрос по ask). Без этой ленты ответ уходил в будку и человек
           // его нигде не видел (дыра, найдена CTO 11.08 на живом цикле).
