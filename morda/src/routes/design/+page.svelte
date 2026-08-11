@@ -2,6 +2,8 @@
   // Витрина дизайн-системы: все токены и компоненты рядом, чтобы крутить
   // оформление глазами и собирать новые панели из готовых кирпичей, а не
   // рисовать стили заново в каждом файле (аудит 11.08 — 42/100).
+  import Icon from '$lib/Icon.svelte';
+
   let busy = $state(false);
   let val = $state('');
   let picked = $state('панель');
@@ -9,6 +11,21 @@
   const VIEWPORTS = [['Свободно', null], ['Телефон', '375 × 812'],
     ['Планшет', '768 × 1024'], ['Десктоп', '1280 × 800']];
   let vp = $state('Свободно');
+
+  // Иконки берутся по смыслу, а не «какая красивее»: у каждой одна роль в
+  // пульте, иначе набор расползётся так же, как расползлись размеры шрифта.
+  const ICONS = [
+    ['radio', 'сессия жива'],
+    ['circle-help', 'ждёт вашего решения'],
+    ['check', 'решено, доставлено'],
+    ['triangle-alert', 'ошибка, молчит'],
+    ['message-square', 'транскрипт'],
+    ['folder-tree', 'файлы проекта'],
+    ['terminal', 'команда, конвейер'],
+    ['git-branch', 'ветка и коммит'],
+    ['panel-right', 'правая колонка'],
+    ['external-link', 'открыть снаружи'],
+  ];
 
   const SURFACES = [
     ['--bg-0', 'глубина: сайдбар, поля, код'],
@@ -142,6 +159,27 @@
     <span class="chip">Desktop</span>
     <span class="mono">ai-evolve@500dc3e</span>
   </div>
+</section>
+
+<section>
+  <h2 class="eyebrow">Иконки</h2>
+  <div class="icons">
+    {#each ICONS as [name, use]}
+      <div class="ic">
+        <Icon {name} />
+        <b class="mono">{name}</b>
+        <span class="quiet">{use}</span>
+      </div>
+    {/each}
+  </div>
+  <p class="quiet note">
+    Набор lucide, лежит локально — пульт рисует иконки без сети. Размер по
+    умолчанию 16px и штрих 1.5 задаются один раз в <b class="mono">Icon.svelte</b>
+    и <b class="mono">.icon</b>; цвет не задаётся вовсе — иконка окрашивается
+    тем же правилом, что и текст, в который она вложена:
+    <span class="pair ok-note"><Icon name="check" /> доставлено</span>,
+    <span class="pair" style="color: var(--hot)"><Icon name="triangle-alert" /> не дошло</span>.
+  </p>
 </section>
 
 <section>
@@ -304,6 +342,11 @@
   .sw { display: flex; align-items: center; gap: var(--sp-4); font-size: var(--fs-xs); }
   .sw i { width: 26px; height: 26px; border-radius: var(--r-sm); border: 1px solid var(--border); flex: none; }
   .sw b { flex: none; }
+  .icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--sp-4); }
+  .ic { display: flex; align-items: center; gap: var(--sp-4); font-size: var(--fs-xs); }
+  .ic b { flex: none; }
+  /* иконка и её слово не разъезжаются по разным строкам при переносе */
+  .pair { white-space: nowrap; }
   .type { display: flex; flex-direction: column; gap: var(--sp-4); }
   .ty { display: flex; align-items: baseline; gap: var(--sp-6); flex-wrap: wrap; }
   .ty .quiet { font-size: var(--fs-xs); }

@@ -14,7 +14,146 @@
  *
  * Режим поверхности — Operate (интерфейс исчезает в задаче): фиксированная
  * шкала, а не текучая; движение 120–200 мс и только про состояние.
+ *
+ * Волна 1 (фундамент) добавила снизу мост в Tailwind 4 / shadcn: токены лока
+ * — по-прежнему источник правды, тема Tailwind только ССЫЛАЕТСЯ на них. Ни
+ * одно значение здесь не продублировано вторым числом.
  */
+
+/* ---------- Tailwind 4: только тема и утилиты, БЕЗ preflight ----------
+   Preflight (сброс UA-стилей) сознательно не подключён. Он снимает отступы и
+   размеры у p / h1–h4 / ul и убирает маркеры списков, а действующие экраны
+   пульта и рендер маркдауна в транскрипте стоят на этих умолчаниях в полутора
+   десятках мест — с ним морда поехала бы визуально в ту же секунду. Экраны
+   переписывает следующая волна: вместе с ней включается и preflight.
+   Практическое следствие сейчас: shadcn-компоненты красятся темой ниже, но
+   рассчитывать на «нулевые отступы по умолчанию» внутри них ещё нельзя. */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+@import 'tw-animate-css';
+
+/* Пульт живёт только в тёмной теме (html class="dark"): вариант нужен, чтобы
+   у shadcn-компонентов срабатывали их же dark:-правки, рассчитанные ровно на
+   такой фон. Светлой ветки у лока нет и не планируется. */
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  /* --- палитра: только лок --- */
+  /* Дефолтные 250 оттенков Tailwind снесены целиком. Аудит 11.08 дал 42/100
+     ровно потому, что цвет брался «на глаз»; `bg-blue-500` не должен даже
+     существовать. Разрешённые цвета — те, что ниже, и всё. */
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-inherit: inherit;
+
+  /* поверхности лока под именами, которых ждёт shadcn */
+  --color-background: var(--bg-1);
+  --color-foreground: var(--text-1);
+  --color-card: var(--bg-2);
+  --color-card-foreground: var(--text-1);
+  --color-popover: var(--bg-2);
+  --color-popover-foreground: var(--text-1);
+  --color-secondary: var(--bg-2);
+  --color-secondary-foreground: var(--text-1);
+  --color-muted: var(--bg-0);
+  --color-muted-foreground: var(--text-3);
+
+  /* ВНИМАНИЕ, ловушка имён: `accent` у shadcn — это поверхность наведения,
+     а не бренд. Терракота лока идёт в `primary`; поменяй местами — и каждый
+     ховер в интерфейсе станет оранжевым, то есть акцент перестанет быть
+     акцентом. */
+  --color-accent: var(--bg-3);
+  --color-accent-foreground: var(--text-1);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-ink);
+
+  --color-border: var(--border);
+  --color-border-soft: var(--border-soft);
+  --color-input: var(--border);
+  --color-ring: var(--accent);
+
+  /* оттенки текста: foreground = основной, дальше по ступеням лока */
+  --color-ink-1: var(--text-1);
+  --color-ink-2: var(--text-2);
+  --color-ink-3: var(--text-3);
+  --color-ink-4: var(--text-4);
+
+  /* смысловые: цвет = состояние, не украшение */
+  --color-destructive: var(--hot);
+  --color-destructive-foreground: var(--accent-ink);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-hot: var(--hot);
+  --color-stall: var(--stall);
+  --color-dead: var(--dead);
+  --color-chart-1: var(--accent);
+  --color-chart-2: var(--ok);
+  --color-chart-3: var(--warn);
+  --color-chart-4: var(--stall);
+  --color-chart-5: var(--dead);
+
+  /* сайдбар shadcn = наша глубина */
+  --color-sidebar: var(--bg-0);
+  --color-sidebar-foreground: var(--text-2);
+  --color-sidebar-primary: var(--accent);
+  --color-sidebar-primary-foreground: var(--accent-ink);
+  --color-sidebar-accent: var(--bg-3);
+  --color-sidebar-accent-foreground: var(--text-1);
+  --color-sidebar-border: var(--border-soft);
+  --color-sidebar-ring: var(--accent);
+
+  /* --- форма --- */
+  /* Шкала лока целиком: rounded-lg — это радиус лока (10px), а не «какой-то
+     средний». Ступеней ровно четыре, поэтому дефолтные 2xl/3xl/4xl убраны. */
+  --radius-*: initial;
+  --radius-sm: var(--r-sm);
+  --radius-md: calc(var(--r) - 2px);
+  --radius-lg: var(--r);
+  --radius-xl: var(--r-lg);
+
+  /* --- типографика: те же 7 ступеней --- */
+  /* Дефолтная шкала Tailwind (12 значений от xs до 9xl) стёрта: лок разрешает
+     семь. Класса text-2xl теперь просто нет — это не пробел, а ограничение. */
+  --text-*: initial;
+  --text-micro: var(--fs-micro);
+  --text-micro--line-height: var(--lh);
+  --text-xs: var(--fs-xs);
+  --text-xs--line-height: var(--lh);
+  --text-sm: var(--fs-sm);
+  --text-sm--line-height: var(--lh);
+  --text-base: var(--fs-md);
+  --text-base--line-height: var(--lh);
+  --text-lg: var(--fs-lg);
+  --text-lg--line-height: var(--lh-tight);
+  --text-xl: var(--fs-xl);
+  --text-xl--line-height: var(--lh-tight);
+  --text-hero: var(--fs-hero);
+  --text-hero--line-height: var(--lh-tight);
+
+  --font-sans: var(--sans);
+  --font-serif: var(--serif);
+  --font-mono: var(--mono);
+
+  /* --- движение --- */
+  /* 180 мс / ease — это var(--t), но составное значение «время + кривая»
+     Tailwind разобрать не умеет, поэтому части перечислены порознь. Границы
+     лока — 120–200 мс: utility-классы duration-120 и duration-180. */
+  --default-transition-duration: 180ms;
+  --default-transition-timing-function: ease;
+
+  /* --- ширины --- */
+  /* Единственный собственный порог пульта: с него правая колонка перестаёт
+     быть выдвижной. Совпадает с @media (min-width: 901px) внизу файла. */
+  --breakpoint-wide: 901px;
+
+  /* Шкала отступов остаётся дефолтной (--spacing: 0.25rem): её же считают
+     w-*, h-* и size-*, и подмена шага ломает геометрию shadcn (size-4 стал бы
+     8px вместо 16). Ступени лока берутся дробными множителями:
+     2→p-0.5, 4→p-1, 6→p-1.5, 8→p-2, 10→p-2.5, 14→p-3.5, 20→p-5, 28→p-7. */
+}
+
 :root {
   /* --- поверхности и текст --- */
   --bg-0: #1f1e1d;      /* глубина: сайдбар, код-блоки, поля ввода */
@@ -105,6 +244,16 @@ h1, h2.display { font-family: var(--serif); font-weight: 500; }
 }
 
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+/* Иконка (обёртка — lib/Icon.svelte). Один штрих на весь пульт: набор lucide
+   нарисован под 2px при 24px, на наших 16px это выглядит жирнее текста и
+   перетягивает внимание на себя — в режиме Operate иконка идёт в строку с
+   текстом, а не спорит с ним. Штрих задаётся здесь, а не в компоненте, чтобы
+   менять его в одном месте. */
+.icon { flex: none; vertical-align: -0.14em; }
+.icon :is(g, path, circle, rect, line, polyline, polygon, ellipse) {
+  stroke-width: 1.5;
+}
 
 .badge {
   background: var(--accent); color: var(--accent-ink);
