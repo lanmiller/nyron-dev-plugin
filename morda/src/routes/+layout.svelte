@@ -80,7 +80,7 @@
   <aside>
     <div class="brand">
       <span class="mark">✳</span>
-      <b>Морда</b>
+      <b>STOVP</b>
       <span class="at">{st.overview ? new Date(st.overview.at).toLocaleTimeString('ru') : '…'}</span>
     </div>
 

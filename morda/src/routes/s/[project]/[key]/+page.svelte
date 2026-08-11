@@ -149,7 +149,7 @@
   let isDesktop = $derived(data?.entrypoint === 'claude-desktop');
 </script>
 
-<svelte:head><title>{data?.title || key?.slice(0, 8)} — Морда</title></svelte:head>
+<svelte:head><title>{data?.title || key?.slice(0, 8)} — STOVP</title></svelte:head>
 
 {#if error}
   <p class="err">{error}</p>
