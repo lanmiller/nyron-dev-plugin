@@ -157,6 +157,18 @@
   // поле растёт под текст, как в Claude: одна строка по умолчанию,
   // Enter отправляет, Shift+Enter — перенос
   let ta = $state(null);
+  // Лента уезжала под нижнюю плашку: отступ был константой, а плашка растёт
+  // от шторки вопросов и подсказки (CTO 11.08 «текст под плашкой»).
+  let dockEl = $state(null);
+  $effect(() => {
+    if (!dockEl) return;
+    const set = () => document.documentElement.style.setProperty(
+      '--dock-h', dockEl.offsetHeight + 'px');
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(dockEl);
+    return () => { ro.disconnect(); document.documentElement.style.removeProperty('--dock-h'); };
+  });
   function grow() {
     if (!ta) return;
     ta.style.height = 'auto';
@@ -164,10 +176,18 @@
   }
   $effect(() => { if (draft === '' && ta) ta.style.height = 'auto'; });
   let openAsks = $derived((data?.asks || []).filter((a) => a.status === 'open'));
+  let openCount = $derived(openAsks.length + (data?.pending_hitl ? 1 : 0));
   // в доке — только живое: открытые и ответы в пути; подтверждённое своё
   // отработало и чат не перекрывает (CTO 10.08)
   let recentDecided = $derived((data?.asks || [])
     .filter((a) => ['answered', 'delivered'].includes(a.status)).slice(-2));
+  let sheetCount = $derived(openCount + recentDecided.length);
+  // ответил — шторка закрывается сама, разговор возвращается на экран
+  let prevOpen = 0;
+  $effect(() => {
+    if (openCount < prevOpen) sheet = false;
+    prevOpen = openCount;
+  });
   let stateInfo = $derived(STATE_RU[data?.state] || null);
   let isDesktop = $derived(data?.entrypoint === 'claude-desktop');
 </script>
@@ -235,12 +255,17 @@
 
   <Transcript items={data.items} {project} sessionKey={key} tracker={data.tracker} />
 
-  <div class="dock">
+  <div class="dock" bind:this={dockEl}>
     <!-- Узкий экран: сводка-кнопка вместо стопки карточек -->
-    {#if openAsks.length || data.pending_hitl}
+    <!-- Кнопка живёт, пока в шторке есть что показывать: раньше она
+         исчезала вместе с отвеченным вопросом и свернуть было нечем
+         (CTO 11.08 «ответил — а как свернуть теперь?») -->
+    {#if sheetCount}
       <button class="sheet-toggle" onclick={() => (sheet = !sheet)}>
-        <span class="badge">{openAsks.length + (data.pending_hitl ? 1 : 0)}</span>
-        <span class="grow">{sheet ? 'скрыть вопросы' : 'вопросы ждут решения'}</span>
+        {#if openCount}<span class="badge">{openCount}</span>{/if}
+        <span class="grow">
+          {sheet ? 'свернуть' : openCount ? 'вопросы ждут решения' : 'ответы в пути'}
+        </span>
         <span class="caret" class:open={sheet}>›</span>
       </button>
     {/if}
@@ -414,8 +439,14 @@
      (CTO 11.08 — «сделай лаконичной»). */
   .s-title, .back { display: none; }
   .s-head { margin: 0; }
-  .s-actions { display: none; }
-  .s-actions.shown { display: flex; margin-bottom: var(--sp-5); }
+  /* раздвижной второй ряд шапки: действия появляются прямо под именем
+     сессии, а не отдельной плашкой в ленте (CTO 11.08) */
+  .s-actions {
+    display: flex; overflow: hidden;
+    max-height: 0; opacity: 0; margin: 0;
+    transition: max-height var(--t), opacity var(--t-fast), margin var(--t);
+  }
+  .s-actions.shown { max-height: 200px; opacity: 1; margin-bottom: var(--sp-5); }
   @media (min-width: 901px) {
     .s-title, .back { display: block; }
     .s-actions { display: flex; }

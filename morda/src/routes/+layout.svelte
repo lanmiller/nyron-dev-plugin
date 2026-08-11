@@ -129,7 +129,9 @@
   {#if totalOpen}<span class="badge">{totalOpen}</span>{/if}
   {#if page.params?.key}
     <button class="bar-more" onclick={() => (st.sessionActions = !st.sessionActions)}
-      aria-label="действия сессии">{st.sessionActions ? '×' : '⋯'}</button>
+      aria-label={st.sessionActions ? 'свернуть действия' : 'действия сессии'}>
+      {st.sessionActions ? '×' : '⋯'}
+    </button>
   {/if}
 </header>
 
@@ -312,7 +314,10 @@
   }
   /* под фиксированным композером окна сессии — запас, иначе последние
      реплики уезжают под него (CTO 11.08) */
-  main { padding: var(--sp-5) var(--sp-5) calc(120px + var(--safe-b)); }
+  main {
+    padding: var(--sp-5) var(--sp-5)
+      calc(var(--dock-h, 96px) + var(--sp-6) + var(--safe-b));
+  }
 
   @media (min-width: 901px) {
     .mobile-bar { display: none; }
