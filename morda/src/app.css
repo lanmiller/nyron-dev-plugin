@@ -219,6 +219,18 @@ a.ticket {
 }
 a.ticket:hover { border-bottom-style: solid; }
 
+/* Таблицы: половина документации и брифов написана ими. Широкое катается
+   внутри своего блока — страница по горизонтали не едет. */
+.tw { overflow-x: auto; margin: var(--sp-5) 0; }
+.tw table { border-collapse: collapse; font-size: var(--fs-sm); min-width: 100%; }
+.tw th, .tw td {
+  border: 1px solid var(--border-soft); padding: var(--sp-3) var(--sp-5);
+  text-align: left; vertical-align: top;
+}
+.tw th { background: var(--bg-0); color: var(--text-1); font-weight: 600; white-space: nowrap; }
+.tw td { color: var(--text-2); }
+.tw tbody tr:hover td { background: var(--bg-3); }
+
 /* скелет загрузки вместо крутилки посреди контента (правило Operate) */
 .skeleton {
   background: linear-gradient(90deg, var(--bg-2), var(--bg-3), var(--bg-2));

@@ -44,7 +44,32 @@ export function md(src, tracker = null) {
       if (para.length) { out.push(`<p>${inline(para.join('<br>'), tracker)}</p>`); para = []; }
     };
     const flushList = () => { if (list) { out.push(`</${list}>`); list = null; } };
-    for (const line of lines) {
+    // Таблицы: у нас ими написана половина документации и брифов, без них
+    // читалось сырым конвейером из палок (CTO 11.08). Разбираем шапку +
+    // строку-разделитель + тело, выравнивание из разделителя (:--- / ---:).
+    const isRow = (s) => /^\s*\|.*\|\s*$/.test(s);
+    const cells = (s) => s.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+    const alignOf = (s) => cells(s).map((c) =>
+      /^:-+:$/.test(c) ? 'center' : /^-+:$/.test(c) ? 'right' : /^:?-+$/.test(c) ? 'left' : null);
+    for (let li2 = 0; li2 < lines.length; li2++) {
+      const line = lines[li2];
+      const next = lines[li2 + 1];
+      if (isRow(line) && next && isRow(next) && alignOf(next).every(Boolean)
+          && cells(next).length === cells(line).length) {
+        flushPara(); flushList();
+        const align = alignOf(next);
+        const head = cells(line);
+        const rows = [];
+        let j = li2 + 2;
+        while (j < lines.length && isRow(lines[j])) { rows.push(cells(lines[j])); j++; }
+        li2 = j - 1;
+        const th = head.map((c, k) =>
+          `<th${align[k] && align[k] !== 'left' ? ` style="text-align:${align[k]}"` : ''}>${inline(c, tracker)}</th>`).join('');
+        const body = rows.map((r) => `<tr>${r.map((c, k) =>
+          `<td${align[k] && align[k] !== 'left' ? ` style="text-align:${align[k]}"` : ''}>${inline(c, tracker)}</td>`).join('')}</tr>`).join('');
+        out.push(`<div class="tw"><table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table></div>`);
+        continue;
+      }
       const h = line.match(/^(#{1,4})\s+(.*)/);
       const li = line.match(/^\s*[-*]\s+(.*)/);
       const oli = line.match(/^\s*\d+[.)]\s+(.*)/);

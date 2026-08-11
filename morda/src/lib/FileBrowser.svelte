@@ -54,6 +54,8 @@
   }
 
   const isMd = (p) => /\.md$/i.test(p || '');
+  const rawUrl = (p) =>
+    `/api/files?${new URLSearchParams({ project, path: p, mode: 'raw' })}`;
   const kb = (n) => (n == null ? '' : n < 1024 ? `${n} Б` : `${(n / 1024).toFixed(0)} КБ`);
 
   // Первичная загрузка — ТОЛЬКО по смене проекта. Раньше эффект вызывал
@@ -136,7 +138,15 @@
           <b class="mono">{sel.path}</b>
           <span class="quiet">{kb(sel.size)}{sel.truncated ? ' · показано начало' : ''}</span>
         </div>
-        {#if sel.binary}
+        {#if sel.viewer?.startsWith('image/')}
+          <!-- скриншоты требований и дизайна смотрим прямо здесь (CTO 11.08) -->
+          <a class="shot-link" href={rawUrl(sel.path)} target="_blank" rel="noopener"
+             title="открыть в полном размере">
+            <img class="shot" src={rawUrl(sel.path)} alt={sel.path} />
+          </a>
+        {:else if sel.viewer === 'application/pdf'}
+          <iframe class="pdf" src={rawUrl(sel.path)} title={sel.path}></iframe>
+        {:else if sel.binary}
           <p class="empty">Двоичный файл — показывать нечего.</p>
         {:else if isMd(sel.path)}
           <div class="doc">{@html md(sel.text, tracker)}</div>
@@ -199,6 +209,12 @@
     white-space: pre; overflow-x: auto; margin: 0;
   }
   .doc { max-width: 80ch; }
+  .shot-link { display: inline-block; }
+  .shot {
+    max-width: 100%; border: 1px solid var(--border);
+    border-radius: var(--r-sm); background: var(--bg-0);
+  }
+  .pdf { width: 100%; height: 70vh; border: 1px solid var(--border); border-radius: var(--r-sm); }
   .doc :global(pre) {
     background: var(--bg-0); border: 1px solid var(--border-soft);
     border-radius: var(--r-sm); padding: var(--sp-5); overflow-x: auto;

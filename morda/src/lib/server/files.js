@@ -21,6 +21,19 @@ const TEXT_EXT = new Set(['.md', '.txt', '.js', '.mjs', '.cjs', '.ts', '.tsx',
   '.xml', '.svg', '.gitignore', '.dockerignore', '.example', '.lock', '.rs',
   '.go', '.java', '.kt', '.rb', '.php', '.vue', '.astro', '.jsonl']);
 
+// картинки отдаются сырым потоком (mode=raw) и показываются как картинки —
+// скриншоты требований и дизайна смотрят прямо в пульте (CTO 11.08)
+const IMAGE_MIME = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif',
+  '.bmp': 'image/bmp', '.ico': 'image/x-icon', '.svg': 'image/svg+xml',
+};
+const VIEWER_MIME = { ...IMAGE_MIME, '.pdf': 'application/pdf' };
+export function viewerMime(rel) {
+  return VIEWER_MIME[path.extname(rel).toLowerCase()] || null;
+}
+
+const MAX_RAW = 25 * 1024 * 1024;  // потолок на отдачу сырого файла
 const MAX_BYTES = 512 * 1024;   // больше — отдаём голову и честно говорим
 const MAX_ENTRIES = 400;        // защита от каталогов на десятки тысяч файлов
 
@@ -57,12 +70,28 @@ export function listDir(root, rel = '') {
   return { path: rel || '', entries: out, truncated: out.length >= MAX_ENTRIES };
 }
 
+/** Сырой файл для просмотрщика: картинки и PDF. Возвращает буфер и тип. */
+export function rawFile(root, rel) {
+  const full = safeJoin(root, rel);
+  const st = fs.statSync(full);
+  if (st.isDirectory()) throw new Error('это каталог');
+  const mime = viewerMime(rel);
+  if (!mime) throw new Error('этот тип не показывается просмотрщиком');
+  if (st.size > MAX_RAW) throw new Error(`файл больше ${MAX_RAW / 1048576} МБ`);
+  return { buf: fs.readFileSync(full), mime };
+}
+
 /** Содержимое файла. Двоичное не отдаём — только признак. */
 export function readFile(root, rel) {
   const full = safeJoin(root, rel);
   const st = fs.statSync(full);
   if (st.isDirectory()) throw new Error('это каталог');
   const ext = path.extname(full).toLowerCase() || path.basename(full).toLowerCase();
+  // картинку и PDF текстом не читаем — клиент запросит их сырым режимом
+  const mime = viewerMime(rel);
+  if (mime && ext !== '.svg')
+    return { path: rel, size: st.size, binary: true, viewer: mime, text: null,
+      mtime: st.mtime.toISOString() };
   const isText = TEXT_EXT.has(ext) || st.size < 64 * 1024;
   if (!isText)
     return { path: rel, size: st.size, binary: true, text: null,
