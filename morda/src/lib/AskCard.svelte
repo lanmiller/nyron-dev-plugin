@@ -45,10 +45,11 @@
       <b>{ask.question}</b>
     {/if}
     <span class="meta">
+      спрашивает:&nbsp;
       {#if sessionHref}
-        <a href={sessionHref} class="sess" title="открыть окно сессии">{ask.session.slice(0, 8)} ↗</a>
+        <a href={sessionHref} class="sess" title="открыть окно сессии · {ask.session}">{ask.session_title || ask.session.slice(0, 8)} ↗</a>
       {:else}
-        {ask.session}
+        <b class="from">{ask.session_title || ask.session}</b>
       {/if}
       {ask.ticket ? ` · ${ask.ticket}` : ''} · {age(ask.ts)}
       {#if ask.urgency === 'blocking' && ask.status === 'open'}· <em>блокирует</em>{/if}
@@ -83,10 +84,14 @@
   {:else}
     <div class="delivery">
       <span class="step on">решено «{ask.decision}» · {ask.decided_by} · {hhmm(ask.decided_ts)}</span>
+      {#if String(ask.decided_by || '').includes('@morda')}
+        <span class="step on" title="решение продублировано постом в шину — живой диспетчер видит его, не дожидаясь pull автора">⇢ диспетчеру в шину</span>
+      {/if}
       <span class="arrow">→</span>
-      <span class="step" class:on={ask.delivered_ts || ask.acked_ts}>
-        {ask.delivered_ts ? `доставлено ${hhmm(ask.delivered_ts)}`
-          : ask.acked_ts ? 'доставка не фиксировалась' : 'сессия ещё не забрала'}
+      <span class="step" class:on={ask.delivered_ts || ask.acked_ts}
+        title="ответ забирает сама сессия-автор чтением будки (pull)">
+        {ask.delivered_ts ? `сессия забрала ${hhmm(ask.delivered_ts)}`
+          : ask.acked_ts ? 'доставка не фиксировалась' : `ждёт в будке для «${ask.session_title || ask.session}»`}
       </span>
       <span class="arrow">→</span>
       <span class="step" class:on={ask.acked_ts}>
@@ -112,6 +117,7 @@
   .meta em { color: var(--accent); font-style: normal; font-weight: 600; }
   .meta .sess { color: var(--text-2); text-decoration: none; }
   .meta .sess:hover { color: var(--accent); }
+  .meta .from { color: var(--text-2); font-weight: 600; }
   header .q { color: inherit; text-decoration: none; }
   header .q:hover b { color: var(--accent); }
   details { margin: 8px 0 0; color: var(--text-2); font-size: 13.5px; }

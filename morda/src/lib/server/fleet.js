@@ -73,12 +73,16 @@ export function overview() {
     projects: list.map(({ name, root }) => {
       try {
         const hub = hubFor(root);
+        // uuid сессии человеку ничего не говорит — резолвим в заголовок
+        // транскрипта («кто спрашивает» — UX-аудит impeccable 10.08)
+        const titles = new Map(listSessionsCached(root).map((s) => [s.key, s.title]));
+        const named = (a) => ({ ...a, session_title: titles.get(a.session) || null });
         return {
           name, root,
           // живые (open + answered/delivered) + хвост acknowledged: цепочка
           // доставки видна до конца, а не рвётся на ack (ревью Sol r1)
-          asks: [...hub.asks({}).asks,
-            ...hub.asks({ status: 'acknowledged' }).asks.slice(-3)],
+          asks: [...hub.asks({}).asks.map(named),
+            ...hub.asks({ status: 'acknowledged' }).asks.slice(-3).map(named)],
           watch: hub.watchStates(),
           recent: hub.recent(8),
         };
