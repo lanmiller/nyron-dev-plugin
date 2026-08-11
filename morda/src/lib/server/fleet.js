@@ -64,6 +64,47 @@ function hubFor(root) {
   return dbs.get(root);
 }
 
+// Автор ask зовётся логическим именем волны («wave-f3»), а окно сессии живёт
+// под uuid — человеку иначе приходится глазами искать нужную строку в дереве
+// (жалоба CTO 11.08). Сопоставляем по имени: волны у нас называются
+// «Волна Ф3: …», то есть та же метка кириллицей.
+const CYR2LAT = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ж: 'j', з: 'z',
+  и: 'i', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't',
+  у: 'u', ф: 'f', х: 'h', ц: 'c', ч: 'ch', ш: 'sh', ы: 'y', э: 'e', ю: 'u', я: 'ya' };
+function normLabel(s) {
+  return String(s || '').toLowerCase()
+    .split(':')[0]                       // «Волна Ф3: CRDT…» → «волна ф3»
+    .replace(/волна|wave|сессия/g, '')
+    .replace(/[а-яё]/g, (c) => CYR2LAT[c] ?? c)
+    .replace(/[^a-z0-9]/g, '');
+}
+// Входящие человеку: посты, адресованные ему поимённо (CTO@morda и прочие
+// «…@morda»). Ответы на встречные вопросы приходят именно так.
+function inboxFor(hub, sessions) {
+  try {
+    const all = hub.read({ limit: 200 }).messages || [];
+    return all
+      .filter((m) => /@morda$/i.test(String(m.to || '')))
+      .slice(-12)
+      .reverse()
+      .map((m) => ({
+        id: m.id, ts: m.ts, from: m.from, to: m.to, ticket: m.ticket || null,
+        text: String(m.text || '').slice(0, 1200),
+        from_key: matchAuthor(m.from, sessions)?.key || null,
+        from_title: matchAuthor(m.from, sessions)?.title || null,
+      }));
+  } catch { return []; }
+}
+
+function matchAuthor(author, sessions) {
+  const want = normLabel(author);
+  if (want.length < 2) return null;      // «w», «f» — слишком общее, не гадаем
+  // одноимённых обычно несколько (перезапуски волны) — ведём в самую свежую
+  const hits = sessions.filter((s) => normLabel(s.title) === want)
+    .sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
+  return hits.length ? { key: hits[0].key, title: hits[0].title } : null;
+}
+
 // Трекер проекта из конфига плагина (.claude/nyron-dev.md): site+project_key
 // → база для автолинковки тикетов в транскриптах (CTO 10.08: ссылки на Jira
 // открывать наружу/попапом — юзер там уже залогинен).
@@ -94,8 +135,14 @@ export function overview() {
         const hub = hubFor(root);
         // uuid сессии человеку ничего не говорит — резолвим в заголовок
         // транскрипта («кто спрашивает» — UX-аудит impeccable 10.08)
-        const titles = new Map(listSessionsCached(root).map((s) => [s.key, s.title]));
-        const named = (a) => ({ ...a, session_title: titles.get(a.session) || null });
+        const sess = listSessionsCached(root);
+        const titles = new Map(sess.map((s) => [s.key, s.title]));
+        const named = (a) => {
+          const hit = titles.has(a.session)
+            ? { key: a.session, title: titles.get(a.session) }
+            : matchAuthor(a.session, sess);
+          return { ...a, session_title: hit?.title || null, session_key: hit?.key || null };
+        };
         return {
           name, root,
           // живые (open + answered/delivered) + хвост acknowledged: цепочка
@@ -104,6 +151,10 @@ export function overview() {
             ...hub.asks({ status: 'acknowledged' }).asks.slice(-3).map(named)],
           watch: hub.watchStates(),
           recent: hub.recent(8),
+          // Ответы человеку: сессии пишут ему постом (например на встречный
+          // вопрос по ask). Без этой ленты ответ уходил в будку и человек
+          // его нигде не видел (дыра, найдена CTO 11.08 на живом цикле).
+          inbox: inboxFor(hub, sess),
         };
       } catch (e) {
         return { name, root, error: String(e.message || e), asks: [], watch: [], recent: [] };
@@ -157,6 +208,29 @@ export function decide({ project, ask_id, decision, by }) {
     } catch { /* шина недоступна — решение всё равно в asks */ }
   }
   return r;
+}
+
+/** Встречный вопрос автору ask прямо с карточки: «вопрос непонятен —
+ *  доуточню» (флоу CTO 11.08). Адресат берётся из самого ask, поэтому
+ *  человеку не нужно искать, чья это сессия: она читает будку по своему
+ *  имени и обязана ответить, не закрывая свой вопрос. */
+export function askAuthor({ project, ask_id, text, by }) {
+  const root = rootByName(project);
+  if (!text || !String(text).trim()) throw new Error('пустой текст');
+  const hub = hubFor(root);
+  const a = hub.asks({}).asks.find((x) => x.id === ask_id)
+    || hub.asks({ status: 'acknowledged' }).asks.find((x) => x.id === ask_id);
+  if (!a) throw new Error(`ask ${ask_id} не найден`);
+  hub.post({
+    from: by || 'CTO@morda', to: a.session, ticket: a.ticket || undefined,
+    wave: a.wave || undefined,
+    // адресат назван и в тексте: шину читают все, безадресное принимали
+    // на свой счёт чужие диспетчеры (факт 10.08)
+    text: `[встречный вопрос человека по твоему ask ${ask_id} — ТОЛЬКО для «${a.session}», остальным игнорировать] `
+      + `Твой вопрос: «${String(a.question).slice(0, 160)}». Человек спрашивает: ${text}\n`
+      + `Ответь постом в будку (hub_post to:"${by || 'CTO@morda'}"), свой ask НЕ снимай — он остаётся открытым до решения.`,
+  });
+  return { sent: true, to: a.session, ask_id };
 }
 
 export function cancelAsk({ project, ask_id, by, reason }) {

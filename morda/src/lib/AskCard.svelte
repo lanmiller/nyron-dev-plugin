@@ -27,14 +27,39 @@
     }
   }
   const send = (decision) => post({ decision: String(decision) });
+
+  // Вопрос непонятен — уточнить у того, кто его задал, НЕ решая и не
+  // разыскивая его сессию (флоу CTO 11.08). Ask остаётся открытым.
+  let asking = $state(false);
+  let probe = $state('');
+  let probeSent = $state(null);
+  async function askBack() {
+    if (!probe.trim()) return;
+    busy = true; error = null; probeSent = null;
+    try {
+      const r = await fetch('/api/ask-author', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-morda': '1' },
+        body: JSON.stringify({ project, ask_id: ask.id, by: 'CTO@morda', text: probe }),
+      });
+      const body = await r.json();
+      if (!r.ok) error = body.error || `HTTP ${r.status}`;
+      else { probe = ''; asking = false; probeSent = `спрошено у «${body.to}» — ответит постом в будку`; }
+    } catch (e) {
+      error = String(e.message || e);
+    } finally { busy = false; }
+  }
   // снятие неактуального вопроса (мёртвые сессии, устаревшие заглушки
   // сторожа): отмена только из open — решённые забирает ack сессии
   const dismiss = () => post({ action: 'cancel', reason: 'снят человеком из морды' });
 
-  // сессии с uuid-ключом (сторож, заглушки) ведут в окно транскрипта
-  let sessionHref = $derived(
-    linkToSession && /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(ask.session)
-      ? `/s/${encodeURIComponent(project)}/${ask.session}` : null);
+  // Окно сессии автора: uuid-ключ напрямую либо резолв сервера по имени
+  // волны («wave-f3» → «Волна Ф3…»), чтобы «перейти и общаться там»
+  let authorKey = $derived(
+    /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(ask.session) ? ask.session : ask.session_key || null);
+  let authorHref = $derived(
+    linkToSession && authorKey ? `/s/${encodeURIComponent(project)}/${authorKey}` : null);
+  let sessionHref = $derived(authorHref);
 </script>
 
 <article class="ask" class:blocking={ask.urgency === 'blocking'} class:done={ask.status !== 'open'}>
@@ -76,10 +101,27 @@
           onkeydown={(e) => e.key === 'Enter' && draft && send(draft)} />
         <button class="btn" disabled={busy || !draft} onclick={() => send(draft)}>отправить</button>
       {/if}
-      <button class="dismiss" disabled={busy} onclick={dismiss}
-        title="вопрос неактуален (сессия умерла, тема закрыта) — снять; сторож не пересоздаст его, пока сессия молчит">
-        снять вопрос
-      </button>
+      <div class="ask-tools">
+        <button class="link" disabled={busy} onclick={() => (asking = !asking)}
+          title="вопрос непонятен — спросить у того, кто его задал; ask останется открытым">
+          {asking ? '← назад' : 'уточнить у автора'}
+        </button>
+        {#if authorHref}
+          <a class="link" href={authorHref} title="открыть окно этой сессии и общаться там">перейти в её сессию ↗</a>
+        {/if}
+        <button class="dismiss" disabled={busy} onclick={dismiss}
+          title="вопрос неактуален (сессия умерла, тема закрыта) — снять; сторож не пересоздаст его, пока сессия молчит">
+          снять вопрос
+        </button>
+      </div>
+      {#if asking}
+        <div class="probe">
+          <input type="text" placeholder="что уточнить у «{ask.session_title || ask.session}»…"
+            bind:value={probe} onkeydown={(e) => e.key === 'Enter' && askBack()} />
+          <button class="btn small" disabled={busy || !probe.trim()} onclick={askBack}>спросить</button>
+        </div>
+      {/if}
+      {#if probeSent}<p class="sent">{probeSent}</p>{/if}
     </div>
   {:else}
     <div class="delivery">
@@ -127,6 +169,16 @@
     color: var(--text-4); background: var(--bg-0); border-radius: 6px; padding: 2px 8px;
   }
   .answers { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .ask-tools { display: flex; gap: 14px; align-items: center; width: 100%; margin-top: 2px; }
+  .link {
+    background: none; border: 0; padding: 0; cursor: pointer;
+    color: var(--text-3); font: inherit; font-size: 12px; text-decoration: none;
+  }
+  .link:hover { color: var(--accent); }
+  .probe { display: flex; gap: 8px; width: 100%; }
+  .probe input { flex: 1; }
+  .btn.small { padding: 6px 12px; font-size: 13px; }
+  .sent { color: var(--ok); font-size: 12.5px; margin: 6px 0 0; width: 100%; }
   .answers .btn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
   .answers .btn small { color: var(--text-3); font-size: 11.5px; font-weight: 400; }
   .answers input { flex: 1; min-width: 200px; }

@@ -28,6 +28,28 @@
     {/each}
   </section>
 
+  <!-- Ответы человеку: сессия отвечает постом (на встречный вопрос по ask),
+       и без этой ленты ответ терялся в будке (найдено CTO 11.08) -->
+  {#if project.inbox?.length}
+    <section>
+      <h2>Ответы вам <span class="badge">{project.inbox.length}</span></h2>
+      <ul class="inbox">
+        {#each project.inbox as m (m.id)}
+          <li>
+            <span class="meta">
+              {age(m.ts)} ·
+              {#if m.from_key}
+                <a href="/s/{encodeURIComponent(project.name)}/{m.from_key}" title="открыть её сессию">{m.from_title || m.from} ↗</a>
+              {:else}<b>{m.from}</b>{/if}
+              {m.ticket ? ` · ${m.ticket}` : ''}
+            </span>
+            <p>{m.text}</p>
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
+
   {#if pendingAsks.length}
     <section>
       <h2>Доставка ответов</h2>
@@ -53,6 +75,16 @@
 {/if}
 
 <style>
+  .inbox { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+  .inbox li {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-left: 3px solid var(--ok);
+    border-radius: var(--r); padding: 10px 14px;
+  }
+  .inbox .meta { color: var(--text-3); font-size: 12.5px; }
+  .inbox .meta a { color: var(--text-2); text-decoration: none; }
+  .inbox .meta a:hover { color: var(--accent); }
+  .inbox p { margin: 4px 0 0; white-space: pre-wrap; font-size: 13.5px; }
   h1 { font-size: 26px; margin: 4px 0 6px; }
   h2 {
     font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
