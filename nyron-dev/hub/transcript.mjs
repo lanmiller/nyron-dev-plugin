@@ -258,15 +258,23 @@ function toItems(events) {
 
     if (e.type === 'user') {
       if (typeof msg.content === 'string') {
-        if (msg.content.trim()) items.push({ kind: 'user', ts, text: cap(msg.content, TEXT_CAP) });
+        const t = msg.content.trim();
+        if (t) items.push({ kind: 'user', ts, text: cap(t, TEXT_CAP), images: [], system: systemNote(t) });
         continue;
       }
       let text = '';
-      let images = 0;
+      const images = [];
       for (const p of msg.content) {
         if (typeof p === 'string') text += p;
         else if (p?.type === 'text') text += p.text || '';
-        else if (p?.type === 'image') images++;
+        else if (p?.type === 'image') {
+          // base64 → data-URI для инлайна в окне (кап 8 картинок и ~4МБ на
+          // штуку, чтоб не раздуть ответ); чужие форматы источника — счётчик
+          const s = p.source || {};
+          if (s.type === 'base64' && s.data && s.data.length < 4_000_000 && images.length < 8)
+            images.push(`data:${s.media_type || 'image/png'};base64,${s.data}`);
+          else images.push(null); // была картинка, но не инлайним
+        }
         else if (p?.type === 'tool_result') {
           const t = toolById.get(p.tool_use_id);
           if (t) {
@@ -275,8 +283,10 @@ function toItems(events) {
           }
         }
       }
-      if (text.trim() || images)
-        items.push({ kind: 'user', ts, text: cap(text.trim(), TEXT_CAP), images });
+      if (text.trim() || images.length) {
+        const t = text.trim();
+        items.push({ kind: 'user', ts, text: cap(t, TEXT_CAP), images, system: systemNote(t) });
+      }
       continue;
     }
 
@@ -304,6 +314,19 @@ function toItems(events) {
     }
   }
   return { items, title };
+}
+
+// Служебные XML-обёртки рантайма (завершение фонового субагента, эхо
+// слэш-команды, системные напоминания, межсессионное сообщение) — это НЕ
+// реплика человека: помечаем, UI рисует свёрнутой плашкой (CTO 10.08:
+// «вот это что?» на сыром <task-notification> посреди чата)
+function systemNote(t) {
+  return t.startsWith('<task-notification>') ? 'субагент завершил работу'
+    : t.startsWith('<command-name>') ? 'слэш-команда'
+    : t.startsWith('<system-reminder>') ? 'системное напоминание'
+    : t.startsWith('<cross-session-message') ? 'сообщение из другой сессии'
+    : t.startsWith('<local-command') ? 'локальная команда'
+    : null;
 }
 
 function resultText(content) {

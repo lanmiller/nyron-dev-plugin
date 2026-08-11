@@ -143,8 +143,10 @@
   }
 
   let openAsks = $derived((data?.asks || []).filter((a) => a.status === 'open'));
+  // в доке — только живое: открытые и ответы в пути; подтверждённое своё
+  // отработало и чат не перекрывает (CTO 10.08)
   let recentDecided = $derived((data?.asks || [])
-    .filter((a) => ['answered', 'delivered', 'acknowledged'].includes(a.status)).slice(-2));
+    .filter((a) => ['answered', 'delivered'].includes(a.status)).slice(-2));
   let stateInfo = $derived(STATE_RU[data?.state] || null);
   let isDesktop = $derived(data?.entrypoint === 'claude-desktop');
 </script>

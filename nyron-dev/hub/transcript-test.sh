@@ -103,7 +103,8 @@ if (!kinds.includes('assistant')) throw 'нет текста ассистент�
 const think = r.items.filter(i => i.kind === 'thinking');
 if (think.length !== 1 || !think[0].text.includes('тесты')) throw 'thinking: пустой должен уйти, непустой остаться';
 const img = r.items.filter(i => i.kind === 'user').at(-1);
-if (!img.text.includes('скрин') || img.images !== 1) throw 'картинка не посчитана';
+if (!img.text.includes('скрин') || img.images.length !== 1) throw 'картинка не собрана';
+if (!String(img.images[0]).startsWith('data:image/')) throw 'картинка не отдана data-URI: ' + img.images[0];
 " && ok "user/assistant/thinking/картинки" || bad "readSession базовый"
 
 echo "== T3: плашки инструментов =="
@@ -195,6 +196,18 @@ if (!q.questions || q.questions[0].question !== 'Чем заняться?') thro
 if (q.questions[0].options[1].label !== 'ждать') throw 'варианты потеряны';
 if (q.result) throw 'result должен быть пуст (форма ждёт)';
 " && ok "незакрытая форма распарсена с вариантами" || bad "HITL"
+
+echo "== T10: служебные вставки рантайма помечены =="
+cat > "$TDIR/cccc1010-0000-0000-0000-000000000010.jsonl" <<EOF
+{"type":"user","cwd":"$PROJ","message":{"role":"user","content":"<task-notification><task-id>x1</task-id><status>completed</status></task-notification>"}}
+{"type":"user","cwd":"$PROJ","message":{"role":"user","content":"обычная реплика человека"}}
+EOF
+run_node "
+const r = readSession(ROOT, 'cccc1010-0000-0000-0000-000000000010');
+const [a, b] = r.items;
+if (a.system !== 'субагент завершил работу') throw 'task-notification не помечен: ' + a.system;
+if (b.system) throw 'обычная реплика помечена служебной';
+" && ok "task-notification — плашка, реплика человека — нет" || bad "служебные вставки"
 
 echo "== T7: шум отфильтрован =="
 run_node "

@@ -23,11 +23,23 @@
 
 <div class="feed" class:nested={depth > 0}>
   {#each items as it, i (i)}
-    {#if it.kind === 'user'}
+    {#if it.kind === 'user' && it.system}
+      <!-- служебная вставка рантайма, не реплика человека — свёрнутая плашка -->
+      <details class="sysnote">
+        <summary>⚙ {it.system}</summary>
+        <pre>{it.text}</pre>
+      </details>
+    {:else if it.kind === 'user'}
       <div class="user">
         <div class="bubble">
           {@html md(it.text)}
-          {#if it.images}<span class="imgs">🖼 картинок: {it.images}</span>{/if}
+          {#each it.images || [] as src}
+            {#if src}
+              <img class="shot" {src} alt="вложение" loading="lazy" />
+            {:else}
+              <span class="imgs">🖼 картинка (не показана: формат или размер)</span>
+            {/if}
+          {/each}
         </div>
       </div>
     {:else if it.kind === 'assistant'}
@@ -84,6 +96,18 @@
     border-radius: var(--r); padding: 8px 14px; max-width: 85%;
   }
   .user .imgs { display: block; color: var(--text-3); font-size: 12px; margin-top: 4px; }
+  .user .shot {
+    display: block; max-width: 100%; margin-top: 8px;
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  .sysnote { color: var(--text-4); font-size: 12.5px; }
+  .sysnote > summary { cursor: pointer; padding: 2px 0; }
+  .sysnote pre {
+    background: var(--bg-0); border: 1px solid var(--border-soft);
+    border-radius: 8px; padding: 8px 10px; margin: 6px 0 0;
+    font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap;
+    max-height: 40vh; overflow: auto;
+  }
   .assistant { max-width: 100%; overflow-wrap: break-word; }
   .assistant :global(p), .user :global(p) { margin: 0 0 8px; }
   .assistant :global(p:last-child), .user :global(p:last-child) { margin-bottom: 0; }
