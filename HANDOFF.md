@@ -58,13 +58,12 @@ Desktop — зеркало), `claude://resume?session=<uuid>` — «открыт
 - Будки: `<проект>/.nyron-hub/hub.db` (ai-evolve, psylia, betzo,
   noproblemo); морда читает их через `morda/projects.json` (gitignored).
 - Сторож: launchd каждые 300с, лог `~/Library/Logs/com.nyron.watchdog.*`.
-- Плагин-репо remote: GitHub HTTPS (`lanmiller/nyron-dev-plugin`, токен в
-  Keychain; SSH-ключа от GitHub на машине НЕТ). Marketplace-клон
-  `~/.claude/plugins/marketplaces/nyron-dev-marketplace-v2` — git pull
-  после каждого пуша.
-
-## Хвосты (не блокеры этапа 4)
-
+- **Плагин-репо: пушить ТОЛЬКО в `origin` (GitLab)** — это оригинал и канон
+  команды. `github` (lanmiller/nyron-dev-plugin) — ПУШ-ЗЕРКАЛО GitLab с
+  выключенным keep_divergent_refs: любой пуш прямо в него живёт до
+  следующей синхронизации и молча затирается (инцидент 11.08 — 47
+  коммитов STOVP исчезли с GitHub, восстановлены мержем). Проверка перед
+  работой: `git remote -v` и `git log origin/main -1`.
 - SQL-LIMIT в `hub-db.asks()` — перф-долг (полный SELECT каждые 5с
   поллинга; Sol СПОРНО).
 - psylia-конфиг на `plugin_version 0.6.1` — контур отстал, догнать.
