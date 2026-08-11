@@ -219,6 +219,47 @@ a.ticket {
 }
 a.ticket:hover { border-bottom-style: solid; }
 
+/* сегментированный переключатель: масштаб вьюпорта в панели браузера,
+   режимы просмотра. Эталон — переключатель Responsive/Mobile/Tablet в
+   браузере Claude Desktop (CTO 11.08: «масштабер надо точно») */
+.seg {
+  display: inline-flex; background: var(--bg-0); border: 1px solid var(--border);
+  border-radius: var(--r-pill); padding: 2px; gap: 2px;
+}
+.seg button {
+  background: none; border: 0; border-radius: var(--r-pill);
+  color: var(--text-3); font: inherit; font-size: var(--fs-xs);
+  padding: var(--sp-2) var(--sp-5); white-space: nowrap;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.seg button:hover { color: var(--text-1); }
+.seg button.on { background: var(--bg-3); color: var(--text-1); }
+.seg .dim { color: var(--text-4); margin-left: var(--sp-3); font-size: var(--fs-micro); }
+
+/* Разделитель колонок: панели тянутся за него, чат остаётся центром
+   (модель Claude Desktop — CTO 11.08 «окна открываются и тянутся, а чат
+   основной в центре»). Полоса узкая, зона захвата шире неё. */
+.splitter {
+  flex: none; width: 5px; cursor: col-resize; position: relative;
+  background: none; border: 0; padding: 0; align-self: stretch;
+}
+.splitter::before {
+  content: ''; position: absolute; inset: 0 2px;
+  background: var(--border-soft); border-radius: 2px;
+  transition: background var(--t-fast);
+}
+.splitter:hover::before, .splitter.dragging::before { background: var(--accent); }
+.splitter::after {           /* зона захвата шире видимой полосы */
+  content: ''; position: absolute; inset: 0 -5px;
+}
+
+/* окно наблюдения за браузером сессии: рамка держит выбранный размер */
+.viewport {
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--bg-0); overflow: hidden; margin: 0 auto;
+  transition: width var(--t), height var(--t);
+}
+
 /* ---------- файлы: дерево и просмотрщик ----------
    Кирпичи обозревателя вынесены в систему (правило CTO 11.08: компонент
    сразу в дизайн-систему), чтобы панель файлов эпика, вложения требований

@@ -4,6 +4,32 @@
   // (задачи с субагентами и стадиями воркфлоу, файлы, коммит-бар).
   // Смысл макета — договориться глазами ДО подключения к живым данным.
   let tab = $state('tasks');
+  const VIEWPORTS = [['Свободно', null], ['Телефон', '375 × 812'],
+    ['Планшет', '768 × 1024'], ['Десктоп', '1280 × 800']];
+  let vp = $state('Свободно');
+
+  // Панели тянутся за разделитель, чат остаётся центром — как в Claude
+  // Desktop (CTO 11.08). Ширину помним между заходами.
+  let sideW = $state(340);
+  let dragging = $state(false);
+  function startDrag(e) {
+    dragging = true;
+    const startX = e.clientX, startW = sideW;
+    const move = (ev) => {
+      sideW = Math.min(720, Math.max(260, startW + (startX - ev.clientX)));
+    };
+    const up = () => {
+      dragging = false;
+      try { localStorage.setItem('stovp.sideW', String(sideW)); } catch {}
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+  $effect(() => {
+    try { const v = +localStorage.getItem('stovp.sideW'); if (v) sideW = v; } catch {}
+  });
 
   const TREE = [
     { kind: 'scout', name: 'Разведка', items: [
@@ -127,8 +153,12 @@
     </div>
   </main>
 
+  <!-- разделитель: тянем — панели шире, чат уже; центр остаётся центром -->
+  <button class="splitter" class:dragging onpointerdown={startDrag}
+    aria-label="изменить ширину панелей"></button>
+
   <!-- ПРАВО: поверхности сессии -->
-  <aside class="side">
+  <aside class="side" style="width: {sideW}px">
     <div class="tabs">
       <button class="tab" class:on={tab === 'tasks'} onclick={() => (tab = 'tasks')}>Задачи</button>
       <button class="tab" class:on={tab === 'files'} onclick={() => (tab = 'files')}>Файлы</button>
@@ -193,10 +223,17 @@
       <article class="panel">
         <header><h3>Браузер сессии</h3><span class="chip">:5199</span></header>
         <div class="body">
-          <div class="browser-frame">
+          <div class="seg" style="margin-bottom: 10px">
+            {#each VIEWPORTS as [name, size]}
+              <button class:on={vp === name} onclick={() => (vp = name)}>
+                {name}{#if size}<span class="dim">{size}</span>{/if}
+              </button>
+            {/each}
+          </div>
+          <div class="viewport" style="width: {vp === 'Телефон' ? '100%' : vp === 'Планшет' ? '100%' : '100%'}; max-width: {vp === 'Телефон' ? '187px' : vp === 'Планшет' ? '280px' : 'none'}; height: 170px">
             <div class="skeleton" style="height: 100%"></div>
           </div>
-          <p class="empty">Здесь видно, что смотрит агент. Кадры или полноценное окно — решается отдельно.</p>
+          <p class="empty">Что смотрит агент. Масштаб переключается — видно, как страница ложится на телефоне.</p>
         </div>
       </article>
     {/if}
@@ -206,15 +243,14 @@
 <style>
   .hint { margin: 0 0 var(--sp-5); font-size: var(--fs-xs); }
   .mock {
-    display: grid; grid-template-columns: 300px minmax(0, 1fr) 340px;
-    gap: var(--sp-5); align-items: start;
+    display: flex; gap: var(--sp-5); align-items: stretch;
     border: 1px solid var(--border-soft); border-radius: var(--r-lg);
     background: var(--bg-1); padding: var(--sp-5); min-height: 70vh;
   }
   .pad { padding: var(--sp-3) var(--sp-4); }
 
   /* дерево работы */
-  .tree { background: var(--bg-0); border-radius: var(--r); padding: var(--sp-4) var(--sp-3); }
+  .tree { background: var(--bg-0); border-radius: var(--r); padding: var(--sp-4) var(--sp-3); width: 300px; flex: none; overflow: auto; }
   .epic { margin: var(--sp-3) 0 var(--sp-5); }
   .epic-head {
     display: flex; align-items: center; gap: var(--sp-3);
@@ -228,7 +264,7 @@
   .plain { margin-top: var(--sp-5); }
 
   /* разговор */
-  .talk { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+  .talk { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; flex: 1; }
   .talk-head h2 { margin: 0 0 var(--sp-3); font-size: var(--fs-xl); font-family: var(--serif); font-weight: 500; }
   .chips { display: flex; gap: var(--sp-3); align-items: center; }
   .bubble.me {
@@ -251,7 +287,7 @@
   .composer input { flex: 1; }
 
   /* поверхности справа */
-  .side { display: flex; flex-direction: column; gap: var(--sp-4); }
+  .side { display: flex; flex-direction: column; gap: var(--sp-4); flex: none; min-width: 260px; }
   .tabs { display: flex; gap: var(--sp-2); }
   .tab {
     background: none; border: 1px solid transparent; border-radius: var(--r-pill);
@@ -284,6 +320,8 @@
     overflow: hidden; background: var(--bg-0);
   }
   @media (max-width: 1100px) {
-    .mock { grid-template-columns: 1fr; }
+    .mock { flex-direction: column; }
+    .tree, .side { width: auto !important; }
+    .splitter { display: none; }
   }
 </style>

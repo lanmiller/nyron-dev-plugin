@@ -5,6 +5,10 @@
   let busy = $state(false);
   let val = $state('');
   let picked = $state('панель');
+  // масштабер вьюпорта — как в браузере Claude Desktop
+  const VIEWPORTS = [['Свободно', null], ['Телефон', '375 × 812'],
+    ['Планшет', '768 × 1024'], ['Десктоп', '1280 × 800']];
+  let vp = $state('Свободно');
 
   const SURFACES = [
     ['--bg-0', 'глубина: сайдбар, поля, код'],
@@ -179,6 +183,39 @@
 </section>
 
 <section>
+  <h2 class="eyebrow">Переключатель размеров и окно наблюдения</h2>
+  <div class="demo">
+    <div class="seg">
+      {#each VIEWPORTS as [name, size]}
+        <button class:on={vp === name} onclick={() => (vp = name)}>
+          {name}{#if size}<span class="dim">{size}</span>{/if}
+        </button>
+      {/each}
+    </div>
+  </div>
+  <p class="quiet note">
+    Тем же кирпичом переключается размер в панели браузера сессии: видно,
+    как страница выглядит на телефоне, не выходя из пульта.
+  </p>
+  <div class="viewport" style="width: {vp === 'Телефон' ? '375px' : vp === 'Планшет' ? '768px' : '100%'}; height: 150px; display: grid; place-items: center; color: var(--text-4); font-size: 12px; margin-top: 10px">
+    окно {vp === 'Свободно' ? 'по ширине панели' : vp.toLowerCase()}
+  </div>
+</section>
+
+<section>
+  <h2 class="eyebrow">Разделитель — панели тянутся, центр остаётся центром</h2>
+  <div class="splitdemo">
+    <div class="sd-main">чат (центр, тянется сам)</div>
+    <button class="splitter" aria-label="изменить ширину"></button>
+    <div class="sd-side" style="width: 220px">панель (ширина меняется)</div>
+  </div>
+  <p class="quiet note">
+    Модель Claude Desktop: поверхности открываются справа и тянутся за
+    разделитель, разговор никуда не уезжает. Ширина запоминается.
+  </p>
+</section>
+
+<section>
   <h2 class="eyebrow">Файлы: дерево и просмотрщик</h2>
   <div class="panels">
     <article class="panel">
@@ -266,4 +303,12 @@
   .note { font-size: var(--fs-xs); margin: var(--sp-4) 0 0; }
   .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--sp-5); align-items: start; }
   .panels input[type='search'] { width: 100%; }
+  .splitdemo { display: flex; align-items: stretch; gap: var(--sp-4); height: 110px; }
+  .sd-main, .sd-side {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--r); display: grid; place-items: center;
+    color: var(--text-3); font-size: var(--fs-xs);
+  }
+  .sd-main { flex: 1; }
+  .sd-side { flex: none; }
 </style>
