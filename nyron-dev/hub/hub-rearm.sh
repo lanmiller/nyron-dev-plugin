@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# hub-rearm.sh — взвод будка-вотчера БЕЗ участия модели.
+#
+# Зачем: канон требует «перевзвести вотчер после каждого хода», и сессии
+# это забывают — факт 12.08: из 14 агентов, писавших в будку за 45 минут,
+# у семи вотчера не было вовсе. Забытый вотчер = сессия спит и не узнает
+# ни о чужом сообщении, ни об ответе человека. Дисциплина модели тут
+# ненадёжна по определению, поэтому взвод переносится в механику.
+#
+# Два входа:
+#   hub-rearm.sh hook              # из Stop-хука: JSON события на stdin
+#   hub-rearm.sh agent <имя> <корень>   # из няньки: имя уже известно
+#
+# Имя агента в хуке не приходит ниоткуда — его достаём из транскрипта
+# сессии: последний вызов hub_post/hub_ask несёт своё "from".
+set -uo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+WATCH="$HERE/hub-watch.sh"
+
+log() { echo "hub-rearm: $*" >&2; }
+
+# --- имя агента из хвоста транскрипта -------------------------------------
+agent_from_transcript() {
+  local file="$1"
+  [ -f "$file" ] || return 1
+  # хвост в 400 КБ покрывает последние ходы даже у многомегабайтных
+  # диспетчеров; ищем самое свежее "from":"<имя>" в вызовах будки
+  tail -c 400000 "$file" 2>/dev/null \
+    | grep -o '"from"[[:space:]]*:[[:space:]]*"[^"]\{1,40\}"' \
+    | tail -1 \
+    | sed 's/.*"\([^"]*\)"$/\1/'
+}
+
+# --- взвод, если вотчера нет ----------------------------------------------
+rearm() {
+  local agent="$1" root="$2"
+  case "$agent" in
+    ''|watchdog|reanimator|errors|all|dispatcher|*@morda) return 0 ;;
+  esac
+  [ -d "$root/.nyron-hub" ] || return 0
+
+  if (cd "$root" && "$WATCH" alive "$agent" >/dev/null 2>&1); then
+    return 0                      # вотчер жив — не мешаем
+  fi
+
+  # запускаем открепление: вотчер переживает завершение хода сессии
+  (cd "$root" && nohup "$WATCH" watch "$agent" >/dev/null 2>&1 &)
+  log "взведён вотчер «$agent» в $root"
+}
+
+case "${1:-}" in
+  hook)
+    payload="$(cat)"
+    # поля события хука; jq в окружении сессии может не быть — берём sed
+    tp="$(printf '%s' "$payload" | sed -n 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+    cwd="$(printf '%s' "$payload" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+    [ -n "$cwd" ] || cwd="$PWD"
+    # корень проекта — ближайший каталог с будкой вверх по дереву
+    root="$cwd"
+    while [ "$root" != "/" ] && [ ! -d "$root/.nyron-hub" ]; do
+      root="$(dirname "$root")"
+    done
+    [ -d "$root/.nyron-hub" ] || exit 0     # проект без будки — не наше дело
+    agent="$(agent_from_transcript "$tp")"
+    [ -n "$agent" ] || exit 0               # сессия в будку не писала
+    rearm "$agent" "$root"
+    ;;
+  agent)
+    rearm "${2:-}" "${3:-$PWD}"
+    ;;
+  *)
+    echo "usage: hub-rearm.sh hook | agent <имя> <корень>" >&2
+    exit 2
+    ;;
+esac
+exit 0
