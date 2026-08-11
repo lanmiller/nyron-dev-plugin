@@ -177,6 +177,8 @@
       {#if !st.tree.length}<p class="quiet none">читаю проекты…</p>{/if}
     </nav>
 
+    <a class="dslink" href="/design" title="токены, компоненты, макет рабочего места">✳ дизайн-система</a>
+
     {#if st.overview?.copies?.length}
       <div class="copies">
         <div class="side-h">Копии</div>
@@ -244,6 +246,11 @@
   nav.tree .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   nav.tree .age { font-size: 11px; color: var(--text-4); flex: none; }
   .none { padding: 4px 10px; font-size: 13px; }
+  .dslink {
+    color: var(--text-4); text-decoration: none; font-size: var(--fs-xs);
+    padding: var(--sp-4) var(--sp-5) 0;
+  }
+  .dslink:hover { color: var(--accent); }
   .done-group > summary {
     cursor: pointer; color: var(--text-4); font-size: 12px;
     padding: 10px 10px 4px; list-style: none;

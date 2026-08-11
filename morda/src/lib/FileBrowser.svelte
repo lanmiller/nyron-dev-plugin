@@ -129,7 +129,7 @@
   </header>
 
   <div class="cols">
-    <div class="tree">
+    <div class="tree filetree">
       <input type="search" placeholder="фильтр… (?текст — искать в содержимом)"
         bind:value={q} oninput={onSearch} />
 
@@ -174,7 +174,7 @@
       {:else if !sel}
         <div class="skeleton" style="width: 60%"></div>
       {:else}
-        <div class="fhead">
+        <div class="viewer-head">
           <b class="mono">{sel.path}</b>
           <span class="quiet">{kb(sel.size)}{sel.truncated ? ' · показано начало' : ''}</span>
         </div>
@@ -188,7 +188,7 @@
           <!-- встроенный браузер Claude PDF не рисует (нет просмотрщика) —
                даём рамку для обычных браузеров и явный выход наружу -->
           <object class="pdf" data={rawUrl(sel.path)} type="application/pdf">
-            <div class="pdf-fallback">
+            <div class="viewer-fallback">
               <p>Встроенный браузер не показывает PDF.</p>
               <a class="btn primary" href={rawUrl(sel.path)} target="_blank" rel="noopener">Открыть вкладкой</a>
               <button class="btn" onclick={() => openOutside(sel.path)}>Открыть в системе</button>
@@ -218,7 +218,7 @@
         {:else if isMd(sel.path)}
           <div class="doc">{@html md(sel.text, tracker)}</div>
         {:else}
-          <pre class="code">{sel.text}</pre>
+          <pre class="filecode">{sel.text}</pre>
         {/if}
       {/if}
     </div>
@@ -267,7 +267,7 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .view { overflow: auto; padding: var(--sp-6); min-width: 0; }
-  .fhead { display: flex; gap: var(--sp-5); align-items: baseline; margin-bottom: var(--sp-5); }
+  .viewer-head-local { display: flex; gap: var(--sp-5); align-items: baseline; margin-bottom: var(--sp-5); }
   .fhead .quiet { font-size: var(--fs-xs); }
   .code {
     background: var(--bg-0); border: 1px solid var(--border-soft);

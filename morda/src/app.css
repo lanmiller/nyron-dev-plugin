@@ -219,6 +219,43 @@ a.ticket {
 }
 a.ticket:hover { border-bottom-style: solid; }
 
+/* ---------- файлы: дерево и просмотрщик ----------
+   Кирпичи обозревателя вынесены в систему (правило CTO 11.08: компонент
+   сразу в дизайн-систему), чтобы панель файлов эпика, вложения требований
+   и просмотр в окне сессии собирались из одного и того же. */
+.filetree { display: flex; flex-direction: column; gap: 1px; }
+.filetree .row { width: 100%; background: none; border: 0; text-align: left; font: inherit; }
+.filetree .caret {
+  color: var(--text-4); display: inline-block; width: 10px; flex: none;
+  transition: transform var(--t-fast);
+}
+.filetree .caret.open { transform: rotate(90deg); }
+.filetree .row.dir { color: var(--text-1); }
+
+/* шапка просмотра: имя файла и его вес */
+.viewer-head { display: flex; gap: var(--sp-5); align-items: baseline; margin-bottom: var(--sp-5); }
+.viewer-head .quiet { font-size: var(--fs-xs); }
+
+/* картинка вложения: скриншоты требований и дизайна */
+.shot {
+  max-width: 100%; border: 1px solid var(--border);
+  border-radius: var(--r-sm); background: var(--bg-0); display: block;
+}
+
+/* формат, который встроенный браузер не рисует (PDF) — честный выход */
+.viewer-fallback {
+  display: flex; flex-direction: column; gap: var(--sp-5);
+  align-items: center; padding: var(--sp-8); color: var(--text-3);
+}
+
+/* код файла как есть */
+.filecode {
+  background: var(--bg-0); border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm); padding: var(--sp-5); margin: 0;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
+  white-space: pre; overflow-x: auto;
+}
+
 /* Таблицы: половина документации и брифов написана ими. Широкое катается
    внутри своего блока — страница по горизонтали не едет. */
 .tw { overflow-x: auto; margin: var(--sp-5) 0; }

@@ -43,6 +43,11 @@
 
 <header class="head">
   <h1>Дизайн-система</h1>
+  <nav class="dnav">
+    <span class="chip">токены и компоненты</span>
+    <a class="chip" href="/design/mock">макет рабочего места ↗</a>
+    <a class="chip" href="/">вернуться в пульт</a>
+  </nav>
   <p class="quiet">
     Кирпичи, из которых собираются панели STOVP. Правило: локальные стили —
     только про раскладку; всё остальное берётся отсюда.
@@ -174,6 +179,64 @@
 </section>
 
 <section>
+  <h2 class="eyebrow">Файлы: дерево и просмотрщик</h2>
+  <div class="panels">
+    <article class="panel">
+      <header><h3>Дерево</h3><div class="tools"><button class="link">развернуть</button></div></header>
+      <div class="body">
+        <input type="search" placeholder="фильтр… (?текст — искать в содержимом)" />
+        <div class="filetree" style="margin-top: 8px">
+          <button class="row dir"><span class="caret open">›</span><span class="grow">ai-evolve-docs-test</span></button>
+          <button class="row dir" style="padding-left: 20px"><span class="caret">›</span><span class="grow">requirements</span></button>
+          <button class="row active" style="padding-left: 32px"><span class="grow">03-form-filled.png</span><span class="trail">172 КБ</span></button>
+          <button class="row" style="padding-left: 32px"><span class="grow">spec-staged-reveal.md</span><span class="trail">14 КБ</span></button>
+          <button class="row" style="padding-left: 32px"><span class="grow">выгрузка.csv</span><span class="trail">8 КБ</span></button>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel">
+      <header><h3>Просмотр: вложение</h3></header>
+      <div class="body">
+        <div class="viewer-head"><b class="mono">requirements/03-form-filled.png</b><span class="quiet">172 КБ</span></div>
+        <div class="shot" style="height: 120px; display: grid; place-items: center; color: var(--text-4); font-size: 12px">
+          картинка вложения — клик открывает в полном размере
+        </div>
+      </div>
+    </article>
+
+    <article class="panel">
+      <header><h3>Просмотр: таблица (CSV)</h3></header>
+      <div class="body">
+        <div class="tw">
+          <table>
+            <thead><tr><th>Тикет</th><th>Волна</th><th>Статус</th></tr></thead>
+            <tbody>
+              <tr><td>DEV-1215</td><td>Ф3</td><td>ждёт, решения</td></tr>
+              <tr><td>DEV-1212</td><td>Ф2</td><td>в работе</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel">
+      <header><h3>Просмотр: код и неподдержанное</h3></header>
+      <div class="body">
+        <pre class="filecode">export function askAuthor(&#123; project, ask_id &#125;) &#123;
+  // встречный вопрос автору ask
+&#125;</pre>
+        <div class="viewer-fallback">
+          <p>Встроенный браузер не показывает PDF.</p>
+          <button class="btn primary">Открыть вкладкой</button>
+          <button class="btn">Открыть в системе</button>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section>
   <h2 class="eyebrow">Сообщения</h2>
   <p class="err">Ответ не доставлен: панель сессии не найдена.</p>
   <p class="ok-note">Спрошено у «Волна Ф3» — ответит постом в будку.</p>
@@ -183,6 +246,9 @@
   .head { margin-bottom: var(--sp-7); }
   .head h1 { font-size: var(--fs-hero); margin: 0 0 var(--sp-2); }
   .head p { margin: 0; max-width: 60ch; }
+  .dnav { display: flex; gap: var(--sp-4); margin-top: var(--sp-5); }
+  .dnav a { text-decoration: none; }
+  .dnav a:hover { border-color: var(--accent); color: var(--text-1); }
   section { margin-bottom: var(--sp-8); }
   h2.eyebrow { margin: var(--sp-7) 0 var(--sp-5); }
   .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--sp-4); }
