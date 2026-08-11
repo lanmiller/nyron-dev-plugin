@@ -52,11 +52,25 @@
       if (project === p && next.sessions) st.sessions = next.sessions;
     } catch {}
   }
+  // Ссылки трекера — попап-окном поверх STOVP (в браузере вы уже
+  // залогинены, тикет открывается сразу и не уводит со страницы);
+  // остальные внешние — обычной вкладкой (CTO 10.08).
+  function linkClicks(e) {
+    const a = e.target.closest?.('a.ticket');
+    if (!a) return;
+    e.preventDefault();
+    window.open(a.href, `stovp-ticket`, 'popup,width=1200,height=900');
+  }
+
   onMount(() => {
     refresh().then(refreshSessions);
     const t1 = setInterval(refresh, 5000);
     const t2 = setInterval(refreshSessions, 10_000);
-    return () => { clearInterval(t1); clearInterval(t2); };
+    document.addEventListener('click', linkClicks);
+    return () => {
+      clearInterval(t1); clearInterval(t2);
+      document.removeEventListener('click', linkClicks);
+    };
   });
   $effect(() => { if (project) refreshSessions(); });
 

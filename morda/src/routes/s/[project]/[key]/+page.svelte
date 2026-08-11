@@ -186,7 +186,7 @@
     {#if data.reason}<p class="reason quiet">{data.reason}</p>{/if}
   </header>
 
-  <Transcript items={data.items} {project} sessionKey={key} />
+  <Transcript items={data.items} {project} sessionKey={key} tracker={data.tracker} />
 
   <div class="dock">
     <!-- вопросы — в прокрутке, композер всегда виден (CTO 10.08: пачка

@@ -64,6 +64,25 @@ function hubFor(root) {
   return dbs.get(root);
 }
 
+// Трекер проекта из конфига плагина (.claude/nyron-dev.md): site+project_key
+// → база для автолинковки тикетов в транскриптах (CTO 10.08: ссылки на Jira
+// открывать наружу/попапом — юзер там уже залогинен).
+const trackerCache = new Map(); // root → {base, keys} | null
+function trackerFor(root) {
+  if (trackerCache.has(root)) return trackerCache.get(root);
+  let t = null;
+  try {
+    const cfg = fs.readFileSync(path.join(root, '.claude', 'nyron-dev.md'), 'utf8');
+    const site = cfg.match(/^\s*site:\s*(\S+)/m)?.[1];
+    const keys = [...cfg.matchAll(/^\s*(?:project_key|\w+):\s*([A-Z][A-Z0-9]{1,9})\s*(?:#.*)?$/gm)]
+      .map((m) => m[1]);
+    if (site && keys.length)
+      t = { base: `https://${site}/browse/`, keys: [...new Set(keys)] };
+  } catch {}
+  trackerCache.set(root, t);
+  return t;
+}
+
 export function overview() {
   const list = projects();
   if (!list) {
@@ -198,6 +217,7 @@ export function session(project, key) {
     ...hub.asks({ session: key, status: 'acknowledged' }).asks.slice(-3),
   ];
   const { file, ...rest } = r; // абсолютный путь клиенту не нужен
+  const tracker = trackerFor(root);
   // незакрытый родной HITL (AskUserQuestion без tool_result) — форма ждёт
   // человека; гаснет, если ПОСЛЕ формы уже была реплика человека (ответ
   // доехал каналом приложения — сессия пошла дальше, форма лишь висит в UI)
@@ -211,6 +231,7 @@ export function session(project, key) {
     state: w?.state || null,
     reason: w?.reason || null,
     asks,
+    tracker,
     pending_hitl: pendingHitl ? { ts: pendingHitl.ts, questions: pendingHitl.questions } : null,
     input: inputFor(root, file, r.entrypoint),
   };

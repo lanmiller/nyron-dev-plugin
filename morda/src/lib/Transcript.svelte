@@ -5,7 +5,7 @@
   import Self from './Transcript.svelte';
   import { md, esc } from '$lib/md.js';
 
-  let { items, project = null, sessionKey = null, depth = 0 } = $props();
+  let { items, project = null, sessionKey = null, depth = 0, tracker = null } = $props();
 
   let agents = $state({}); // agentId → { items } | { error } | 'loading'
 
@@ -32,7 +32,7 @@
     {:else if it.kind === 'user'}
       <div class="user">
         <div class="bubble">
-          {@html md(it.text)}
+          {@html md(it.text, tracker)}
           {#each it.images || [] as src}
             {#if src}
               <img class="shot" {src} alt="вложение" loading="lazy" />
@@ -43,11 +43,11 @@
         </div>
       </div>
     {:else if it.kind === 'assistant'}
-      <div class="assistant">{@html md(it.text)}</div>
+      <div class="assistant">{@html md(it.text, tracker)}</div>
     {:else if it.kind === 'thinking'}
       <details class="think">
         <summary>мысли</summary>
-        <div class="think-body">{@html md(it.text)}</div>
+        <div class="think-body">{@html md(it.text, tracker)}</div>
       </details>
     {:else if it.kind === 'tool'}
       {#if it.agent}
@@ -61,7 +61,7 @@
           {#if agents[it.agent.agentId] === 'loading'}
             <p class="quiet pad">читаю транскрипт субагента…</p>
           {:else if agents[it.agent.agentId]?.items}
-            <Self items={agents[it.agent.agentId].items} {project} {sessionKey} depth={depth + 1} />
+            <Self items={agents[it.agent.agentId].items} {project} {sessionKey} {tracker} depth={depth + 1} />
           {:else if agents[it.agent.agentId]?.error}
             <p class="err pad">{agents[it.agent.agentId].error}</p>
           {/if}

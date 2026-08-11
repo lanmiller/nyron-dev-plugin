@@ -77,3 +77,9 @@ input:focus-visible, textarea:focus-visible, .btn:focus-visible {
   outline: 1.5px solid var(--accent); outline-offset: 1px;
 }
 ::placeholder { color: var(--text-4); }
+/* ключ тикета в тексте — кликабелен, открывается попапом (см. +layout) */
+a.ticket {
+  color: var(--accent); text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
+a.ticket:hover { border-bottom-style: solid; }
