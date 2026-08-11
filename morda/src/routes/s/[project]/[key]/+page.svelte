@@ -225,8 +225,10 @@
         <button class="chip" onclick={() => (details = !details)}
           title={data.cwd}>📁 {data.cwd.split('/').at(-1)}</button>
       {/if}
-      <button class="chip more" onclick={() => (details = !details)}
-        aria-label="технические детали">{details ? '×' : '⋯'}</button>
+      <!-- «детали» тут словом: раскрытие ряда живёт на названии сессии -->
+      <button class="chip" onclick={() => (details = !details)}>
+        {details ? 'скрыть детали' : 'детали'}
+      </button>
     </div>
     <div class="s-meta" class:shown={details}>
       <span class="mono quiet">{key.slice(0, 8)}</span>
@@ -441,12 +443,21 @@
   .s-head { margin: 0; }
   /* раздвижной второй ряд шапки: действия появляются прямо под именем
      сессии, а не отдельной плашкой в ленте (CTO 11.08) */
+  /* Продолжение шапки, а не плашка в ленте: липнет под общей полосой,
+     тем же фоном, раскрывается тапом по названию сессии (CTO 11.08). */
   .s-actions {
-    display: flex; overflow: hidden;
-    max-height: 0; opacity: 0; margin: 0;
-    transition: max-height var(--t), opacity var(--t-fast), margin var(--t);
+    display: flex; overflow: hidden; gap: var(--sp-3); flex-wrap: wrap;
+    position: sticky; top: var(--bar-h, 56px); z-index: 20;
+    background: var(--bg-0); margin: 0 calc(-1 * var(--sp-5));
+    padding: 0 var(--sp-5);
+    max-height: 0; opacity: 0;
+    transition: max-height var(--t), opacity var(--t-fast), padding var(--t);
   }
-  .s-actions.shown { max-height: 200px; opacity: 1; margin-bottom: var(--sp-5); }
+  .s-actions.shown {
+    max-height: 160px; opacity: 1;
+    padding: var(--sp-4) var(--sp-5);
+    border-bottom: 1px solid var(--border-soft);
+  }
   @media (min-width: 901px) {
     .s-title, .back { display: block; }
     .s-actions { display: flex; }

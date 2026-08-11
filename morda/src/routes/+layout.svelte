@@ -91,6 +91,19 @@
     window.open(a.href, `stovp-ticket`, 'popup,width=1200,height=900');
   }
 
+  // высота липкой полосы — в переменную: ряд действий сессии липнет ровно
+  // под ней на любом устройстве (вырез, крупный шрифт)
+  let barEl = $state(null);
+  $effect(() => {
+    if (!barEl) return;
+    const set = () => document.documentElement.style.setProperty(
+      '--bar-h', barEl.offsetHeight + 'px');
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(barEl);
+    return () => ro.disconnect();
+  });
+
   onMount(() => {
     refresh().then(refreshSessions);
     const t1 = setInterval(refresh, 5000);
@@ -121,18 +134,22 @@
 
 <!-- Мобильная шапка: на узком экране сайдбар уезжает, навигация — по кнопке
      (кейс CTO 11.08 — вести флот с телефона) -->
-<header class="mobile-bar">
+<header class="mobile-bar" bind:this={barEl}>
   <button class="burger" onclick={() => (navOpen = !navOpen)} aria-label="проекты и сессии">
     {navOpen ? '✕' : '☰'}
   </button>
-  <b class="m-title">{sessionTitle || page.params?.project || project || 'STOVP'}</b>
-  {#if totalOpen}<span class="badge">{totalOpen}</span>{/if}
   {#if page.params?.key}
-    <button class="bar-more" onclick={() => (st.sessionActions = !st.sessionActions)}
-      aria-label={st.sessionActions ? 'свернуть действия' : 'действия сессии'}>
-      {st.sessionActions ? '×' : '⋯'}
+    <!-- тап по названию раскрывает действия сессии: отдельная кнопка с
+         крестиком читалась как «закрыть» (CTO 11.08) -->
+    <button class="m-title as-button" onclick={() => (st.sessionActions = !st.sessionActions)}
+      aria-expanded={st.sessionActions}>
+      <span class="t">{sessionTitle || page.params.key.slice(0, 8)}</span>
+      <span class="caret" class:open={st.sessionActions}>›</span>
     </button>
+  {:else}
+    <b class="m-title">{project || 'STOVP'}</b>
   {/if}
+  {#if totalOpen}<span class="badge">{totalOpen}</span>{/if}
 </header>
 
 <div class="shell" class:nav-open={navOpen}>
@@ -322,7 +339,7 @@
   @media (min-width: 901px) {
     .mobile-bar { display: none; }
     .scrim { display: none; }
-    .bar-more { display: none; }
+
     aside {
       position: sticky; top: 0; left: auto; z-index: auto;
       width: 264px; height: 100vh; transform: none;
