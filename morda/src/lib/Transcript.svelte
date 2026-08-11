@@ -82,7 +82,10 @@
           {@html md(it.text, tracker)}
           {#each it.images || [] as src}
             {#if src}
-              <img class="shot" {src} alt="вложение" loading="lazy" />
+              <img class="shot" {src} alt="вложение из сообщения" loading="lazy"
+                onerror={(e) => { e.currentTarget.replaceWith(
+                  Object.assign(document.createElement('span'),
+                    { className: 'imgs', textContent: 'вложение не открылось' })); }} />
             {:else}
               <span class="imgs">🖼 картинка (не показана: формат или размер)</span>
             {/if}
@@ -171,7 +174,7 @@
     font-family: var(--mono); font-size: 0.88em;
   }
   .assistant :global(blockquote) {
-    margin: 6px 0; padding: 2px 12px; border-left: 3px solid var(--border);
+    margin: 6px 0; padding: 2px 14px; border-left: 1px solid var(--border);
     color: var(--text-2);
   }
   .assistant :global(a) { color: var(--accent); }
@@ -182,8 +185,11 @@
     background: var(--bg-2); border: 1px solid var(--border-soft);
     border-radius: 8px; font-size: 13px;
   }
-  .tool.iserr { border-left: 3px solid var(--hot); }
-  .tool.agent { border-left: 3px solid var(--accent); }
+  /* различие несёт цвет всей рамки: толстая полоса сбоку — узнаваемый
+     признак ИИ-вёрстки (детектор impeccable, 11.08) */
+  .tool.iserr { border-color: var(--hot); }
+  .tool.agent { border-color: var(--accent); }
+  .tool.agent > summary .tname { color: var(--accent); }
   .tool > summary {
     display: flex; gap: 8px; align-items: baseline; cursor: pointer;
     padding: 6px 10px; min-width: 0;

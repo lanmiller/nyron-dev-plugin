@@ -148,11 +148,12 @@
 <style>
   .ask {
     background: var(--bg-2); border: 1px solid var(--border);
-    border-left: 3px solid var(--text-4);
     border-radius: var(--r); padding: 12px 14px; margin-bottom: 10px;
   }
-  .ask.blocking { border-left-color: var(--accent); }
-  .ask.done { border-left-color: var(--ok); }
+  /* состояние карточки читается цветом всей рамки: полоса сбоку —
+     узнаваемый признак ИИ-вёрстки (детектор impeccable 11.08) */
+  .ask.blocking { border-color: var(--accent); }
+  .ask.done { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
   .ask.done header b { color: var(--text-2); font-weight: 500; }
   header { display: flex; flex-direction: column; gap: 2px; }
   .meta { color: var(--text-3); font-size: 12.5px; }

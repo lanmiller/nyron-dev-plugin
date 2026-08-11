@@ -292,7 +292,7 @@
   .dock-asks { max-height: 42vh; overflow-y: auto; }
   .hitl {
     background: var(--bg-2); border: 1px solid var(--border);
-    border-left: 3px solid var(--warn);
+    border-color: var(--warn);
     border-radius: var(--r); padding: 12px 14px; margin-bottom: 10px;
   }
   .hitl header { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }

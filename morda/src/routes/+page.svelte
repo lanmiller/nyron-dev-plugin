@@ -93,8 +93,8 @@
   .ptitle h1 { flex: none; }
   .inbox { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
   .inbox li {
-    background: var(--bg-2); border: 1px solid var(--border);
-    border-left: 3px solid var(--ok);
+    background: var(--bg-2);
+    border: 1px solid color-mix(in srgb, var(--ok) 45%, var(--border));
     border-radius: var(--r); padding: 10px 14px;
   }
   .inbox .meta { color: var(--text-3); font-size: 12.5px; }
