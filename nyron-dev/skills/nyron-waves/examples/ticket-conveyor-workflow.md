@@ -29,7 +29,7 @@ r2+ по диффу фиксов, раунд без новых находок �
 ```javascript
 export const meta = {
   name: 'ticket-conveyor-v2',
-  description: 'Конвейер тикета: тест-ген(Sol) → чекпойнт → код → валидатор → адверсарка → Sol-ревью',
+  description: 'Конвейер тикета: тест-ген(Sol) → чекпойнт → код → валидатор → критика находок → Sol-ревью',
   phases: [
     { title: 'TestGen' }, { title: 'Impl' }, { title: 'Guard' },
     { title: 'Adversarial' }, { title: 'CrossReview' },
@@ -58,7 +58,7 @@ if (args.behavioral) {
      из DoD и "Как тестировать" ниже. Реализации ещё нет — тесты фиксируют
      ожидаемое наблюдаемое поведение, не выдумывай внутренности.
      ТЕСТ-БЮДЖЕТ: 1 пункт DoD = 1-2 теста + негативные из "Как тестировать",
-     MECE (не пересекаются, вместе покрывают DoD). Сверх бюджета НЕ писать:
+     без пересечений и без дыр (вместе покрывают DoD). Сверх бюджета НЕ писать:
      тест, не доказывающий пункт DoD, — лишний код.
      DoD: ${args.dod}
      Как тестировать: ${args.howToTest}
@@ -94,13 +94,13 @@ const guard = await agent(
   { label: `guard:${args.ticket}`, model: 'haiku', schema: VERDICT })
 if (!guard.ok) return { status: 'БЛОКЕР', stage: 'guard', findings: guard.findings }
 
-// ── Стадия 4: адверсарка — ТОЛЬКО СЛОЖНЫЙ (канон по двум пилотам) ──
+// ── Стадия 4: критика находок — ТОЛЬКО СЛОЖНЫЙ (канон по двум пилотам) ──
 phase('Adversarial')
 let round = 0, adv = { ok: true, summary: 'skip: обычный тикет — Sol один' }
 if (args.complexity === 'СЛОЖНЫЙ')
 while (round < 3) {
   adv = await agent(
-    `Адверсарно ОПРОВЕРГНИ готовность ${args.ticket} в ${args.worktree}
+    `ОПРОВЕРГНИ готовность ${args.ticket} в ${args.worktree}
      (дифф origin/main..HEAD). Контекст: ${impl}
      ok=true только если опровергнуть не удалось. Каждую находку — строкой
      «[adversarial] тип: суть» (тип: bug|overengineering|dup|style).`,
@@ -117,7 +117,7 @@ if (!adv.ok) return { status: 'БЛОКЕР', stage: 'adversarial', findings: ad
 // ── Стадия 5 (ВНИМАНИЕ, v2.1): длинный codex-прогон ЛУЧШЕ вести сессией
 // фоном после завершения этого WF (Bash-лимит 10 мин у агента — codex
 // впритык). Вариант ниже оставлен для коротких ревью; если codex стабильно
-// >8 мин — выносить в сессию, WF завершать после адверсарки. ──
+// >8 мин — выносить в сессию, WF завершать после критики находок. ──
 phase('CrossReview')
 let crRound = 0, cr
 while (crRound < 2) {
