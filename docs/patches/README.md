@@ -1,20 +1,27 @@
-# Патчи для живых файлов вне плагина
+# Что применить к живым файлам, когда закроют Блоки 1–3 (DEV-1210)
 
-Здесь лежат готовые правки файлов, которые **читаются идущими сессиями прямо с
-диска** — их нельзя применять посреди прогона эпика. Плагин так править можно:
-сессии грузят его из marketplace-клона, а не из этой рабочей копии.
+Плагин править можно в любой момент: сессии грузят его из marketplace-клона.
+А `ai-evolve-docs-test/shared/wave-rules.md` идущие волны читают прямо с диска,
+поэтому переход на сборку канона ждёт финала эпика.
 
-| Патч | Куда | Когда применять |
-|---|---|---|
-| `wave-rules-review-status.patch` | `ai-evolve-docs-test/shared/wave-rules.md` | после закрытия Блоков 1–3 эпика DEV-1210 |
+## Переход: канон правил волн перестаёт быть ручной копией
 
-Применение:
+Источник правды — шаблон плагина; проектная копия собирается скриптом. Причина:
+ручная копия разошлась с каноном на 79 строк и вернула уже пойманный баг
+(фильтр комментов по автору), а номера переходов Jira жили в двух местах и
+разъехались.
+
+Три шага, одна минута:
 
 ```bash
-cd ~/ai-evolve/ai-evolve-docs-test && git apply ~/ai-evolve/nyron-dev-plugin/docs/patches/wave-rules-review-status.patch
+cp ~/ai-evolve/nyron-dev-plugin/docs/patches/wave-rules.project.ai-evolve.md ~/ai-evolve/ai-evolve-docs-test/shared/wave-rules.project.md
+python3 ~/ai-evolve/nyron-dev-plugin/nyron-dev/hub/wave-rules-sync.py --root ~/ai-evolve --apply
+cd ~/ai-evolve/ai-evolve-docs-test && git add shared/wave-rules.md shared/wave-rules.project.md && git commit -m "правила волн: канон собирается плагином, проектное вынесено во вставку" && git push
 ```
 
-**Что чинит `wave-rules-review-status`:** канон велел волне сдавать тикет в
-«Готово к тестированию (Ревью)», хотя это два разных статуса — гейт кросс-ревью
-оказывался проходным. После патча волна сдаёт в «Ревью», а «Готово к
-тестированию» ставит диспетчер после мержа и смоука.
+Перед коммитом посмотреть дифф глазами — сборка меняет весь файл целиком.
+
+**Что дальше:** правки правил идут в шаблон плагина
+(`nyron-dev/skills/nyron-waves/assets/wave-rules-template.md`), проектные зоны и
+уроки — в `shared/wave-rules.project.md`, значения — в `.claude/nyron-dev.md`.
+Расхождение ловится `wave-rules-sync.py --check` (код возврата 1).

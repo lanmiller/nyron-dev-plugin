@@ -85,6 +85,9 @@ claude --plugin-dir <клон>/nyron-dev
 - Jira — единственная шина коммуникации: брифы, отчёты, вердикты — комментами.
 - Папка эпика: `ai-evolve-docs-test/waves/<DEV-эпик>-<слаг>/` — всё длиннее
   коммента файлами, в тикет — ссылка.
-- Канон правил волн: `ai-evolve-docs-test/shared/wave-rules.md` (восстановимо
-  из `skills/nyron-waves/assets/wave-rules-template.md`).
+- Канон правил волн: `<docs_dir>/shared/wave-rules.md` — **собирается**
+  скриптом `hub/wave-rules-sync.py` из шаблона
+  `skills/nyron-waves/assets/wave-rules-template.md` (универсальное), конфига
+  проекта (значения) и `<docs_dir>/shared/wave-rules.project.md` (проектное).
+  Руками канон не правят.
 - Язык — русский; секреты в тикеты и чипы не вписываются.
