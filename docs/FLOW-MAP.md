@@ -39,16 +39,16 @@
 
 | Скилл | Когда включается | Главный текст |
 |---|---|---|
-| `project-config` | первым ходом в любой сессии | `skills/project-config/SKILL.md` (95 строк), установка — `references/setup.md` |
-| `intake-groom` | «прилетело от методолога» | `skills/intake-groom/SKILL.md` |
-| `jira-task-standard` | завести, переписать, догрумить тикет | `skills/jira-task-standard/SKILL.md` + `assets/task-template.md` |
-| `feature-intake` | решённая фича → требование → эпик → прототип | `skills/feature-intake/SKILL.md` |
-| `product-flow` | гипотеза, петля проверки | `skills/product-flow/SKILL.md` |
-| `nyron-waves` | массовое закрытие эпика волнами | `skills/nyron-waves/SKILL.md` + `references/wave-protocol.md` |
-| `cross-review` | проверка кода другой моделью | `skills/cross-review/SKILL.md` + `scripts/cross-review.sh` |
-| `team-roles` | «я продакт», «надень роль QA» | `skills/team-roles/SKILL.md` + десять карточек в `references/` |
-| `live-epic-testing` | живой прогон эпика с человеком | `skills/live-epic-testing/SKILL.md` |
-| `qa-handoff` | эпик закрыт → приёмка QA | `skills/qa-handoff/SKILL.md` |
+| `project-config` | первым ходом в любой сессии | [project-config/SKILL.md](../nyron-dev/skills/project-config/SKILL.md) · [references/setup.md](../nyron-dev/skills/project-config/references/setup.md) |
+| `intake-groom` | «прилетело от методолога» | [intake-groom/SKILL.md](../nyron-dev/skills/intake-groom/SKILL.md) |
+| `jira-task-standard` | завести, переписать, догрумить тикет | [jira-task-standard/SKILL.md](../nyron-dev/skills/jira-task-standard/SKILL.md) · [task-template.md](../nyron-dev/skills/jira-task-standard/assets/task-template.md) |
+| `feature-intake` | решённая фича → требование → эпик → прототип | [feature-intake/SKILL.md](../nyron-dev/skills/feature-intake/SKILL.md) |
+| `product-flow` | гипотеза, петля проверки | [product-flow/SKILL.md](../nyron-dev/skills/product-flow/SKILL.md) |
+| `nyron-waves` | массовое закрытие эпика волнами | [nyron-waves/SKILL.md](../nyron-dev/skills/nyron-waves/SKILL.md) · [wave-protocol.md](../nyron-dev/skills/nyron-waves/references/wave-protocol.md) |
+| `cross-review` | проверка кода другой моделью | [cross-review/SKILL.md](../nyron-dev/skills/cross-review/SKILL.md) · [cross-review.sh](../nyron-dev/skills/cross-review/scripts/cross-review.sh) |
+| `team-roles` | «я продакт», «надень роль QA» | [team-roles/SKILL.md](../nyron-dev/skills/team-roles/SKILL.md) · [карточки ролей](../nyron-dev/skills/team-roles/references/) |
+| `live-epic-testing` | живой прогон эпика с человеком | [live-epic-testing/SKILL.md](../nyron-dev/skills/live-epic-testing/SKILL.md) |
+| `qa-handoff` | эпик закрыт → приёмка QA | [qa-handoff/SKILL.md](../nyron-dev/skills/qa-handoff/SKILL.md) |
 
 ---
 
@@ -56,24 +56,24 @@
 
 Порядок — от самого влиятельного к частному.
 
-1. **`hooks/code-policy.md`** — 20 строк, приходят в КАЖДУЮ сессию при старте.
+1. **[hooks/code-policy.md](../nyron-dev/hooks/code-policy.md)** — 20 строк, приходят в КАЖДУЮ сессию при старте.
    Лестница до кода, три проверки при написании (бывшие DRY/KISS/SOLID),
    политика легаси, флаги, режим прогона тестов, стоп-ступени качества.
    Здесь же теперь требование вкладывать политику в задание субагенту.
-2. **`skills/nyron-waves/assets/wave-rules-template.md`** — правила волны,
+2. **[wave-rules-template.md](../nyron-dev/skills/nyron-waves/assets/wave-rules-template.md)** — правила волны,
    главный текст исполнителя. Из него собирается проектный канон
-   `ai-evolve-docs-test/shared/wave-rules.md`.
-3. **`skills/cross-review/scripts/cross-review.sh`**, строки 63–150 — промт
+   `ai-evolve-docs-test/shared/wave-rules.md` в док-репо.
+3. **[cross-review.sh](../nyron-dev/skills/cross-review/scripts/cross-review.sh)**, строки 63–150 — промт
    ревьюера. Глубина, метки, границы, потолок замечаний, правило вердикта.
-4. **`skills/nyron-waves/SKILL.md`** — роль диспетчера, статус-машина,
+4. **[nyron-waves/SKILL.md](../nyron-dev/skills/nyron-waves/SKILL.md)** — роль диспетчера, статус-машина,
    роутинг моделей, конвейер тикета, телеметрия.
-5. **`skills/nyron-waves/references/wave-protocol.md`** — механика: формат
+5. **[wave-protocol.md](../nyron-dev/skills/nyron-waves/references/wave-protocol.md)** — механика: формат
    чипа, шина ревью, вотчеры, guard'ы зависимых волн.
-6. **`skills/nyron-waves/assets/wave-brief-template.md`** — форма брифа и
+6. **[wave-brief-template.md](../nyron-dev/skills/nyron-waves/assets/wave-brief-template.md)** — форма брифа и
    чек-лист финала, по которому волна себя проверяет.
 
-Разборы, по которым всё это правится: `docs/RULES-AUDIT.md` (двенадцать
-пунктов «как сейчас → как надо») и `docs/SKILLS-AUDIT.md` (аудит скиллов
+Разборы, по которым всё это правится: [RULES-AUDIT.md](RULES-AUDIT.md) (двенадцать
+пунктов «как сейчас → как надо») и [SKILLS-AUDIT.md](SKILLS-AUDIT.md) (аудит скиллов
 против трёх официальных канонов, чек-лист приёмки из пятнадцати пунктов).
 
 ---
@@ -82,13 +82,13 @@
 
 | Что | Где | Зачем |
 |---|---|---|
-| Политика кода в каждую сессию | `hooks/hooks.json` → SessionStart | правило доезжает без напоминаний |
-| Взвод будка-вотчера при засыпании | `hub/hub-rearm.sh` → Stop | сессия не уснёт без связи с будкой |
-| Нянька вотчеров снаружи | `hub/watch-nanny.sh` (launchd, раз в 3 мин) | будит того, кто выпал молча |
-| Сборка канона правил | `hub/wave-rules-sync.py` | проектная копия не расходится с плагином |
-| Уборка после пачки | `hub/wave-cleanup.sh` | ветки и worktree не копятся |
-| Будка (шина сессий) | `hub/server.mjs`, `hub-watch.sh` | «взял / сдал / блокер» за секунды |
-| Надзиратель флота | `hub/watchdog*.mjs` | видит зависшие сессии |
+| Политика кода в каждую сессию | [hooks.json](../nyron-dev/hooks/hooks.json) → SessionStart | правило доезжает без напоминаний |
+| Взвод будка-вотчера при засыпании | [hub-rearm.sh](../nyron-dev/hub/hub-rearm.sh) → Stop | сессия не уснёт без связи с будкой |
+| Нянька вотчеров снаружи | [watch-nanny.sh](../nyron-dev/hub/watch-nanny.sh) (launchd, раз в 3 мин) | будит того, кто выпал молча |
+| Сборка канона правил | [wave-rules-sync.py](../nyron-dev/hub/wave-rules-sync.py) | проектная копия не расходится с плагином |
+| Уборка после пачки | [wave-cleanup.sh](../nyron-dev/hub/wave-cleanup.sh) | ветки и worktree не копятся |
+| Будка (шина сессий) | [server.mjs](../nyron-dev/hub/server.mjs) · [hub-watch.sh](../nyron-dev/hub/hub-watch.sh) | «взял / сдал / блокер» за секунды |
+| Надзиратель флота | [watchdog.mjs](../nyron-dev/hub/watchdog.mjs) | видит зависшие сессии |
 
 ---
 
