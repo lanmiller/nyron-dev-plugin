@@ -47,6 +47,57 @@
   const live = (ss) => (ss || []).filter(isLive);
   const done = (ss) => (ss || []).filter((s) => !isLive(s));
 
+  // Работа — иерархия «эпик → диспетчер → его волны», а список сессий плоский
+  // (жалоба CTO 12.08: 22 строки вперемешку, не видно кто чей). Раскладываем:
+  // эпик берём с сервера, волну к диспетчеру привязываем по метке волны.
+  function byEpic(list) {
+    const map = new Map();
+    for (const src of list) {
+      const k = src.epic || '';
+      if (!map.has(k))
+        map.set(k, { epic: src.epic, title: src.epic_title, all: [], disp: [], waves: [], other: [] });
+      const g = map.get(k);
+      // копия, а не правка исходной сессии: список пришёл из $state, и правка
+      // на месте роняет рендер (state_unsafe_mutation). Ключ эпика в каждой
+      // строке — шум, он уже в заголовке группы, поэтому режем его в копии.
+      const s = { ...src, short: (src.epic ? src.title.replaceAll(src.epic, '') : src.title)
+        .replace(/^[\s:—-]+/, '').trim() || src.title };
+      g.all.push(s);
+      (s.role === 'dispatcher' ? g.disp : s.role === 'wave' ? g.waves : g.other).push(s);
+    }
+    for (const g of map.values()) {
+      // волны под своим диспетчером. Имя сессии диспетчера и его имя в будке
+      // часто разные («DEV-1210 Блок 2 диспетчер» ↔ «disp-block2»), поэтому
+      // связываем по номеру блока: он есть и в метке волны, и в заголовке.
+      // ключ блока — БУКВА и цифра вместе: «Ф2» это фронтовая волна, а не
+      // второй блок, и по голой цифре она липла к чужому диспетчеру.
+      const block = (s) => {
+        const g = String(s.group || '').match(/^(?:block|б|b)?\s*(\d+)/i);
+        if (g) return `Б${g[1]}`;
+        const ti = String(s.title || '');
+        const d = ti.match(/блок\s*(\d+)/i);
+        if (d) return `Б${d[1]}`;
+        const w = ti.match(/(?:волна|wave)\s*([А-ЯA-Z])?\s*(\d+)/i);
+        if (!w) return null;
+        // «В1»/«W1» — это просто «волна номер 1», то есть блок 1; «Ф2» —
+        // фронтовая волна, отдельная ветка именования, к блоку 2 не относится
+        const letter = (w[1] || 'Б').toUpperCase();
+        return /^[ВBW]$/.test(letter) ? `Б${w[2]}` : `${letter}${w[2]}`;
+      };
+      g.rows = g.disp.map((d) => ({
+        head: d,
+        kids: g.waves.filter((w) => block(w) && block(w) === block(d)),
+      }));
+      const taken = new Set(g.rows.flatMap((r) => r.kids.map((k) => k.key)));
+      g.loose = [...g.waves.filter((w) => !taken.has(w.key)), ...g.other];
+    }
+    // эпики вперёд по числу живых сессий, «вне эпика» — всегда последним
+    return [...map.values()].sort((a, b) =>
+      (!a.epic) - (!b.epic) || b.all.length - a.all.length);
+  }
+  let epicOpen = $state({});
+  const epicIsOpen = (k) => epicOpen[k] !== false;   // по умолчанию раскрыт
+
   // выдвижная навигация на узком экране; закрывается при переходе
   let navOpen = $state(false);
   afterNavigate(() => { navOpen = false; });  // эффект по page.url гасил открытие сразу
@@ -154,7 +205,7 @@
      class:active={page.params?.key === s.key}
      title="{s.title} · {label || 'вне надзора'}">
     <i class="dot" style="background:{color}"></i>
-    <span class="t">{s.title}</span>
+    <span class="t">{s.short || s.title}</span>
     {#if s.open_asks}<Badge>{s.open_asks}</Badge>{/if}
     <span class="age">{age(s.mtime)}</span>
   </a>
@@ -191,7 +242,29 @@
           </button>
           {#if isOpen(p.name)}
             <div class="proj-body">
-              {#each ls as s (s.key)}{@render sessionRow(p.name, s)}{/each}
+              {#each byEpic(ls) as g (g.epic || 'вне')}
+                {@const ek = `${p.name}|${g.epic || 'вне'}`}
+                <div class="epic">
+                  <button class="epic-head" onclick={() => (epicOpen = { ...epicOpen, [ek]: !epicIsOpen(ek) })}
+                    title={g.title || (g.epic ? g.epic : 'сессии без эпика')}>
+                    <Icon name="chevron-right" size={12} class="caret {epicIsOpen(ek) ? 'open' : ''}" />
+                    <span class="ekey">{g.epic || 'вне эпиков'}</span>
+                    {#if g.title}<span class="etitle">{g.title}</span>{/if}
+                    <span class="age">{g.all.length}</span>
+                  </button>
+                  {#if epicIsOpen(ek)}
+                    {#each g.rows as r (r.head.key)}
+                      {@render sessionRow(p.name, r.head)}
+                      {#if r.kids.length}
+                        <div class="waves">
+                          {#each r.kids as w (w.key)}{@render sessionRow(p.name, w)}{/each}
+                        </div>
+                      {/if}
+                    {/each}
+                    {#each g.loose as s (s.key)}{@render sessionRow(p.name, s)}{/each}
+                  {/if}
+                </div>
+              {/each}
               {#if !ls.length}<p class="quiet none">живых нет</p>{/if}
               <!-- кладбище отработавших волн не мешается с живыми (CTO 10.08) -->
               {#if ds.length}
@@ -345,6 +418,28 @@
     padding: var(--sp-4) var(--sp-5) 0;
   }
   .dslink:hover { color: var(--accent); }
+  /* Эпик — средний уровень дерева: ключ ведущий, название приглушено и
+     обрезается, счётчик справа как у проекта. Волны — отступом под своим
+     диспетчером, чтобы «кто чей» читалось без чтения заголовков. */
+  .epic { margin-bottom: var(--sp-2); }
+  .epic-head {
+    display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+    background: none; border: 0; text-align: left; font: inherit;
+    color: var(--text-3); font-size: var(--fs-xs);
+    padding: var(--sp-2) var(--sp-5) var(--sp-1);
+    min-height: var(--tap);
+  }
+  .epic-head:hover { color: var(--text-1); }
+  .ekey { font-variant-numeric: tabular-nums; letter-spacing: 0.02em; flex: none; }
+  .etitle {
+    color: var(--text-4); overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; min-width: 0; flex: 1;
+  }
+  .epic .waves { margin-left: var(--sp-5); border-left: 1px solid var(--line-2); }
+  @media (pointer: fine) {
+    .epic-head { min-height: 0; padding: var(--sp-1) var(--sp-5); }
+  }
+
   .done-head {
     display: flex; align-items: center; gap: var(--sp-3); width: 100%;
     background: none; border: 0; text-align: left; font: inherit;

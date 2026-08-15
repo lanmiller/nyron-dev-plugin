@@ -301,6 +301,96 @@ function listSessionsCached(root) {
 /** Сессии проекта + состояние сторожа + счётчик открытых ask по сессии.
  *  Сайдбар — рабочий пул, не архив: свежие сутки-двое либо всё, за чем
  *  ещё смотрит сторож / по чему висит открытый ask. */
+/** Кто в какой работе: имя агента из будки → эпик и роль.
+ *  Пул сессий плоский, а работа — иерархия «эпик → диспетчер → волны»
+ *  (требование CTO 12.08: в списке 22 сессии вперемешку, и непонятно, кто
+ *  чей). Собираем из будки: метка `wave` группирует сессии одной работы,
+ *  эпик берём из префикса метки («1289-block3» → DEV-1289), а если префикса
+ *  нет — самый частый тикет группы. Гадать не пытаемся: агент без метки и
+ *  без тикета остаётся вне эпика. */
+// Тикет волны — задача, а не эпик («Волна Б3-1: паспорт v2 (DEV-1228)»),
+// поэтому одной будки для дерева мало: нужна связь «задача → эпик». Её даёт
+// трекер (поле parent), а морда читает готовый кэш — ходить в Jira из
+// сервера пульта не нужно. Нет файла — дерево просто группирует по тикету.
+let epicsCache = null, epicsAt = 0;
+function epics() {
+  if (epicsCache && Date.now() - epicsAt < 60_000) return epicsCache;
+  try {
+    epicsCache = JSON.parse(fs.readFileSync(path.join(MORDA_ROOT, 'epics.json'), 'utf8'));
+  } catch { epicsCache = { tickets: {}, epics: {} }; }
+  epicsAt = Date.now();
+  return epicsCache;
+}
+function toEpic(ticket) {
+  if (!ticket) return null;
+  return epics().tickets?.[ticket] || ticket;
+}
+export function epicTitle(ticket) {
+  return epics().epics?.[ticket] || null;
+}
+
+function rolesFromHub(hub, key) {
+  // окно широкое: сторож пишет сотни служебных постов в сутки и вымывает
+  // из выборки реальную переписку волн (проверено — при 500 волны эпика
+  // теряли своего диспетчера)
+  const msgs = hub.read({ limit: 4000 }).messages || [];
+  const isDisp = (n) => /^disp|диспетч/i.test(n);
+  const byAgent = new Map();               // имя → {wave, tickets:Map, peers:Map}
+  const touch = (who) => {
+    if (!byAgent.has(who))
+      byAgent.set(who, { wave: null, tickets: new Map(), peers: new Map() });
+    return byAgent.get(who);
+  };
+  for (const m of msgs) {
+    const who = String(m.from || '');
+    if (!who || who === 'watchdog' || who === 'reanimator') continue;
+    const a = touch(who);
+    if (m.wave && !a.wave) a.wave = String(m.wave);
+    if (m.ticket) a.tickets.set(m.ticket, (a.tickets.get(m.ticket) || 0) + 1);
+    const to = String(m.to || '');
+    if (to && to !== 'all') {              // переписка: волна ↔ её диспетчер
+      a.peers.set(to, (a.peers.get(to) || 0) + 1);
+      const b = touch(to);
+      b.peers.set(who, (b.peers.get(who) || 0) + 1);
+    }
+  }
+  // эпик группы: цифры в начале метки («1289-block3»), иначе тикет, который
+  // называет ДИСПЕТЧЕР группы (волна называет свою задачу, а не эпик)
+  const groups = new Map();                // метка → {disp:Map, all:Map}
+  for (const [who, a] of byAgent) {
+    if (!a.wave) continue;
+    const g = groups.get(a.wave) || { disp: new Map(), all: new Map() };
+    for (const [t, n] of a.tickets) {
+      g.all.set(t, (g.all.get(t) || 0) + n);
+      if (isDisp(who)) g.disp.set(t, (g.disp.get(t) || 0) + n);
+    }
+    groups.set(a.wave, g);
+  }
+  const top = (m) => [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  const epicOfGroup = new Map();
+  for (const [label, g] of groups) {
+    const digits = label.match(/^(\d{2,6})\b/)?.[1];
+    epicOfGroup.set(label, toEpic(digits && key ? `${key}-${digits}`
+      : top(g.disp) || top(g.all)));
+  }
+  const out = new Map();                   // имя агента → {epic, group, role}
+  for (const [who, a] of byAgent) {
+    const role = isDisp(who) ? 'dispatcher'
+      : /^wave|волна/i.test(who) ? 'wave' : null;
+    let epic = a.wave ? epicOfGroup.get(a.wave) || null : null;
+    if (!epic && isDisp(who)) epic = toEpic(top(a.tickets));
+    out.set(normLabel(who), { epic, group: a.wave || null, role, agent: who, peers: a.peers });
+  }
+  // волна без метки достаёт эпик у своего диспетчера — по переписке в будке
+  for (const [k, v] of out) {
+    if (v.epic || v.role === 'dispatcher') continue;
+    const peer = [...v.peers.entries()].sort((a, b) => b[1] - a[1])
+      .map(([n]) => out.get(normLabel(n))).find((p) => p?.role === 'dispatcher' && p.epic);
+    if (peer) out.set(k, { ...v, epic: peer.epic, group: v.group || peer.group });
+  }
+  return out;
+}
+
 export function sessions(project) {
   const root = rootByName(project);
   const hub = hubFor(root);
@@ -309,13 +399,25 @@ export function sessions(project) {
   for (const a of hub.asks({ status: 'open' }).asks)
     open.set(a.session, (open.get(a.session) || 0) + 1);
   const dayAgo = Date.now() - 48 * 3600 * 1000;
+  const roles = rolesFromHub(hub, trackerFor(root)?.keys?.[0] || null);
   return listSessionsCached(root)
-    .map(({ file, ...s }) => ({
-      ...s,
-      state: watch.get(s.key)?.state || null,
-      reason: watch.get(s.key)?.reason || null,
-      open_asks: open.get(s.key) || 0,
-    }))
+    .map(({ file, ...s }) => {
+      const r = roles.get(normLabel(s.title)) || null;
+      // заголовок сессии — второй источник: «DEV-1210 Блок 1 диспетчер»
+      const named = String(s.title || '').match(/\b([A-Z]{2,10}-\d+)\b/)?.[1] || null;
+      return {
+        ...s,
+        state: watch.get(s.key)?.state || null,
+        reason: watch.get(s.key)?.reason || null,
+        open_asks: open.get(s.key) || 0,
+        epic: toEpic(r?.epic || named),
+        epic_title: epicTitle(toEpic(r?.epic || named)),
+        group: r?.group || null,
+        role: r?.role
+          || (/диспетч|dispatch/i.test(s.title || '') ? 'dispatcher'
+            : /волна|wave/i.test(s.title || '') ? 'wave' : null),
+      };
+    })
     .filter((s) => s.open_asks || s.state
       || new Date(s.mtime).getTime() > dayAgo)
     // безымянные headless-прогоны (тики сторожа и прочие claude -p) — шум
