@@ -407,8 +407,16 @@ export function sessions(project) {
       const named = String(s.title || '').match(/\b([A-Z]{2,10}-\d+)\b/)?.[1] || null;
       return {
         ...s,
-        state: watch.get(s.key)?.state || null,
-        reason: watch.get(s.key)?.reason || null,
+        // Сторож может стоять (случай 15.08: не отрабатывал четверо суток), и
+        // тогда живые сессии выглядели «вне надзора» — тусклыми, хотя писали
+        // секунду назад. Свежесть транскрипта — независимый признак: пишет
+        // прямо сейчас = работает, вердикт сторожа тут не нужен.
+        state: watch.get(s.key)?.state
+          || (Date.now() - new Date(s.mtime).getTime() < 5 * 60 * 1000
+            ? 'working' : null),
+        reason: watch.get(s.key)?.reason
+          || (Date.now() - new Date(s.mtime).getTime() < 5 * 60 * 1000
+            ? 'пишет прямо сейчас (сторож молчит)' : null),
         open_asks: open.get(s.key) || 0,
         epic: toEpic(r?.epic || named),
         epic_title: epicTitle(toEpic(r?.epic || named)),
