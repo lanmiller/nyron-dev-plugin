@@ -39,6 +39,8 @@ description: Конфиг проекта для плагина nyron-dev — ч�
      дефолтов.
    - `max_parallel_waves` → сколько сессий-волн запускать одновременно. Эпик
      режется на максимум параллели и упирается в это число; поля нет → 4.
+   - `merge_rights` → кто сливает в main: wave | dispatcher | lead | cto.
+     Поля нет → dispatcher.
    - `reviewer.engine` → включает/выключает шаг кросс-ревью (скилл
      `cross-review`).
    - `roles.<slug>` → оверрайды карточек скилла `team-roles`.
