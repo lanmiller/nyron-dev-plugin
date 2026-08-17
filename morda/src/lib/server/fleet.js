@@ -515,6 +515,15 @@ export function agentTranscript(project, key, agentId) {
   return T.readAgent(rootByName(project), key, agentId);
 }
 
+/** Мета сессии для раннера: cwd — РОДНОЙ каталог сессии из транскрипта.
+ *  Резюм обязан идти в нём: проекты-надмножества видят сессии подпапок
+ *  (nyron видит stovp), и резюм в корне «их» проекта убивал сессию на
+ *  старте — claude --resume ищет разговор по cwd (факт 17.08). */
+export function sessionMeta(project, key) {
+  const r = T.readSession(rootByName(project), key, { maxBytes: 64 * 1024 });
+  return r ? { cwd: r.cwd, cwd_alive: r.cwd_alive, entrypoint: r.entrypoint } : null;
+}
+
 // ---------- ввод в чат (спека, этап 4: tmux — мгновенно; Desktop — зеркало) ----------
 
 // Живые процессы claude этой машины: pid ↔ sessionId ↔ cwd. Это самое

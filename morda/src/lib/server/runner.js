@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { rootByName, tmuxCandidates, paneProcessTree, MORDA_ROOT,
-  CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents,
+  CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents, sessionMeta,
   RUNNER_STATE_FILE as STATE_FILE } from './fleet.js';
 
 // Префикс всех tmux-сессий раннера: чужие панели (ручной tmux человека)
@@ -152,21 +152,31 @@ function stopPoller(name) {
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
 
-/** Запуск CLI-сессии: tmux + claude в корне проекта, цель — вводом, когда
- *  промпт готов. Имя — только [a-z0-9-]: оно станет именем tmux-сессии. */
-export function runnerStart({ project, goal, name, resumeId }) {
+/** Запуск CLI-сессии: tmux + claude, цель — вводом, когда промпт готов.
+ *  Имя — только [a-z0-9-]: оно станет именем tmux-сессии.
+ *  workdir (опция, только с сервера) — родной каталог сессии при резюме;
+ *  обязан лежать в корне проекта (fail-closed, как openFileOutside). */
+export function runnerStart({ project, goal, name, resumeId, workdir }) {
   const root = rootByName(project); // бросит на чужом имени — allowlist
   if (!NAME_RE.test(name || '')) throw new Error('имя: строчные латиница/цифры/дефис');
   if (tmuxAlive(name)) throw new Error(`tmux-сессия ${TMUX_PREFIX + name} уже есть`);
+  let dir = root;
+  if (workdir) {
+    const full = path.resolve(workdir);
+    if (full !== root && !full.startsWith(root + path.sep))
+      throw new Error('workdir вне корня проекта');
+    if (!fs.existsSync(full)) throw new Error(`каталога сессии больше нет: ${full}`);
+    dir = full;
+  }
   const reg = loadReg();
   const prev = reg.sessions[name];
   if (prev && prev.state !== 'stopped' && prev.state !== 'died_on_start' && tmuxAlive(name))
     throw new Error(`запись ${name} уже в реестре`);
   const args = resumeId ? ` --resume ${resumeId}` : '';
   execFileSync(TMUX_BIN, ['new-session', '-d', '-s', TMUX_PREFIX + name,
-    '-c', root, CLAUDE_BIN + args], { timeout: 5000, env: SPAWN_ENV });
+    '-c', dir, CLAUDE_BIN + args], { timeout: 5000, env: SPAWN_ENV });
   reg.sessions[name] = {
-    project, root, goal: goal || null, goalSent: false,
+    project, root: dir, goal: goal || null, goalSent: false,
     sessionId: resumeId || null,
     startedAt: new Date().toISOString(), state: 'starting',
     stoppedAt: null,
@@ -203,6 +213,7 @@ export function runnerResume({ name, goal }) {
     project: s.project, name,
     goal: goal || null,           // резюм без цели: контекст уже в сессии
     resumeId: s.sessionId,
+    workdir: s.root,              // родной каталог записи, не корень проекта
   });
 }
 
@@ -264,7 +275,13 @@ export function resumeForInput({ project, key, text }) {
   if (name && tmuxAlive(name)) return null;  // панель жива — обычный канал
   if (!name) name = 'r-' + key.slice(0, 8);  // усыновление не-раннерской
   if (tmuxAlive(name)) return null;
-  return runnerStart({ project, name, goal: text, resumeId: key });
+  // родной cwd — из транскрипта: окно могло открыть сессию через
+  // проект-надмножество (nyron видит подпапку stovp), и резюм в его корне
+  // убивал сессию на старте — «No conversation found» (факт 17.08)
+  const meta = sessionMeta(project, key);
+  if (!meta) return null;                     // сессия не этого проекта
+  return runnerStart({ project, name, goal: text, resumeId: key,
+    workdir: meta.cwd || undefined });
 }
 
 /** Ответ на диалог разрешения с карточки: только «да» / «нет» — выбор
