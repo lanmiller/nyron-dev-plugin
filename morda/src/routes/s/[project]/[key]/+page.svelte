@@ -14,6 +14,8 @@
   import AskCard from '$lib/AskCard.svelte';
   import FileBrowser from '$lib/FileBrowser.svelte';
   import Icon from '$lib/Icon.svelte';
+  import PickChip from '$lib/PickChip.svelte';
+  import { MODEL_OPTS, EFFORT_OPTS, MODE_OPTS } from '$lib/composer-options.js';
   import { Button } from '$lib/ui/button/index.js';
   import { Badge } from '$lib/ui/badge/index.js';
   import { Skeleton } from '$lib/ui/skeleton/index.js';
@@ -106,18 +108,24 @@
   }
 
   async function sendText() {
-    if (!draft.trim()) return;
+    if (!draft.trim() && !attachments.length) return;
+    // вложения — путями в хвосте сообщения, как у композера старта
+    const text = (draft.trim() || 'посмотри приложенные файлы') + (attachments.length
+      ? '\n\nПриложенные файлы (смотри их содержимое при необходимости):\n'
+        + attachments.map((a) => `- ${a.path}`).join('\n')
+      : '');
     saying = true; sayError = null; sent = null;
     try {
       const r = await fetch('/api/say', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-morda': '1' },
-        body: JSON.stringify({ project, key, text: draft }),
+        body: JSON.stringify({ project, key, text }),
       });
       const body = await r.json();
       if (!r.ok) sayError = body.error || `HTTP ${r.status}`;
       else {
         draft = '';
+        attachments = [];
         sent = body.via === 'tmux' ? 'доставлено в чат сессии'
           : body.via === 'resume' ? body.note
             : `в будке (адресовано сессии) — ${body.note}`;
@@ -208,7 +216,8 @@
   });
 
   // вложения в живой чат (этап 2, «вложения путём файла»): файл уезжает в
-  // проект, в поле подставляется путь — сессия прочитает его Read-ом
+  // проект, сессии уйдёт путь — тем же чипом, что в композере старта
+  let attachments = $state([]); // { path, name }
   let fileEl = $state(null);
   let uploading = $state(false);
   async function attachFiles(files) {
@@ -223,11 +232,45 @@
         });
         const out = await r.json();
         if (!r.ok) { sayError = out.error || `HTTP ${r.status}`; continue; }
-        draft = (draft ? draft + '\n' : '')
-          + `приложен файл ${out.path} — посмотри его содержимое`;
-        grow();
+        attachments = [...attachments, out];
       }
     } finally { uploading = false; if (fileEl) fileEl.value = ''; }
+  }
+
+  // Чипы параметров сессии — те же, что на старте (запрос CTO 17.08:
+  // «сделай такой же инпут»). Смена у живой = перезапуск резюмом с новыми
+  // аргументами (контекст цел), у запаркованной — запишется до подъёма.
+  let tuneModel = $state('fable');
+  let tuneEffort = $state('high');
+  let tuneMode = $state('auto');
+  let tuneName = null;   // за какую запись раннера отвечают чипы
+  let prevTune = null;   // отпечаток значений: сид ≠ смена человеком
+  $effect(() => {
+    const r = data?.runner;
+    if (!r || tuneName === r.name) return;
+    tuneName = r.name;
+    tuneModel = r.model || 'fable';
+    tuneEffort = r.effort || 'high';
+    tuneMode = r.mode || '';
+    prevTune = null;
+  });
+  $effect(() => {
+    const cur = [tuneModel, tuneMode, tuneEffort].join('|');
+    if (!data?.runner) return;
+    if (prevTune === null) { prevTune = cur; return; }
+    if (cur === prevTune) return;
+    prevTune = cur;
+    runnerAct('retune', { model: tuneModel, mode: tuneMode, effort: tuneEffort });
+  });
+
+  // Живой TUI-диалог CLI (HITL-пикер, /usage, /model): транскрипт его не
+  // видит — пульт показывает сам экран и даёт клавиши навигации; цифры и
+  // текст уходят обычным вводом композера.
+  let cliDialog = $derived(data?.runner?.alive
+    && ['hitl', 'dialog'].includes(data.runner.screen)
+    && data.runner.screen_text ? data.runner : null);
+  async function sendKey(k) {
+    await runnerAct('key', { key: k });
   }
 
   // поле растёт под текст, как в Claude: одна строка по умолчанию,
@@ -252,7 +295,9 @@
   }
   $effect(() => { if (draft === '' && ta) ta.style.height = 'auto'; });
   let openAsks = $derived((data?.asks || []).filter((a) => a.status === 'open'));
-  let openCount = $derived(openAsks.length + (data?.pending_hitl ? 1 : 0));
+  let openCount = $derived(openAsks.length + (data?.pending_hitl ? 1 : 0)
+    + (cliDialog ? 1 : 0)
+    + (data?.runner?.alive && data.runner.screen === 'permission' ? 1 : 0));
   // в доке — только живое: открытые и ответы в пути; подтверждённое своё
   // отработало и чат не перекрывает (CTO 10.08)
   let recentDecided = $derived((data?.asks || [])
@@ -367,6 +412,24 @@
           </div>
         </article>
       {/if}
+      {#if cliDialog}
+        <!-- Экран CLI как есть: HITL-пикер, /usage, /model — в транскрипте
+             их нет до ответа (факт 17.08). Навигация — клавишами отсюда,
+             цифра или свой текст — обычным вводом композера ниже. -->
+        <article class="hitl">
+          <header>
+            <b>В терминале сессии открыт диалог</b>
+            <span class="meta">пульт показывает живой экран; выбор — клавишами ниже, цифрой или текстом из поля ввода</span>
+          </header>
+          <pre class="cli-screen">{cliDialog.screen_text}</pre>
+          <div class="perm-row">
+            {#each [['↑', 'Up'], ['↓', 'Down'], ['Tab', 'Tab'], ['Enter — выбрать', 'Enter'], ['Esc — отмена', 'Escape']] as [label, k] (k)}
+              <Button variant="outline" size="xs" disabled={runnerBusy}
+                onclick={() => sendKey(k)}>{label}</Button>
+            {/each}
+          </div>
+        </article>
+      {/if}
       {#if data.pending_hitl}
         <!-- родная форма AskUserQuestion ждёт человека В ОКНЕ ПРИЛОЖЕНИЯ:
              морда её показывает, но кликнуть вариант можно только там -->
@@ -412,24 +475,60 @@
       {/each}
     </div>
 
-    <div class="composer-box">
+    <!-- Тот же композер, что на старте сессии (запрос CTO 17.08): сверху
+         аккаунт-пометка и вложения, снизу параметры. Разница одна — проект
+         уже выбран рождением сессии. -->
+    <div class="composer-box launch-box">
+      {#if data.runner || attachments.length}
+        <div class="launch-top">
+          {#if data.runner}
+            <span class="chip-note" title="аккаунт, с которого едет сессия — задан при запуске">
+              <Icon name="key-round" size={13} />{data.runner.slot_label || 'основной'}
+            </span>
+          {/if}
+          {#each attachments as a (a.path)}
+            <span class="att" title={a.path}>
+              <Icon name="paperclip" size={12} />
+              <span class="att-name">{a.name}</span>
+              <button class="att-x" aria-label="убрать файл"
+                onclick={() => (attachments = attachments.filter((x) => x.path !== a.path))}>
+                <Icon name="x" size={12} />
+              </button>
+            </span>
+          {/each}
+        </div>
+      {/if}
       <input type="file" multiple hidden bind:this={fileEl}
         onchange={(e) => attachFiles([...e.currentTarget.files])} />
-      <button class="plus" disabled={uploading || saying}
-        aria-label="приложить файл или фото" title="приложить файл или фото — сессии уйдёт путь"
-        onclick={() => fileEl?.click()}>
-        <Icon name={uploading ? 'loader-circle' : 'plus'} size={16} />
-      </button>
       <textarea rows="1" bind:this={ta} bind:value={draft} oninput={grow}
         placeholder={data.input?.mode === 'tmux' ? 'написать в чат сессии…' : 'написать сессии…'}
         onkeydown={(e) => {
           if (e.key !== 'Enter' || e.shiftKey) return;
           e.preventDefault(); sendText();
         }}></textarea>
-      <button class="send" disabled={saying || !draft.trim()} onclick={sendText}
-        aria-label="отправить (Enter)" title="Enter — отправить, Shift+Enter — новая строка">
-        <Icon name="arrow-up" size={16} />
-      </button>
+      <div class="launch-bar">
+        <button class="plus" disabled={uploading || saying}
+          aria-label="приложить файл или фото" title="приложить файл или фото — сессии уйдёт путь"
+          onclick={() => fileEl?.click()}>
+          <Icon name={uploading ? 'loader-circle' : 'plus'} size={16} />
+        </button>
+        {#if data.runner}
+          <PickChip bind:value={tuneModel} bind:subValue={tuneEffort}
+            disabled={runnerBusy}
+            title="Модель сессии — смена перезапустит её резюмом (контекст цел)"
+            options={MODEL_OPTS}
+            subLabel="Effort" subIcon="gauge" subTitle="Усилие рассуждения"
+            subOptions={EFFORT_OPTS} />
+          <PickChip bind:value={tuneMode} disabled={runnerBusy}
+            title="Разрешения — смена перезапустит сессию резюмом" options={MODE_OPTS} />
+        {/if}
+        <span class="grow"></span>
+        <button class="send" disabled={saying || (!draft.trim() && !attachments.length)}
+          onclick={sendText}
+          aria-label="отправить (Enter)" title="Enter — отправить, Shift+Enter — новая строка">
+          <Icon name="arrow-up" size={16} />
+        </button>
+      </div>
     </div>
     <!-- Как дойдёт сообщение — одной строкой; развёрнутое объяснение и
          кнопки копий приложения только по запросу (на телефоне подсказка
@@ -536,15 +635,5 @@
 
   .hint { font-size: var(--fs-xs); margin: var(--sp-3) var(--sp-1) 0; }
   .ok-note { color: var(--ok); }
-  .perm-row { display: flex; gap: var(--sp-3); margin-top: var(--sp-4); }
-  .plus {
-    flex: none; width: 30px; height: 30px; border-radius: 50%;
-    background: none; color: var(--text-3);
-    border: 1px solid var(--border-soft); align-self: flex-end;
-    display: grid; place-items: center; cursor: pointer;
-    margin-bottom: 2px;
-    transition: color var(--t-fast), border-color var(--t-fast);
-  }
-  .plus:hover:not(:disabled) { color: var(--text-1); border-color: var(--border); }
-  .plus:disabled { opacity: 0.5; cursor: default; }
+  .perm-row { display: flex; gap: var(--sp-3); margin-top: var(--sp-4); flex-wrap: wrap; }
 </style>

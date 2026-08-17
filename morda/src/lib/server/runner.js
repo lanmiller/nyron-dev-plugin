@@ -95,6 +95,10 @@ function classify(text) {
   // диалог разрешения на инструмент: сессия стоит и ждёт человека —
   // пульт обязан это показывать, а не считать «работает» (этап 2: карточка)
   if (/Do you want to proceed\?|requires approval/i.test(text)) return 'permission';
+  // интерактивный TUI-пикер (AskUserQuestion, /model и любой выбор):
+  // в транскрипт он НЕ пишется до ответа — форма живёт только на экране
+  // (факт 17.08, сессия psylia: HITL стоял в tmux, пульт его не видел)
+  if (/Enter to select|keys to navigate|Esc to cancel/i.test(text)) return 'hitl';
   // футер промпта разный по режимам: «? for shortcuts» (manual),
   // «shift+tab to cycle» (bypass ⏵⏵, plan и др.) — признаём оба (факт 17.08)
   if (/❯/.test(text) && /\? for shortcuts|shift\+tab to cycle/.test(text)) return 'prompt';
@@ -167,6 +171,11 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
 const MODELS = new Set(['fable', 'opus', 'sonnet', 'haiku']);
 const MODES = new Set(['auto', 'acceptEdits', 'plan', 'bypass']);
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+function checkParams({ model, mode, effort }) {
+  if (model && !MODELS.has(model)) throw new Error(`модель: ${[...MODELS].join('|')}`);
+  if (mode && !MODES.has(mode)) throw new Error(`режим: ${[...MODES].join('|')} (без диалогов — только после забора-хука)`);
+  if (effort && !EFFORTS.has(effort)) throw new Error(`effort: ${[...EFFORTS].join('|')}`);
+}
 
 // Bypass — ТОЛЬКО за забором (канон «забор до свободы», порядок незыблем):
 // раннер генерирует settings-файл с PreToolUse-хуком guard/pretooluse-guard.mjs
@@ -195,9 +204,7 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
   model, mode, effort, slot }) {
   const root = rootByName(project); // бросит на чужом имени — allowlist
   if (!NAME_RE.test(name || '')) throw new Error('имя: строчные латиница/цифры/дефис');
-  if (model && !MODELS.has(model)) throw new Error(`модель: ${[...MODELS].join('|')}`);
-  if (mode && !MODES.has(mode)) throw new Error(`режим: ${[...MODES].join('|')} (без диалогов — только после забора-хука)`);
-  if (effort && !EFFORTS.has(effort)) throw new Error(`effort: ${[...EFFORTS].join('|')}`);
+  checkParams({ model, mode, effort });
   let slotDef = null;
   if (slot) {
     slotDef = loadSlots().slots.find((x) => x.id === slot);
@@ -304,16 +311,51 @@ export function runnerList(project) {
 }
 
 /** Запись раннера по sessionId — карточка сессии показывает кнопки
- *  стоп/резюм только для СВОИХ процессов. */
+ *  стоп/резюм только для СВОИХ процессов. Когда на экране CLI открыт
+ *  диалог (HITL-пикер, /usage, разрешение) — отдаём и сам экран: в
+ *  транскрипте его нет, человек должен видеть, на что отвечает. */
 export function runnerBySessionId(key) {
   const reg = loadReg();
   for (const [name, s] of Object.entries(reg.sessions))
     if (s.sessionId === key) {
       const alive = tmuxAlive(name);
-      return { name, ...s, tmux: TMUX_PREFIX + name, alive,
-        screen: alive ? classify(capture(name)) : null };
+      const screen = alive ? classify(capture(name)) : null;
+      const screen_text = ['hitl', 'dialog', 'permission'].includes(screen)
+        ? capture(name, 45).replace(/\s+$/, '') : null;
+      const slot = loadSlots().slots.find((x) => x.id === (s.slot || 'claude-main'));
+      return { name, ...s, tmux: TMUX_PREFIX + name, alive, screen,
+        screen_text, slot_label: slot?.label || 'основной' };
     }
   return null;
+}
+
+/** Клавиша в живой диалог CLI (пикер HITL, /usage, /model): пульт видит
+ *  экран — пультом же по нему и ходят. Только навигация и Esc/Enter —
+ *  произвольный текст идёт обычным вводом (say). */
+const DIALOG_KEYS = new Set(['Escape', 'Enter', 'Up', 'Down', 'Left', 'Right', 'Tab', 'Space']);
+export function runnerKey({ name, key }) {
+  if (!tmuxAlive(name)) throw new Error(`нет живой tmux-сессии ${name}`);
+  if (!DIALOG_KEYS.has(key)) throw new Error(`клавиша: ${[...DIALOG_KEYS].join('|')}`);
+  tmux(['send-keys', '-t', pane(name), key]);
+  return { sent: key };
+}
+
+/** Смена параметров сессии из композера её окна (те же чипы, что на
+ *  старте — запрос CTO 17.08). Живую перезапускаем резюмом с новыми
+ *  аргументами (контекст цел — факт этапа 0), запаркованной параметры
+ *  просто записываются до следующего подъёма. */
+export function runnerRetune({ name, model, mode, effort }) {
+  const reg = loadReg();
+  const s = reg.sessions[name];
+  if (!s) throw new Error(`нет записи ${name}`);
+  checkParams({ model, mode, effort });
+  if (model !== undefined) s.model = model || null;
+  if (mode !== undefined) s.mode = mode || null;
+  if (effort !== undefined) s.effort = effort || null;
+  saveReg(reg);
+  if (!tmuxAlive(name)) return { ...s, restarted: false };
+  runnerStop({ name });
+  return { ...runnerResume({ name }), restarted: true };
 }
 
 /** Ввод в МЁРТВУЮ сессию поднимает её резюмом, и текст уезжает первым

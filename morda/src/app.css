@@ -419,6 +419,63 @@
   .send:hover:not(:disabled) { filter: brightness(1.08); }
   .send:disabled { opacity: 0.35; cursor: default; }
 
+  /* Полный композер (референс — приложение Claude): рамка колонкой, сверху
+     чипы контекста (аккаунт, вложения), снизу ряд параметров со стрелкой.
+     Живёт в двух местах — старт сессии и её окно — поэтому кирпич системы. */
+  .launch-box { flex-direction: column; align-items: stretch; }
+  .launch-top {
+    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    padding-bottom: var(--sp-2);
+  }
+  .launch-bar {
+    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    padding-top: var(--sp-2);
+  }
+  .launch-bar .grow { flex: 1; }
+  /* чип-пометка: та же пилюля, что у PickChip, но просто показывает факт
+     (например аккаунт сессии) — не кликается */
+  .chip-note {
+    display: inline-flex; align-items: center; gap: var(--sp-2);
+    background: var(--bg-2); color: var(--text-2);
+    border: 1px solid var(--border-soft); border-radius: 999px;
+    padding: var(--sp-2) var(--sp-4); font-size: var(--fs-xs);
+  }
+  /* чип вложения: имя + крестик; путь — в подсказке */
+  .att {
+    display: inline-flex; align-items: center; gap: var(--sp-2);
+    background: var(--bg-2); color: var(--text-2);
+    border: 1px solid var(--border-soft); border-radius: 999px;
+    padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
+    font-size: var(--fs-xs); max-width: 46vw;
+  }
+  .att-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .att-x {
+    background: none; border: 0; color: var(--text-4); padding: 2px;
+    display: grid; place-items: center; cursor: pointer;
+  }
+  .att-x:hover { color: var(--text-1); }
+  /* круглая «+» вложений */
+  .plus {
+    flex: none; width: 30px; height: 30px; border-radius: 50%;
+    background: none; color: var(--text-3);
+    border: 1px solid var(--border-soft);
+    display: grid; place-items: center; cursor: pointer;
+    transition: color var(--t-fast), border-color var(--t-fast);
+  }
+  .plus:hover:not(:disabled) { color: var(--text-1); border-color: var(--border); }
+  .plus:disabled { opacity: 0.5; cursor: default; }
+
+  /* Живой экран CLI-диалога (HITL-пикер, /usage, /model): в транскрипт он
+     не пишется до ответа — пульт показывает сам экран терминала. */
+  .cli-screen {
+    background: var(--bg-0); border: 1px solid var(--border-soft);
+    border-radius: var(--r-sm); padding: var(--sp-4) var(--sp-5);
+    margin: var(--sp-3) 0 0; overflow-x: auto;
+    font-family: var(--mono); font-size: var(--fs-xs);
+    line-height: 1.45; color: var(--text-2);
+    white-space: pre; max-height: 48vh;
+  }
+
   /* ---------- поверхности ---------- */
 
   /* Панель правой колонки: заголовок + тело, сворачивается и разворачивается.

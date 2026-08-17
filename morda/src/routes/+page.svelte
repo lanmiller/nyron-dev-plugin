@@ -6,6 +6,7 @@
   import FileBrowser from '$lib/FileBrowser.svelte';
   import Icon from '$lib/Icon.svelte';
   import PickChip from '$lib/PickChip.svelte';
+  import { MODEL_OPTS, EFFORT_OPTS, MODE_OPTS } from '$lib/composer-options.js';
   import { Button } from '$lib/ui/button/index.js';
   import { Badge } from '$lib/ui/badge/index.js';
   import * as Card from '$lib/ui/card/index.js';
@@ -174,34 +175,11 @@
           <Icon name={uploading ? 'loader-circle' : 'plus'} size={16} />
         </button>
         <PickChip bind:value={launchModel} bind:subValue={launchEffort}
-          disabled={launching} title="Модель сессии"
-          options={[
-            { value: 'fable', label: 'Fable 5', desc: 'самые сложные задачи' },
-            { value: 'opus', label: 'Opus 5', desc: 'сложные задачи' },
-            { value: 'sonnet', label: 'Sonnet 5', desc: 'эффективная для повседневного' },
-            { value: 'haiku', label: 'Haiku 4.5', desc: 'быстрая, для мелочей' },
-          ]}
+          disabled={launching} title="Модель сессии" options={MODEL_OPTS}
           subLabel="Effort" subIcon="gauge" subTitle="Усилие рассуждения"
-          subOptions={[
-            { value: 'low', label: 'Low', desc: 'быстрые ответы на простое' },
-            { value: 'medium', label: 'Medium', desc: 'лёгкие задачи' },
-            { value: 'high', label: 'High', desc: 'баланс для обычной работы' },
-            { value: 'xhigh', label: 'Extra', desc: 'сложная, детальная работа' },
-            { value: 'max', label: 'Max', desc: 'самое трудное; дольше всего' },
-          ]} />
+          subOptions={EFFORT_OPTS} />
         <PickChip bind:value={launchMode} disabled={launching}
-          title="Как сессия спрашивает разрешения" options={[
-            { value: 'auto', label: 'Auto', icon: 'zap',
-              desc: 'Клод сам решает вопросы разрешений' },
-            { value: 'acceptEdits', label: 'Accept edits', icon: 'file-pen',
-              desc: 'правки файлов — без спроса, остальное спросит' },
-            { value: 'plan', label: 'Plan', icon: 'notebook-pen',
-              desc: 'сначала покажет план, потом сделает' },
-            { value: '', label: 'Manual', icon: 'hand',
-              desc: 'каждое действие — вопросом' },
-            { value: 'bypass', label: 'Bypass', icon: 'shield-check',
-              desc: 'вообще без вопросов; опасное режет забор: снос вне проекта, силовой пуш, серверы' },
-          ]} />
+          title="Как сессия спрашивает разрешения" options={MODE_OPTS} />
         <span class="grow"></span>
         <button class="send" disabled={launching || !goal.trim()} onclick={launch}
           aria-label="запустить новую сессию (Enter)"
@@ -292,43 +270,9 @@
   }
   .proj-pick select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--r-sm); }
 
-  /* Композер запуска: рамка системы, внутри колонкой — поле и ряд
-     параметров (режим, модель, effort, подписка) со стрелкой отправки. */
+  /* Композер запуска: кирпичи системы .composer-box/.launch-* (app.css,
+     витрина /design) — здесь только локальный ритм страницы. */
   .launchpad { margin-top: var(--sp-6); }
-  .launch-box { flex-direction: column; align-items: stretch; }
-  .launch-bar {
-    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
-    padding-top: var(--sp-2);
-  }
-  .launch-bar .grow { flex: 1; }
-  /* чипы параметров — компонент PickChip (дизайн-система, витрина /design) */
-  .launch-top {
-    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
-    padding-bottom: var(--sp-2);
-  }
-  /* чип вложения: имя + крестик; путь — в подсказке */
-  .att {
-    display: inline-flex; align-items: center; gap: var(--sp-2);
-    background: var(--bg-2); color: var(--text-2);
-    border: 1px solid var(--border-soft); border-radius: 999px;
-    padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
-    font-size: var(--fs-xs); max-width: 46vw;
-  }
-  .att-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .att-x {
-    background: none; border: 0; color: var(--text-4); padding: 2px;
-    display: grid; place-items: center; cursor: pointer;
-  }
-  .att-x:hover { color: var(--text-1); }
-  .plus {
-    flex: none; width: 30px; height: 30px; border-radius: 50%;
-    background: none; color: var(--text-3);
-    border: 1px solid var(--border-soft);
-    display: grid; place-items: center; cursor: pointer;
-    transition: color var(--t-fast), border-color var(--t-fast);
-  }
-  .plus:hover:not(:disabled) { color: var(--text-1); border-color: var(--border); }
-  .plus:disabled { opacity: 0.5; cursor: default; }
   .launch-note { font-size: var(--fs-xs); margin-top: var(--sp-2); }
   /* Шина — плотный список: карточка на реплику превратила бы её в стену
      плашек, а это фон работы, а не решения. */

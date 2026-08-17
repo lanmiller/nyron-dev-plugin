@@ -505,6 +505,59 @@
 </section>
 
 <section>
+  <h2 class="eyebrow">Композер — один на старт сессии и её окно</h2>
+  <div class="demo demo-col">
+    <!-- Кирпич .composer-box.launch-box (app.css): сверху чип-пометка
+         аккаунта и чипы вложений, снизу «+», PickChip-параметры, стрелка.
+         В окне сессии он же, без выбора проекта — смена чипа перезапускает
+         сессию резюмом. -->
+    <div class="composer-box launch-box">
+      <div class="launch-top">
+        <span class="chip-note"><Icon name="key-round" size={13} />основной</span>
+        <span class="att"><Icon name="paperclip" size={12} />
+          <span class="att-name">скрин-ошибки.png</span>
+          <button class="att-x" aria-label="убрать файл"><Icon name="x" size={12} /></button>
+        </span>
+      </div>
+      <textarea rows="2" placeholder="Опиши задачу — запустится новая сессия…"></textarea>
+      <div class="launch-bar">
+        <button class="plus" aria-label="приложить файл"><Icon name="plus" size={16} /></button>
+        <PickChip title="Модель сессии" value="fable" options={[
+          { value: 'fable', label: 'Fable 5', desc: 'самые сложные задачи' },
+          { value: 'opus', label: 'Opus 5', desc: 'сложные задачи' },
+        ]} />
+        <PickChip title="Как сессия спрашивает разрешения" value="auto" options={[
+          { value: 'auto', label: 'Auto', icon: 'zap', desc: 'Клод сам решает вопросы разрешений' },
+        ]} />
+        <span style="flex:1"></span>
+        <button class="send" aria-label="отправить"><Icon name="arrow-up" size={16} /></button>
+      </div>
+    </div>
+    <!-- Живой экран CLI-диалога (.cli-screen): HITL-пикер и панели /usage
+         не пишутся в транскрипт до ответа — пульт показывает сам терминал,
+         навигация — мини-клавишами, цифра/текст — обычным вводом -->
+    <div class="hitl-demo">
+      <b>В терминале сессии открыт диалог</b>
+      <pre class="cli-screen">❯ 1. Взять KAN-117 связкой (Recommended)
+  2. Принять ГкТ-хвосты
+  3. Type something.
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel</pre>
+      <div class="keys-row">
+        <Button variant="outline" size="xs">↑</Button>
+        <Button variant="outline" size="xs">↓</Button>
+        <Button variant="outline" size="xs">Enter — выбрать</Button>
+        <Button variant="outline" size="xs">Esc — отмена</Button>
+      </div>
+    </div>
+  </div>
+  <p class="quiet note">
+    Словарь чипов (модель, effort, режим) — $lib/composer-options.js, один
+    на обе страницы. Чип-пометка (.chip-note) — факт без выбора: та же
+    пилюля, что PickChip, но не кликается.
+  </p>
+</section>
+
+<section>
   <h2 class="eyebrow">Шторка и диалог — поверхности поверх работы</h2>
   <div class="demo">
     <Sheet.Root bind:open={sheetOpen}>
@@ -764,4 +817,10 @@
   .sd-main { flex: 1; }
   .sd-side { flex: none; }
   .doc-demo { max-width: 60ch; }
+  /* демо жёлтой карточки CLI-диалога (в окне сессии это .hitl) */
+  .hitl-demo {
+    background: var(--bg-2); border: 1px solid var(--warn);
+    border-radius: var(--r); padding: var(--sp-5) var(--sp-6);
+  }
+  .keys-row { display: flex; gap: var(--sp-3); margin-top: var(--sp-4); flex-wrap: wrap; }
 </style>
