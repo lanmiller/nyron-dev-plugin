@@ -118,7 +118,7 @@
       if (!r.ok) sayError = body.error || `HTTP ${r.status}`;
       else {
         draft = '';
-        sent = body.via === 'tmux' ? `доставлено в панель ${body.pane}`
+        sent = body.via === 'tmux' ? 'доставлено в чат сессии'
           : body.via === 'resume' ? body.note
             : `в будке (адресовано сессии) — ${body.note}`;
       }
@@ -191,10 +191,10 @@
     ...(data.runner ? [data.runner.alive
       ? { label: 'остановить', icon: 'pause', disabled: runnerBusy,
         run: () => runnerAct('stop'),
-        title: 'парковка: транскрипт цел, поднимается резюмом' }
+        title: 'CLI-процесс закроется физически; транскрипт цел — сессия поднимется от сообщения или кнопкой «поднять резюмом»' }
       : { label: 'поднять резюмом', icon: 'play', disabled: runnerBusy,
         run: () => runnerAct('resume'),
-        title: 'claude --resume — тот же контекст, той же tmux-сессией' }] : []),
+        title: 'claude --resume — тот же разговор с полным контекстом' }] : []),
     { label: 'копия в Claude', icon: 'external-link', disabled: opening, run: openInClaude,
       title: 'claude://resume — приложение откроет копию этого разговора' },
     ...(data.cwd ? [{ label: files ? 'скрыть файлы' : 'файлы проекта', icon: 'folder-tree',
@@ -406,7 +406,7 @@
          занимала 84 px из 1063 — CTO 11.08) -->
     <p class="hint quiet">
       {#if data.input?.mode === 'tmux'}
-        ⌘⏎ — отправить, доставка мгновенная в панель сессии.
+        Enter — отправить, сообщение уходит прямо в CLI-сессию.
       {:else}
         Мёртвую сессию сообщение поднимет резюмом и уедет в неё; живущую в
         Desktop доставит будка-почтальон.

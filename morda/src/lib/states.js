@@ -5,6 +5,8 @@ export const STATE_RU = {
   waiting_silent: ['ждёт молча', 'var(--hot)'],
   stalled: ['застряла', 'var(--stall)'],
   dead: ['закончилась', 'var(--dead)'],
+  // раннер: CLI-процесс закрыт, транскрипт цел — поднимется от сообщения
+  parked: ['запаркована', 'var(--dead)'],
 };
 
 export function age(ts) {

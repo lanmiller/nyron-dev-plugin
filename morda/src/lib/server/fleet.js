@@ -401,21 +401,28 @@ export function sessions(project) {
     open.set(a.session, (open.get(a.session) || 0) + 1);
   const dayAgo = Date.now() - 48 * 3600 * 1000;
   const roles = rolesFromHub(hub, trackerFor(root)?.keys?.[0] || null);
+  const owned = runnerOwned();
   return listSessionsCached(root)
     .map(({ file, ...s }) => {
       const r = roles.get(normLabel(s.title)) || null;
       // заголовок сессии — второй источник: «DEV-1210 Блок 1 диспетчер»
       const named = String(s.title || '').match(/\b([A-Z]{2,10}-\d+)\b/)?.[1] || null;
+      // раннерская и заглушенная = запаркована: это сильнее свежести
+      // mtime (транскрипт дописан секунду назад самой парковкой) и сильнее
+      // старого вердикта сторожа
+      const parked = owned.get(s.key) && !owned.get(s.key).alive;
       return {
         ...s,
         // Сторож может стоять (случай 15.08: не отрабатывал четверо суток), и
         // тогда живые сессии выглядели «вне надзора» — тусклыми, хотя писали
         // секунду назад. Свежесть транскрипта — независимый признак: пишет
         // прямо сейчас = работает, вердикт сторожа тут не нужен.
-        state: watch.get(s.key)?.state
+        state: parked ? 'parked'
+          : watch.get(s.key)?.state
           || (Date.now() - new Date(s.mtime).getTime() < 5 * 60 * 1000
             ? 'working' : null),
-        reason: watch.get(s.key)?.reason
+        reason: parked ? 'CLI закрыт, транскрипт цел — поднимется от сообщения или кнопкой «резюм»'
+          : watch.get(s.key)?.reason
           || (Date.now() - new Date(s.mtime).getTime() < 5 * 60 * 1000
             ? 'пишет прямо сейчас (сторож молчит)' : null),
         open_asks: open.get(s.key) || 0,
@@ -473,7 +480,12 @@ export function session(project, key) {
   const r = readSessionCached(root, key);
   if (!r) return null;
   const hub = hubFor(root);
-  const w = hub.watchStates().find((x) => x.key === key) || null;
+  let w = hub.watchStates().find((x) => x.key === key) || null;
+  // запаркованная раннером — правда сильнее сторожа (та же логика, что в
+  // sessions(): зелёное «работает» на заглушенном CLI путало человека)
+  const ro = runnerOwned().get(key);
+  if (ro && !ro.alive)
+    w = { state: 'parked', reason: 'CLI закрыт, транскрипт цел — поднимется от сообщения или кнопкой «резюм»' };
   const asks = [
     ...hub.asks({ session: key }).asks,
     ...hub.asks({ session: key, status: 'acknowledged' }).asks.slice(-3),
@@ -525,6 +537,29 @@ export const SPAWN_ENV = { ...process.env,
   PATH: [path.dirname(process.execPath), '/opt/homebrew/bin',
     path.join(os.homedir(), '.local/bin'), process.env.PATH]
     .filter(Boolean).join(':') };
+
+// Реестр раннера — единый файл для fleet и runner.js (runner импортирует
+// путь отсюда). Сайдбару нужна правда «запаркована»: свежий mtime
+// транскрипта только что заглушенной сессии рисовал зелёное «работает»
+// (жалоба CTO 17.08 «почему точка зелёная»).
+export const RUNNER_STATE_FILE = process.env.MORDA_RUNNER_STATE
+  || path.join(MORDA_ROOT, 'runner.json');
+export function runnerOwned() {
+  const out = new Map(); // sessionId → { name, alive }
+  let reg;
+  try { reg = JSON.parse(fs.readFileSync(RUNNER_STATE_FILE, 'utf8')); }
+  catch { return out; }
+  let live = new Set();
+  try {
+    live = new Set(execFileSync(TMUX_BIN, ['list-sessions', '-F', '#{session_name}'],
+      { timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], env: SPAWN_ENV })
+      .toString().trim().split('\n'));
+  } catch { /* tmux не поднят — все мертвы */ }
+  for (const [name, s] of Object.entries(reg.sessions || {})) {
+    if (s.sessionId) out.set(s.sessionId, { name, alive: live.has('stovp-' + name) });
+  }
+  return out;
+}
 export function liveAgents() {
   try {
     return JSON.parse(execFileSync(CLAUDE_BIN, ['agents', '--json'],

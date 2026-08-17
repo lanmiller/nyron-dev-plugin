@@ -16,11 +16,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { rootByName, tmuxCandidates, paneProcessTree, MORDA_ROOT,
-  CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents } from './fleet.js';
-
-// Файл реестра живёт рядом с projects.json — тот же корень морды.
-const STATE_FILE = process.env.MORDA_RUNNER_STATE
-  || path.join(MORDA_ROOT, 'runner.json');
+  CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents,
+  RUNNER_STATE_FILE as STATE_FILE } from './fleet.js';
 
 // Префикс всех tmux-сессий раннера: чужие панели (ручной tmux человека)
 // раннер не трогает НИКОГДА — только свои, со своим префиксом.
