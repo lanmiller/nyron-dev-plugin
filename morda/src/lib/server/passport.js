@@ -1,0 +1,250 @@
+/**
+ * passport.js — верификатор готовности проекта (STOVP-59, шаг 2).
+ *
+ * Паспорт проекта — `<корень>/.claude/passport.json` (схема — макет
+ * docs/specs/2026-08-17-passport-v1.md): какие MCP-серверы нужны и чем их
+ * смоукать, какой плагин со скиллами и минимальной версией, какие ключи
+ * обязаны лежать в ключнице `.secrets/`. Здесь паспорт прогоняется ФАКТОМ:
+ * MCP-сервер реально запускается и отвечает на смоук-вызов, ключница
+ * сверяется по именам переменных (значения наружу не выходят никогда),
+ * забор-хук получает тестовый опасный вход и обязан ответить deny.
+ *
+ * Каждый пункт — { id, title, ok, fact, fix }: красный пункт несёт
+ * конкретный шаг починки, молчаливых фолбэков нет (требование CTO 17.08).
+ * Результат — живое состояние (дом «пульт»), никуда не записывается.
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn, execFileSync } from 'node:child_process';
+import { rootByName, MORDA_ROOT, SPAWN_ENV } from './fleet.js';
+
+const item = (id, title, ok, fact, fix = null) =>
+  ({ id, title, ok: !!ok, fact, fix: ok ? null : fix });
+
+function git(root, args) {
+  try {
+    return execFileSync('git', ['-C', root, ...args],
+      { timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch { return null; }
+}
+
+// KEY=VALUE файл ключницы → карта переменных (значения остаются в процессе,
+// в ответ верификатора уходят только имена и «задано/пусто»)
+function readEnvFile(full) {
+  const vars = {};
+  for (const line of fs.readFileSync(full, 'utf8').split('\n')) {
+    if (line.trim().startsWith('#')) continue;
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (m) vars[m[1]] = m[2];
+  }
+  return vars;
+}
+
+// Значения, которым нечего делать в файлах, уезжающих в git: токены
+// Atlassian/OpenAI/GitHub/GitLab, приватные ключи, пароль в URL.
+const SECRET_RE = /ATATT[\w=.-]{20,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|glpat-[\w-]{15,}|BEGIN [A-Z ]*PRIVATE KEY|:\/\/[^\s/@]+:[^\s/@]{6,}@/;
+
+// ---------- пункт 4: MCP отвечает фактом ----------
+
+// Мини-клиент MCP поверх stdio (протокол — JSON-RPC по строкам): запустить
+// команду из .mcp.json, initialize → tools/call смоук-инструмента.
+function mcpSmoke({ cfg, tool, args, timeoutMs = 45_000 }) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      // cwd = корень проекта: так же запускает stdio-серверы сам CLI,
+      // относительные пути .mcp.json (загрузчик, ключница) работают.
+      // SPAWN_ENV — под launchd PATH минимальный, node/docker не видны.
+      const env = { ...SPAWN_ENV, ...(cfg.env || {}) };
+      env.PATH = `${SPAWN_ENV.PATH}:/usr/local/bin`;   // docker под launchd
+      child = spawn(cfg.command, cfg.args || [], { cwd: cfg.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (e) { return resolve({ ok: false, fact: String(e.message || e) }); }
+    let buf = '', err = '', settled = false;
+    const finish = (r) => {
+      if (settled) return;
+      settled = true;
+      try { child.kill(); } catch {}
+      resolve(r);
+    };
+    const timer = setTimeout(() => finish({
+      ok: false, fact: `нет ответа за ${timeoutMs / 1000}с; stderr: ${err.slice(-260) || 'пусто'}`,
+    }), timeoutMs);
+    const send = (o) => { try { child.stdin.write(JSON.stringify(o) + '\n'); } catch {} };
+    child.stderr.on('data', (d) => (err += d));
+    child.on('error', (e) => { clearTimeout(timer); finish({ ok: false, fact: String(e.message || e) }); });
+    child.on('exit', (code) => {
+      if (!settled) { clearTimeout(timer); finish({ ok: false, fact: `процесс сервера умер (код ${code}); stderr: ${err.slice(-260)}` }); }
+    });
+    child.stdout.on('data', (d) => {
+      buf += d;
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        let msg;
+        try { msg = JSON.parse(line); } catch { continue; }
+        if (msg.id === 1) {
+          send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+          send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: tool, arguments: args } });
+        }
+        if (msg.id === 2) {
+          clearTimeout(timer);
+          const text = msg.result?.content?.find((c) => c.type === 'text')?.text
+            || (msg.error ? JSON.stringify(msg.error) : '');
+          finish(msg.result && !msg.result.isError
+            ? { ok: true, fact: text.replace(/\s+/g, ' ').slice(0, 160) }
+            : { ok: false, fact: text.replace(/\s+/g, ' ').slice(0, 260) || 'ответ с ошибкой' });
+        }
+      }
+    });
+    send({
+      jsonrpc: '2.0', id: 1, method: 'initialize',
+      params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'stovp-passport', version: '1' } },
+    });
+  });
+}
+
+// ---------- пункт 6: забор отвечает deny ----------
+
+function guardAnswers(input) {
+  const guard = path.join(MORDA_ROOT, 'guard', 'pretooluse-guard.mjs');
+  if (!fs.existsSync(guard)) return { ok: false, fact: 'файла забора нет' };
+  try {
+    const out = execFileSync(process.execPath, [guard],
+      { input, timeout: 8000, env: SPAWN_ENV }).toString();
+    const deny = /"permissionDecision"\s*:\s*"deny"/.test(out);
+    return { ok: deny, fact: deny ? 'deny' : `ответ без deny: ${out.slice(0, 120) || 'молчание'}` };
+  } catch (e) { return { ok: false, fact: String(e.message || e) }; }
+}
+
+// ---------- сам прогон ----------
+
+export async function passportCheck({ project }) {
+  const root = rootByName(project);
+  const items = [];
+  const at = new Date().toISOString();
+
+  // 1. паспорт читается
+  const ppFile = path.join(root, '.claude', 'passport.json');
+  let pp = null;
+  try { pp = JSON.parse(fs.readFileSync(ppFile, 'utf8')); } catch {}
+  items.push(item('passport', 'Паспорт проекта', !!pp,
+    pp ? `.claude/passport.json v${pp.version}` : 'файла .claude/passport.json нет или он не читается',
+    'создай .claude/passport.json по макету docs/specs/2026-08-17-passport-v1.md (пример — nyron-dev-plugin)'));
+  if (!pp) return { project, at, items };
+
+  // 2. ключница: папка, git-игнор, файлы, переменные — по именам
+  {
+    const dir = path.join(root, '.secrets');
+    const problems = [];
+    let counted = 0, total = 0;
+    if (!fs.existsSync(dir)) problems.push('папки .secrets/ нет');
+    const ignored = git(root, ['check-ignore', '.secrets']) !== null;
+    if (!ignored) problems.push('.secrets НЕ в .gitignore — добавь строку `.secrets/`');
+    for (const [file, vars] of Object.entries(pp.keys || {})) {
+      const full = path.join(dir, file);
+      if (!fs.existsSync(full)) {
+        problems.push(`нет файла ${file} (переменные: ${Object.keys(vars).join(', ')})`);
+        total += Object.keys(vars).length;
+        continue;
+      }
+      const have = readEnvFile(full);
+      for (const name of Object.keys(vars)) {
+        total += 1;
+        if (have[name]) counted += 1;
+        else problems.push(`${file}: переменная ${name} не задана — ${vars[name]}`);
+      }
+    }
+    items.push(item('keys', 'Ключница .secrets/', !problems.length,
+      problems.length ? problems.join('; ') : `переменных задано ${counted}/${total}; папка в git-игноре`,
+      'положи недостающее в .secrets/ (комментарии к переменным — в паспорте, раздел keys)'));
+  }
+
+  // 3. секреты не в git: ключница не закоммичена, указатели без значений.
+  // Совет «ротируй» — только когда значение реально попало в git-историю;
+  // незакоммиченный файл со значением — переводится на ключницу без паники.
+  {
+    const problems = [];
+    let rotate = false;
+    const tracked = git(root, ['ls-files', '.secrets']);
+    if (tracked) {
+      problems.push(`в git закоммичено из .secrets: ${tracked.split('\n')[0]}…`);
+      rotate = true;
+    }
+    for (const f of ['.mcp.json', '.env']) {
+      const full = path.join(root, f);
+      if (!fs.existsSync(full) || !SECRET_RE.test(fs.readFileSync(full, 'utf8'))) continue;
+      const inGit = git(root, ['ls-files', f]);
+      problems.push(`${f} содержит значение секрета${inGit ? ' И закоммичен' : ''} — это указатель, значениям тут не место`);
+      if (inGit) rotate = true;
+    }
+    items.push(item('no-leak', 'Секреты не в git', !problems.length,
+      problems.length ? problems.join('; ') : '.secrets не закоммичен; .mcp.json/.env без значений секретов',
+      rotate ? 'вынеси значение в ключницу и РОТИРУЙ токен: git-история его уже скомпрометировала'
+        : 'переведи файл на ключницу: значения — в .secrets/, в файле — запуск через morda/keys/with-keys.mjs'));
+  }
+
+  // 4. каждый MCP-сервер паспорта отвечает смоук-вызовом
+  {
+    let mcpCfg = null;
+    try { mcpCfg = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8')).mcpServers || {}; }
+    catch {}
+    for (const [name, req] of Object.entries(pp.mcp || {})) {
+      const cfg = mcpCfg?.[name];
+      if (!cfg) {
+        items.push(item(`mcp:${name}`, `MCP ${name}`, false,
+          'сервера нет в .mcp.json проекта',
+          `опиши ${name} в .mcp.json через загрузчик ключницы (morda/keys/with-keys.mjs — пример в nyron-dev-plugin)`));
+        continue;
+      }
+      // подстановка $ИМЯ в аргументы смоука — из env-файлов этого сервера
+      const vars = {};
+      for (const f of req.keys || []) {
+        const full = path.join(root, '.secrets', f);
+        if (fs.existsSync(full)) Object.assign(vars, readEnvFile(full));
+      }
+      const args = JSON.parse(JSON.stringify(req.smoke?.args || {}),
+        (k, v) => (typeof v === 'string' && v.startsWith('$') ? (vars[v.slice(1)] ?? v) : v));
+      const r = await mcpSmoke({ cfg: { ...cfg, cwd: root }, tool: req.smoke?.tool, args });
+      items.push(item(`mcp:${name}`, `MCP ${name} — ${req.smoke?.tool}`, r.ok, r.fact,
+        `сервер не ответил: проверь Docker (если сервер докерный), ключи в .secrets/ и команду в .mcp.json; ручной смоук: node morda/keys/with-keys.mjs …`));
+    }
+  }
+
+  // 5. плагин установлен, версия не ниже, скиллы на месте
+  {
+    const p = pp.plugin || {};
+    const base = path.join(os.homedir(), '.claude', 'plugins', 'cache', p.marketplace || '', p.name || '');
+    let vers = [];
+    try { vers = fs.readdirSync(base).filter((v) => /^\d+\.\d+\.\d+$/.test(v)); } catch {}
+    const cmp = (a, b) => {
+      const x = a.split('.').map(Number), y = b.split('.').map(Number);
+      return (x[0] - y[0]) || (x[1] - y[1]) || (x[2] - y[2]);
+    };
+    const best = vers.sort(cmp).at(-1) || null;
+    const okVer = best && (!p.min_version || cmp(best, p.min_version) >= 0);
+    const missing = (p.skills || []).filter((s) =>
+      !best || !fs.existsSync(path.join(base, best, 'skills', s)));
+    items.push(item('plugin', `Плагин ${p.name || '?'}`, okVer && !missing.length,
+      !best ? `установленной копии нет: ${base}`
+        : `установлен ${best} (нужно ≥${p.min_version || 'любая'}); скиллов на месте ${(p.skills || []).length - missing.length}/${(p.skills || []).length}`
+          + (missing.length ? `; нет: ${missing.join(', ')}` : ''),
+      `установи/обнови плагин: /plugin marketplace add git@gitlab.com:your2563006/nyron-dev-plugin.git (маркетплейс ${p.marketplace})`));
+  }
+
+  // 6. забор: опасный вход → deny, мусорный вход → deny (fail-closed)
+  if (pp.guard) {
+    const dangerous = guardAnswers(JSON.stringify({
+      tool_name: 'Bash', tool_input: { command: 'sudo rm -rf /' }, cwd: root,
+    }));
+    const garbage = guardAnswers('это не json');
+    const ok = dangerous.ok && garbage.ok;
+    items.push(item('guard', 'Забор-хук раннера', ok,
+      ok ? 'deny на опасный вход и на мусорный (fail-closed)'
+        : `опасный вход: ${dangerous.fact}; мусорный: ${garbage.fact}`,
+      'почини morda/guard/pretooluse-guard.mjs — пока забор не отвечает deny, bypass-режим закрыт'));
+  }
+
+  return { project, at, items };
+}

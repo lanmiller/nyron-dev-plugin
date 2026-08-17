@@ -558,6 +558,35 @@ Enter to select · Tab/Arrow keys to navigate · Esc to cancel</pre>
 </section>
 
 <section>
+  <h2 class="eyebrow">Чек-лист верификатора — паспорт проекта (STOVP-59)</h2>
+  <div class="demo demo-col">
+    <!-- .checklist/.check-row (app.css): пункт = проверка фактом; красный
+         пункт несёт конкретный шаг починки жёлтой строкой -->
+    <div class="checklist" style="margin-left:0">
+      <div class="check-row">
+        <Icon name="check" size={14} class="text-ok" />
+        <div class="check-body">
+          <b>MCP jira-nyron — jira_get_user_profile</b>
+          <span class="check-fact">User Profile: Viktor Stovpets (активен)</span>
+        </div>
+      </div>
+      <div class="check-row bad">
+        <Icon name="x" size={14} class="text-hot" />
+        <div class="check-body">
+          <b>Ключница .secrets/</b>
+          <span class="check-fact">jira.env: переменная JIRA_API_TOKEN не задана</span>
+          <span class="check-fix">починка: положи токен в .secrets/jira.env — комментарии к переменным в паспорте</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="quiet note">
+    Каждый пункт — проверка фактом (вызов, файл, ответ хука), не галочка из
+    памяти. Значения секретов в вывод не попадают — только имена и статус.
+  </p>
+</section>
+
+<section>
   <h2 class="eyebrow">Шторка и диалог — поверхности поверх работы</h2>
   <div class="demo">
     <Sheet.Root bind:open={sheetOpen}>

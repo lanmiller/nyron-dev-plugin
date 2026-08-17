@@ -93,14 +93,33 @@
     usageBusy = { ...usageBusy, [id]: false };
     if (out?.session || out?.week_all) usage = { ...usage, [id]: out };
   }
-  const usageColor = (p) => p >= 90 ? 'var(--err)' : p >= 70 ? 'var(--warn)' : 'var(--ok)';
+  const usageColor = (p) => p >= 90 ? 'var(--hot)' : p >= 70 ? 'var(--warn)' : 'var(--ok)';
+
+  // Паспорт проекта (STOVP-59 шаг 2): прогон «проверить готовность» —
+  // каждый пункт фактом, красный несёт шаг починки. Прогон долгий
+  // (докерный MCP), поэтому явный спиннер на кнопке.
+  let passport = $state({}); // имя проекта → { busy, items, at, error }
+  async function verify(name) {
+    passport = { ...passport, [name]: { busy: true } };
+    try {
+      const r = await fetch('/api/passport', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-morda': '1' },
+        body: JSON.stringify({ project: name }),
+      });
+      const out = await r.json();
+      passport = { ...passport, [name]: r.ok ? out : { error: out.error } };
+    } catch (e) {
+      passport = { ...passport, [name]: { error: String(e.message || e) } };
+    }
+  }
 
   const SLOT_RU = {
     ok: ['подключён', 'var(--ok)'],
     needs_auth: ['протух / не подключён', 'var(--warn)'],
     probing: ['проверяю…', 'var(--text-4)'],
     unknown: ['не проверялся', 'var(--text-4)'],
-    not_installed: ['CLI не установлен', 'var(--err)'],
+    not_installed: ['CLI не установлен', 'var(--hot)'],
   };
   const RUN_RU = {
     starting: ['стартует', 'var(--text-4)'],
@@ -109,7 +128,7 @@
     needs_auth: ['ждёт авторизации', 'var(--warn)'],
     permission: ['ждёт разрешения', 'var(--warn)'],
     stopped: ['запаркована', 'var(--text-4)'],
-    died_on_start: ['умерла на старте', 'var(--err)'],
+    died_on_start: ['умерла на старте', 'var(--hot)'],
   };
 </script>
 
@@ -313,19 +332,47 @@
   {/if}
   <div class="runner-list">
     {#each st.overview?.projects || [] as p (p.name)}
-      <div class="run-row">
-        <Icon name="folder-tree" size={14} class="text-ink-4" />
-        <b class="rname">{p.name}</b>
-        <span class="quiet mono">{p.root}</span>
-        <span class="spacer"></span>
-        <Button variant="ghost" size="xs" class="text-ink-4" disabled={busy}
-          title="уберёт из списка пульта; файлы папки не трогаются"
-          onclick={async () => {
-            if (!confirm(`Убрать проект «${p.name}» из пульта? Файлы не трогаются.`)) return;
-            await act({ action: 'project_remove', name: p.name });
-          }}>
-          <Icon name="unlink" size={12} /> убрать
-        </Button>
+      {@const pv = passport[p.name]}
+      <div class="proj-block">
+        <div class="run-row">
+          <Icon name="folder-tree" size={14} class="text-ink-4" />
+          <b class="rname">{p.name}</b>
+          <span class="quiet mono">{p.root}</span>
+          <span class="spacer"></span>
+          <Button variant="outline" size="xs" disabled={pv?.busy}
+            title="паспорт проекта фактом: MCP отвечают, ключи в ключнице, плагин и скиллы стоят, забор режет"
+            onclick={() => verify(p.name)}>
+            <Icon name={pv?.busy ? 'loader-circle' : 'shield-check'} size={13} />
+            {pv?.busy ? 'проверяю…' : 'проверить готовность'}
+          </Button>
+          <Button variant="ghost" size="xs" class="text-ink-4" disabled={busy}
+            title="уберёт из списка пульта; файлы папки не трогаются"
+            onclick={async () => {
+              if (!confirm(`Убрать проект «${p.name}» из пульта? Файлы не трогаются.`)) return;
+              await act({ action: 'project_remove', name: p.name });
+            }}>
+            <Icon name="unlink" size={12} /> убрать
+          </Button>
+        </div>
+        {#if pv?.error}<p class="err">{pv.error}</p>{/if}
+        {#if pv?.items}
+          <div class="checklist">
+            {#each pv.items as c (c.id)}
+              <div class="check-row" class:bad={!c.ok}>
+                <Icon name={c.ok ? 'check' : 'x'} size={14}
+                  class={c.ok ? 'text-ok' : 'text-hot'} />
+                <div class="check-body">
+                  <b>{c.title}</b>
+                  <span class="check-fact">{c.fact}</span>
+                  {#if c.fix}<span class="check-fix">починка: {c.fix}</span>{/if}
+                </div>
+              </div>
+            {/each}
+            {#if pv.items.every((c) => c.ok)}
+              <p class="hint ok-note">проект готов к работе с плагином — все пункты зелёные фактом</p>
+            {/if}
+          </div>
+        {/if}
       </div>
     {/each}
   </div>

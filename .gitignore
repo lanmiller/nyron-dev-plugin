@@ -1,2 +1,7 @@
 .nyron-hub/
 .DS_Store
+# ключница проекта (STOVP-59): ключи НИКОГДА не уезжают в git
+.secrets/
+# персональное Claude Code этой машины
+.claude/settings.local.json
+.claude/worktrees/

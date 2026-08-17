@@ -476,6 +476,24 @@
     white-space: pre; max-height: 48vh;
   }
 
+  /* Чек-лист верификатора (паспорт проекта, STOVP-59): пункт = факт;
+     красный пункт обязан нести строку починки — молчаливых фолбэков нет. */
+  .checklist {
+    display: flex; flex-direction: column; gap: var(--sp-2);
+    margin: var(--sp-3) 0 0 var(--sp-6);
+  }
+  .check-row {
+    display: flex; align-items: flex-start; gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    border: 1px solid var(--border-soft); border-radius: var(--r-sm);
+    font-size: var(--fs-sm);
+  }
+  .check-row.bad { border-color: color-mix(in oklab, var(--hot) 45%, transparent); }
+  .check-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .check-body b { font-weight: 500; }
+  .check-fact { color: var(--text-3); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+  .check-fix { color: var(--warn); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+
   /* ---------- поверхности ---------- */
 
   /* Панель правой колонки: заголовок + тело, сворачивается и разворачивается.

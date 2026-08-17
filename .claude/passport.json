@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "plugin": {
+    "name": "nyron-dev",
+    "marketplace": "nyron-dev-marketplace-v2",
+    "min_version": "0.9.2",
+    "skills": [
+      "project-config",
+      "jira-task-standard",
+      "intake-groom",
+      "feature-intake",
+      "product-flow",
+      "nyron-waves",
+      "cross-review",
+      "team-roles",
+      "live-epic-testing",
+      "qa-handoff"
+    ]
+  },
+  "mcp": {
+    "jira-nyron": {
+      "keys": ["jira.env"],
+      "smoke": { "tool": "jira_get_user_profile", "args": { "user_identifier": "$JIRA_USERNAME" } }
+    }
+  },
+  "keys": {
+    "jira.env": {
+      "JIRA_URL": "адрес Jira, например https://nyron.atlassian.net",
+      "JIRA_USERNAME": "корп-почта пользователя Jira",
+      "JIRA_API_TOKEN": "секрет: id.atlassian.com → Security → API tokens",
+      "CONFLUENCE_URL": "адрес вики: <JIRA_URL>/wiki",
+      "CONFLUENCE_USERNAME": "та же корп-почта",
+      "CONFLUENCE_API_TOKEN": "тот же API-токен"
+    }
+  },
+  "guard": true
+}
