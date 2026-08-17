@@ -5,6 +5,7 @@
   import AskCard from '$lib/AskCard.svelte';
   import FileBrowser from '$lib/FileBrowser.svelte';
   import Icon from '$lib/Icon.svelte';
+  import PickChip from '$lib/PickChip.svelte';
   import { Button } from '$lib/ui/button/index.js';
   import { Badge } from '$lib/ui/badge/index.js';
   import * as Card from '$lib/ui/card/index.js';
@@ -42,17 +43,43 @@
         launchSlot = claudeSlots[0].id;
     } catch {}
   });
+  // вложения: файл уезжает в проект, сессии — путь (CLI прочитает Read-ом,
+  // картинки тоже — факт этапа 0)
+  let attachments = $state([]); // { path, name }
+  let fileEl = $state(null);
+  let uploading = $state(false);
+  async function addFiles(files) {
+    uploading = true; launchError = null;
+    try {
+      for (const f of files) {
+        const fd = new FormData();
+        fd.append('project', project.name);
+        fd.append('file', f);
+        const r = await fetch('/api/upload', {
+          method: 'POST', headers: { 'x-morda': '1' }, body: fd,
+        });
+        const out = await r.json();
+        if (!r.ok) { launchError = out.error || `HTTP ${r.status}`; continue; }
+        attachments = [...attachments, out];
+      }
+    } finally { uploading = false; if (fileEl) fileEl.value = ''; }
+  }
+
   async function launch() {
     const target = project?.name;
     if (!goal.trim() || !target) return;
     launching = true; launchError = null;
     const name = 's-' + Date.now().toString(36).slice(-6);
+    const text = goal.trim() + (attachments.length
+      ? '\n\nПриложенные файлы (смотри их содержимое при необходимости):\n'
+        + attachments.map((a) => `- ${a.path}`).join('\n')
+      : '');
     try {
       const r = await fetch('/api/runner', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-morda': '1' },
         body: JSON.stringify({
-          action: 'start', project: target, name, goal: goal.trim(),
+          action: 'start', project: target, name, goal: text,
           model: launchModel, effort: launchEffort,
           mode: launchMode || undefined,
           slot: launchSlot || undefined,
@@ -61,6 +88,7 @@
       const out = await r.json();
       if (!r.ok) { launchError = out.error || `HTTP ${r.status}`; return; }
       goal = '';
+      attachments = [];
       launchNote = 'сессия стартует — жду привязки транскрипта…';
       // привязка занимает секунды: стартовые экраны CLI + первый ответ
       for (let i = 0; i < 40; i++) {
@@ -110,51 +138,70 @@
        со всеми скиллами и хуками. Низ — параметры запуска, как в Claude. -->
   <section class="launchpad">
     <div class="composer-box launch-box">
+      <!-- над полем: с какого аккаунта поедет сессия + чипы вложений -->
+      <div class="launch-top">
+        {#if claudeSlots.length}
+          <PickChip bind:value={launchSlot} disabled={launching} icon="key-round"
+            title="Аккаунт, с которого поедет сессия"
+            options={claudeSlots.map((sl) => ({
+              value: sl.id, label: sl.label,
+              desc: sl.hint || sl.kind || null,
+            }))} />
+        {/if}
+        {#each attachments as a (a.path)}
+          <span class="att" title={a.path}>
+            <Icon name="paperclip" size={12} />
+            <span class="att-name">{a.name}</span>
+            <button class="att-x" aria-label="убрать файл"
+              onclick={() => (attachments = attachments.filter((x) => x.path !== a.path))}>
+              <Icon name="x" size={12} />
+            </button>
+          </span>
+        {/each}
+      </div>
       <textarea rows="2" bind:value={goal} disabled={launching}
         placeholder="Опиши задачу — запустится новая сессия в «{project.name}»…"
         onkeydown={(e) => {
           if (e.key !== 'Enter' || e.shiftKey) return;
           e.preventDefault(); launch();
         }}></textarea>
+      <input type="file" multiple hidden bind:this={fileEl}
+        onchange={(e) => addFiles([...e.currentTarget.files])} />
       <div class="launch-bar">
-        <label class="chip" title="режим разрешений сессии">
-          <Icon name={launchMode === 'auto' ? 'zap' : launchMode === 'acceptEdits' ? 'file-pen' : launchMode === 'plan' ? 'notebook-pen' : 'hand'} size={13} />
-          <select bind:value={launchMode} disabled={launching}>
-            <option value="auto">Auto</option>
-            <option value="acceptEdits">Accept edits</option>
-            <option value="plan">Plan</option>
-            <option value="">Manual</option>
-            <option value="bypass">Bypass (за забором)</option>
-          </select>
-        </label>
-        <label class="chip" title="модель сессии">
-          <select bind:value={launchModel} disabled={launching}>
-            <option value="fable">Fable 5</option>
-            <option value="opus">Opus 5</option>
-            <option value="sonnet">Sonnet 5</option>
-            <option value="haiku">Haiku 4.5</option>
-          </select>
-        </label>
-        <label class="chip" title="усилие рассуждения (effort)">
-          <Icon name="gauge" size={13} />
-          <select bind:value={launchEffort} disabled={launching}>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="xhigh">Extra</option>
-            <option value="max">Max</option>
-          </select>
-        </label>
-        {#if claudeSlots.length > 1}
-          <label class="chip" title="подписка, на которой поедет сессия">
-            <Icon name="key-round" size={13} />
-            <select bind:value={launchSlot} disabled={launching}>
-              {#each claudeSlots as sl (sl.id)}
-                <option value={sl.id}>{sl.label}</option>
-              {/each}
-            </select>
-          </label>
-        {/if}
+        <button class="plus" disabled={uploading || launching}
+          aria-label="приложить файл или фото" title="приложить файл или фото"
+          onclick={() => fileEl?.click()}>
+          <Icon name={uploading ? 'loader-circle' : 'plus'} size={16} />
+        </button>
+        <PickChip bind:value={launchModel} bind:subValue={launchEffort}
+          disabled={launching} title="Модель сессии"
+          options={[
+            { value: 'fable', label: 'Fable 5', desc: 'самые сложные задачи' },
+            { value: 'opus', label: 'Opus 5', desc: 'сложные задачи' },
+            { value: 'sonnet', label: 'Sonnet 5', desc: 'эффективная для повседневного' },
+            { value: 'haiku', label: 'Haiku 4.5', desc: 'быстрая, для мелочей' },
+          ]}
+          subLabel="Effort" subIcon="gauge" subTitle="Усилие рассуждения"
+          subOptions={[
+            { value: 'low', label: 'Low', desc: 'быстрые ответы на простое' },
+            { value: 'medium', label: 'Medium', desc: 'лёгкие задачи' },
+            { value: 'high', label: 'High', desc: 'баланс для обычной работы' },
+            { value: 'xhigh', label: 'Extra', desc: 'сложная, детальная работа' },
+            { value: 'max', label: 'Max', desc: 'самое трудное; дольше всего' },
+          ]} />
+        <PickChip bind:value={launchMode} disabled={launching}
+          title="Как сессия спрашивает разрешения" options={[
+            { value: 'auto', label: 'Auto', icon: 'zap',
+              desc: 'Клод сам решает вопросы разрешений' },
+            { value: 'acceptEdits', label: 'Accept edits', icon: 'file-pen',
+              desc: 'правки файлов — без спроса, остальное спросит' },
+            { value: 'plan', label: 'Plan', icon: 'notebook-pen',
+              desc: 'сначала покажет план, потом сделает' },
+            { value: '', label: 'Manual', icon: 'hand',
+              desc: 'каждое действие — вопросом' },
+            { value: 'bypass', label: 'Bypass', icon: 'shield-check',
+              desc: 'вообще без вопросов; опасное режет забор: снос вне проекта, силовой пуш, серверы' },
+          ]} />
         <span class="grow"></span>
         <button class="send" disabled={launching || !goal.trim()} onclick={launch}
           aria-label="запустить новую сессию (Enter)"
@@ -254,24 +301,34 @@
     padding-top: var(--sp-2);
   }
   .launch-bar .grow { flex: 1; }
-  /* чип параметра — пилюля, как в композере Claude («Opus 5», «⚡ Auto») */
-  .launch-bar .chip {
+  /* чипы параметров — компонент PickChip (дизайн-система, витрина /design) */
+  .launch-top {
+    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    padding-bottom: var(--sp-2);
+  }
+  /* чип вложения: имя + крестик; путь — в подсказке */
+  .att {
     display: inline-flex; align-items: center; gap: var(--sp-2);
     background: var(--bg-2); color: var(--text-2);
     border: 1px solid var(--border-soft); border-radius: 999px;
-    padding: var(--sp-2) var(--sp-4); cursor: pointer;
+    padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
+    font-size: var(--fs-xs); max-width: 46vw;
+  }
+  .att-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .att-x {
+    background: none; border: 0; color: var(--text-4); padding: 2px;
+    display: grid; place-items: center; cursor: pointer;
+  }
+  .att-x:hover { color: var(--text-1); }
+  .plus {
+    flex: none; width: 30px; height: 30px; border-radius: 50%;
+    background: none; color: var(--text-3);
+    border: 1px solid var(--border-soft);
+    display: grid; place-items: center; cursor: pointer;
     transition: color var(--t-fast), border-color var(--t-fast);
   }
-  .launch-bar .chip:hover { color: var(--text-1); border-color: var(--border); }
-  .launch-bar .chip:focus-within { border-color: var(--accent); color: var(--text-1); }
-  .launch-bar .chip select {
-    appearance: none; background: none; border: 0; padding: 0;
-    color: inherit; font: inherit; font-size: var(--fs-xs); cursor: pointer;
-    outline: none;
-    /* ширина по выбранному значению, а не по самой длинной опции списка
-       («Bypass (за забором)» раздувал чип Auto на мобилке) */
-    field-sizing: content;
-  }
+  .plus:hover:not(:disabled) { color: var(--text-1); border-color: var(--border); }
+  .plus:disabled { opacity: 0.5; cursor: default; }
   .launch-note { font-size: var(--fs-xs); margin-top: var(--sp-2); }
   /* Шина — плотный список: карточка на реплику превратила бы её в стену
      плашек, а это фон работы, а не решения. */

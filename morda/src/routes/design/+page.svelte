@@ -3,6 +3,7 @@
   // оформление глазами и собирать новые панели из готовых кирпичей, а не
   // рисовать стили заново в каждом файле (аудит 11.08 — 42/100).
   import Icon from '$lib/Icon.svelte';
+  import PickChip from '$lib/PickChip.svelte';
 
   // Компоненты shadcn, приведённые к локу (волна 2). На витрине они стоят
   // рядом со старыми кирпичами намеренно: если пара выглядит по-разному —
@@ -466,6 +467,19 @@
           <Button variant="outline" size="sm"><Icon name="key-round" size={13} />авторизовать</Button>
         </Card.Content>
       </Card.Root>
+    </div>
+    <!-- Чипы параметров запуска (PickChip): пилюля → меню на десктопе,
+         шторка снизу на телефоне; строка = название + описание + галочка -->
+    <div class="demo">
+      <PickChip title="Как сессия спрашивает разрешения" value="auto" options={[
+        { value: 'auto', label: 'Auto', icon: 'zap', desc: 'Клод сам решает вопросы разрешений' },
+        { value: '', label: 'Manual', icon: 'hand', desc: 'каждое действие — вопросом' },
+        { value: 'bypass', label: 'Bypass', icon: 'shield-check', desc: 'без вопросов; опасное режет забор' },
+      ]} />
+      <PickChip title="Модель сессии" value="fable" options={[
+        { value: 'fable', label: 'Fable 5', desc: 'самые сложные задачи' },
+        { value: 'opus', label: 'Opus 5', desc: 'сложные задачи' },
+      ]} />
     </div>
     <!-- Строка раннера: имя, состояние, стоп/резюм -->
     <div class="runrow">

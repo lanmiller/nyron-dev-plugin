@@ -207,6 +207,29 @@
     return () => { st.sessionMenu = null; };
   });
 
+  // вложения в живой чат (этап 2, «вложения путём файла»): файл уезжает в
+  // проект, в поле подставляется путь — сессия прочитает его Read-ом
+  let fileEl = $state(null);
+  let uploading = $state(false);
+  async function attachFiles(files) {
+    uploading = true;
+    try {
+      for (const f of files) {
+        const fd = new FormData();
+        fd.append('project', project);
+        fd.append('file', f);
+        const r = await fetch('/api/upload', {
+          method: 'POST', headers: { 'x-morda': '1' }, body: fd,
+        });
+        const out = await r.json();
+        if (!r.ok) { sayError = out.error || `HTTP ${r.status}`; continue; }
+        draft = (draft ? draft + '\n' : '')
+          + `приложен файл ${out.path} — посмотри его содержимое`;
+        grow();
+      }
+    } finally { uploading = false; if (fileEl) fileEl.value = ''; }
+  }
+
   // поле растёт под текст, как в Claude: одна строка по умолчанию,
   // Enter отправляет, Shift+Enter — перенос
   let ta = $state(null);
@@ -390,6 +413,13 @@
     </div>
 
     <div class="composer-box">
+      <input type="file" multiple hidden bind:this={fileEl}
+        onchange={(e) => attachFiles([...e.currentTarget.files])} />
+      <button class="plus" disabled={uploading || saying}
+        aria-label="приложить файл или фото" title="приложить файл или фото — сессии уйдёт путь"
+        onclick={() => fileEl?.click()}>
+        <Icon name={uploading ? 'loader-circle' : 'plus'} size={16} />
+      </button>
       <textarea rows="1" bind:this={ta} bind:value={draft} oninput={grow}
         placeholder={data.input?.mode === 'tmux' ? 'написать в чат сессии…' : 'написать сессии…'}
         onkeydown={(e) => {
@@ -507,4 +537,14 @@
   .hint { font-size: var(--fs-xs); margin: var(--sp-3) var(--sp-1) 0; }
   .ok-note { color: var(--ok); }
   .perm-row { display: flex; gap: var(--sp-3); margin-top: var(--sp-4); }
+  .plus {
+    flex: none; width: 30px; height: 30px; border-radius: 50%;
+    background: none; color: var(--text-3);
+    border: 1px solid var(--border-soft); align-self: flex-end;
+    display: grid; place-items: center; cursor: pointer;
+    margin-bottom: 2px;
+    transition: color var(--t-fast), border-color var(--t-fast);
+  }
+  .plus:hover:not(:disabled) { color: var(--text-1); border-color: var(--border); }
+  .plus:disabled { opacity: 0.5; cursor: default; }
 </style>
