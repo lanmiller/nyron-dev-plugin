@@ -7,6 +7,7 @@
  * Файла нет — пусто и понятная подсказка в overview.error.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile, execFileSync } from 'node:child_process';
@@ -24,7 +25,7 @@ function firstExisting(cands, probe, envName) {
   throw new Error(
     `не нашёл ${probe}; задай env ${envName}; искал: ${cands.filter(Boolean).join(' | ')}`);
 }
-const MORDA_ROOT = firstExisting([
+export const MORDA_ROOT = firstExisting([
   process.env.MORDA_ROOT,
   path.resolve(HERE, '../../..'),      // dev: morda/src/lib/server → morda
   path.resolve(HERE, '../../../..'),   // build/server/chunks → morda
@@ -504,6 +505,19 @@ export function agentTranscript(project, key, agentId) {
 
 // ---------- ввод в чат (спека, этап 4: tmux — мгновенно; Desktop — зеркало) ----------
 
+// Живые процессы claude этой машины: pid ↔ sessionId ↔ cwd. Это самое
+// прямое доказательство «какая панель хостит какую сессию» — транскрипт
+// CLI не держит открытым (факт 17.08: lsof пуст), а свой pid не врёт.
+export const CLAUDE_BIN = process.env.CLAUDE_BIN
+  || [path.join(os.homedir(), '.local/bin/claude'), '/opt/homebrew/bin/claude']
+    .find((p) => fs.existsSync(p)) || 'claude';
+export function liveAgents() {
+  try {
+    return JSON.parse(execFileSync(CLAUDE_BIN, ['agents', '--json'],
+      { timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'] }).toString());
+  } catch { return []; }
+}
+
 // Панели tmux, где в корне проекта крутится claude.
 export function tmuxCandidates(root) {
   let out;
@@ -521,7 +535,9 @@ export function tmuxCandidates(root) {
 }
 
 // Дерево процессов панели: pane_pid + все потомки (ps один раз на вызов).
-function paneProcessTree(panePid) {
+// Экспорт: раннер (runner.js) привязывает tmux-панель к sessionId через
+// pid из `claude agents --json` — тот же механизм, вторую копию не заводим.
+export function paneProcessTree(panePid) {
   let ps;
   try {
     ps = execFileSync('ps', ['-axo', 'pid=,ppid='],
@@ -560,14 +576,29 @@ function paneHoldsFile(panePid, file) {
 }
 
 /** Режим ввода окна сессии:
- *  { mode: 'tmux', pane }    — панель однозначно держит этот транскрипт;
+ *  { mode: 'tmux', pane }    — панель однозначно хостит эту сессию;
  *  { mode: 'desktop' }       — сессия живёт в приложении, только зеркало;
- *  { mode: 'mirror', candidates } — привязка не доказана, ввод запрещён. */
+ *  { mode: 'mirror', candidates } — привязка не доказана, ввод запрещён.
+ *  Первичное доказательство — pid из `claude agents --json` в дереве
+ *  процессов панели (сессия сама называет свой uuid). lsof по файлу —
+ *  запасной путь: CLI транскрипт открытым не держит (факт 17.08). */
 export function inputFor(root, file, entrypoint) {
-  if (entrypoint === 'claude-desktop') return { mode: 'desktop' };
   // file — ровно тот путь, который вернуло чтение (readSession().file):
   // повторный независимый выбор давал окно гонки на дублях uuid
   // (ревью Sol r3: показали транскрипт A — привязали ввод к B)
+  const key = file ? path.basename(file, '.jsonl') : null;
+  // pid-привязка ПЕРВОЙ, метка entrypoint — после: CLI-сессия с Remote
+  // Control пишет в транскрипт entrypoint=claude-desktop (факт 17.08), и
+  // проверка метки раньше панели отправляла живой tmux в «зеркало Desktop»
+  if (key) {
+    const agent = liveAgents().find((a) => a.sessionId === key);
+    if (agent) {
+      const hit = tmuxCandidates(root)
+        .find((c) => paneProcessTree(c.pid).includes(agent.pid));
+      if (hit) return { mode: 'tmux', pane: hit };
+    }
+  }
+  if (entrypoint === 'claude-desktop') return { mode: 'desktop' };
   if (!file) return { mode: 'mirror', candidates: 0 };
   const cands = tmuxCandidates(root);
   const matches = cands.filter((c) => paneHoldsFile(c.pid, file));

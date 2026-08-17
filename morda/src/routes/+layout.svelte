@@ -291,6 +291,9 @@
       {#if !st.tree.length}<p class="quiet none">читаю проекты…</p>{/if}
     </nav>
 
+    <a class="dslink" href="/settings" title="слоты подписок, раннер, проекты машины">
+      <Icon name="settings" size={12} /> настройки
+    </a>
     <a class="dslink" href="/design" title="токены, компоненты, макет рабочего места">
       <Icon name="asterisk" size={12} /> дизайн-система
     </a>

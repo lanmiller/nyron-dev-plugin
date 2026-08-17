@@ -166,10 +166,33 @@
   let stateInfo = $derived(STATE_RU[data?.state] || null);
   let isDesktop = $derived(data?.entrypoint === 'claude-desktop');
 
+  // Раннер (этап 1 STOVP-58): если процессом владеет пульт — стоп и резюм
+  // прямо из карточки. Стоп = парковка: транскрипт на диске, --resume
+  // поднимет с контекстом.
+  let runnerBusy = $state(false);
+  async function runnerAct(action, extra = {}) {
+    runnerBusy = true;
+    try {
+      const r = await fetch('/api/runner', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-morda': '1' },
+        body: JSON.stringify({ action, name: data.runner.name, ...extra }),
+      });
+      if (!r.ok) sayError = (await r.json()).error || `HTTP ${r.status}`;
+    } finally { runnerBusy = false; refresh(); }
+  }
+
   // Действия сессии — один список на два места показа: чипы в шапке
   // (широкий экран) и пункты меню в общей шапке (телефон).
   let actions = $derived(data ? [
     ...(stateInfo ? [{ label: stateInfo[0], dot: stateInfo[1], note: true }] : []),
+    ...(data.runner ? [data.runner.alive
+      ? { label: 'остановить', icon: 'pause', disabled: runnerBusy,
+        run: () => runnerAct('stop'),
+        title: 'парковка: транскрипт цел, поднимается резюмом' }
+      : { label: 'поднять резюмом', icon: 'play', disabled: runnerBusy,
+        run: () => runnerAct('resume'),
+        title: 'claude --resume — тот же контекст, той же tmux-сессией' }] : []),
     { label: 'копия в Claude', icon: 'external-link', disabled: opening, run: openInClaude,
       title: 'claude://resume — приложение откроет копию этого разговора' },
     ...(data.cwd ? [{ label: files ? 'скрыть файлы' : 'файлы проекта', icon: 'folder-tree',
@@ -299,6 +322,26 @@
     <!-- вопросы — в прокрутке, композер всегда виден (CTO 10.08: пачка
          карточек не должна выталкивать ввод за экран) -->
     <div class="dock-asks" class:sheet-open={sheet}>
+      {#if data.runner?.alive && data.runner?.screen === 'permission'}
+        <!-- CLI-диалог разрешения: сессия СТОИТ и ждёт человека в терминале.
+             «Да»/«нет» уезжают в её tmux; «не спрашивать больше» — только
+             лично в терминале (это решение шире одного клика). -->
+        <article class="hitl">
+          <header>
+            <b>Сессия ждёт разрешения на действие</b>
+            <span class="meta">диалог CLI в её терминале — реши здесь или tmux attach -t {data.runner.tmux}</span>
+          </header>
+          <div class="perm-row">
+            <Button disabled={runnerBusy} onclick={() => runnerAct('approve', { answer: 'yes' })}>
+              разрешить
+            </Button>
+            <Button variant="outline" disabled={runnerBusy}
+              onclick={() => runnerAct('approve', { answer: 'no' })}>
+              отказать
+            </Button>
+          </div>
+        </article>
+      {/if}
       {#if data.pending_hitl}
         <!-- родная форма AskUserQuestion ждёт человека В ОКНЕ ПРИЛОЖЕНИЯ:
              морда её показывает, но кликнуть вариант можно только там -->
@@ -460,4 +503,5 @@
 
   .hint { font-size: var(--fs-xs); margin: var(--sp-3) var(--sp-1) 0; }
   .ok-note { color: var(--ok); }
+  .perm-row { display: flex; gap: var(--sp-3); margin-top: var(--sp-4); }
 </style>

@@ -17,6 +17,43 @@
   let showFiles = $state(false);
   let openAsks = $derived((project?.asks || []).filter((a) => a.status === 'open'));
   let pendingAsks = $derived((project?.asks || []).filter((a) => a.status !== 'open'));
+
+  // Этап 2 STOVP-58: сессия рождается из поля ввода — «сделаем фичу X» /
+  // «закрой эпик DEV-NNN». Пульт запускает CLI-сессию раннером, цель уходит
+  // первым вводом; как раннер привяжет sessionId — открываем её окно.
+  import { goto } from '$app/navigation';
+  let goal = $state('');
+  let launching = $state(false);
+  let launchNote = $state(null);
+  let launchError = $state(null);
+  async function launch() {
+    if (!goal.trim() || !project) return;
+    launching = true; launchError = null;
+    const name = 's-' + Date.now().toString(36).slice(-6);
+    try {
+      const r = await fetch('/api/runner', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-morda': '1' },
+        body: JSON.stringify({ action: 'start', project: project.name, name, goal: goal.trim() }),
+      });
+      const out = await r.json();
+      if (!r.ok) { launchError = out.error || `HTTP ${r.status}`; return; }
+      goal = '';
+      launchNote = 'сессия стартует — жду привязки транскрипта…';
+      // привязка занимает секунды: стартовые экраны CLI + первый ответ
+      for (let i = 0; i < 40; i++) {
+        await new Promise((res) => setTimeout(res, 1500));
+        const l = await (await fetch(`/api/runner?project=${encodeURIComponent(project.name)}`)).json();
+        const e = l.sessions?.find((x) => x.name === name);
+        if (e?.sessionId) return goto(`/s/${encodeURIComponent(project.name)}/${e.sessionId}`);
+        if (e?.state === 'needs_auth') {
+          launchError = 'CLI не авторизован — подключи слот в настройках'; return;
+        }
+        if (e?.state === 'died_on_start') { launchError = 'сессия умерла на старте — tmux attach -t ' + (e.tmux || ''); return; }
+      }
+      launchNote = 'старт затянулся — смотри статус в настройках (раннер)';
+    } finally { launching = false; }
+  }
 </script>
 
 {#if project}
@@ -36,6 +73,22 @@
         onClose={() => (showFiles = false)} />
     </section>
   {/if}
+
+  <!-- Рождение сессии из пульта (этап 2 STOVP-58): цель — вводом, дальше
+       обычная CLI-сессия со всеми скиллами и хуками плагина -->
+  <section class="launcher">
+    <textarea rows="2" bind:value={goal} disabled={launching}
+      placeholder="Новая сессия: «сделаем фичу X» / «закрой эпик DEV-NNN»…"
+      onkeydown={(e) => {
+        if (e.key !== 'Enter' || e.shiftKey) return;
+        e.preventDefault(); launch();
+      }}></textarea>
+    <Button disabled={launching || !goal.trim()} onclick={launch}>
+      <Icon name="play" size={14} /> запустить
+    </Button>
+  </section>
+  {#if launchError}<p class="err">{launchError}</p>{/if}
+  {#if launchNote && !launchError}<p class="quiet launch-note">{launchNote}</p>{/if}
 
   <section>
     <h2 class="eyebrow sect">Ждут вас {#if openAsks.length}<Badge>{openAsks.length}</Badge>{/if}</h2>
@@ -101,6 +154,20 @@
 <style>
   /* надзаголовок секции: класс .eyebrow даёт вид, здесь — только ритм */
   .sect { margin: var(--sp-8) 0 var(--sp-5); display: flex; align-items: center; gap: var(--sp-4); }
+  /* композер рождения сессии: тот же вид, что композер окна сессии
+     (.composer-box app.css задаёт textarea), кнопка — рядом */
+  .launcher {
+    display: flex; gap: var(--sp-3); align-items: flex-end;
+    margin-top: var(--sp-6);
+  }
+  .launcher textarea {
+    flex: 1; resize: none; min-height: 44px;
+    background: var(--bg-2); color: var(--text-1);
+    border: 1px solid var(--border); border-radius: var(--r);
+    padding: var(--sp-3) var(--sp-4); font: inherit; font-size: var(--fs-sm);
+  }
+  .launcher textarea:focus { outline: none; border-color: var(--accent); }
+  .launch-note { font-size: var(--fs-xs); margin-top: var(--sp-2); }
   /* Шина — плотный список: карточка на реплику превратила бы её в стену
      плашек, а это фон работы, а не решения. */
   .feed { list-style: none; padding: 0; margin: 0; }

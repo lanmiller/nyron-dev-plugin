@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite dev",
+    "dev": "vite dev --port 5747 --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview",
     "start": "HOST=127.0.0.1 PORT=4747 node build"

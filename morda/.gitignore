@@ -3,3 +3,5 @@ node_modules/
 build/
 projects.json
 epics.json
+runner.json
+slots.json

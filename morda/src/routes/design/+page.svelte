@@ -443,6 +443,54 @@
 </section>
 
 <section>
+  <h2 class="eyebrow">Раннер и слоты — пульт владеет сессиями (STOVP-58)</h2>
+  <div class="demo demo-col">
+    <!-- Карточка копии подписки: статус — фактом (подключён / протух /
+         CLI не установлен), подключение — ссылка + запасное поле кода -->
+    <div class="slot-pair">
+      <Card.Root>
+        <Card.Header>
+          <Card.Title>stovp3tt</Card.Title>
+          <Card.Description>подписка Claude (флот)</Card.Description>
+          <Card.Action><Badge variant="outline"><i class="dot" style="background:var(--ok)"></i>подключён</Badge></Card.Action>
+        </Card.Header>
+        <Card.Content><p class="quiet" style="font-size:var(--fs-xs)">stovpe3t@gmail.com</p></Card.Content>
+      </Card.Root>
+      <Card.Root>
+        <Card.Header>
+          <Card.Title>ревьюер</Card.Title>
+          <Card.Description>аккаунт OpenAI (cross-review)</Card.Description>
+          <Card.Action><Badge variant="outline"><i class="dot" style="background:var(--warn)"></i>протух</Badge></Card.Action>
+        </Card.Header>
+        <Card.Content>
+          <Button variant="outline" size="sm"><Icon name="key-round" size={13} />авторизовать</Button>
+        </Card.Content>
+      </Card.Root>
+    </div>
+    <!-- Строка раннера: имя, состояние, стоп/резюм -->
+    <div class="runrow">
+      <i class="dot" style="background:var(--ok)"></i>
+      <b>s-x1ztc3</b> <span class="quiet">stovp</span>
+      <Badge variant="outline">работает</Badge>
+      <span class="grow"></span>
+      <Button variant="outline" size="xs"><Icon name="pause" size={13} />стоп</Button>
+    </div>
+    <div class="runrow">
+      <i class="dot" style="background:var(--text-4)"></i>
+      <b>proto-1</b> <span class="quiet">stovp</span>
+      <Badge variant="outline">запаркована</Badge>
+      <span class="grow"></span>
+      <Button variant="outline" size="xs"><Icon name="play" size={13} />резюм</Button>
+    </div>
+  </div>
+  <p class="quiet note">
+    Стоп — парковка, не убийство: транскрипт на диске, «резюм» поднимает с
+    полным контекстом. Жёлтое состояние «ждёт разрешения» рисуется той же
+    карточкой, что HITL-форма в окне сессии (жёлтая рамка = ждёт человека).
+  </p>
+</section>
+
+<section>
   <h2 class="eyebrow">Шторка и диалог — поверхности поверх работы</h2>
   <div class="demo">
     <Sheet.Root bind:open={sheetOpen}>
@@ -670,6 +718,15 @@
   .sp span { font-size: var(--fs-micro); }
   .demo { display: flex; gap: var(--sp-4); flex-wrap: wrap; align-items: center; }
   .note { font-size: var(--fs-xs); margin: var(--sp-4) 0 0; }
+  /* раннер и слоты (STOVP-58): колонка, пара карточек, строка процесса */
+  .demo-col { flex-direction: column; align-items: stretch; }
+  .slot-pair { display: grid; gap: var(--sp-4); grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+  .runrow {
+    display: flex; align-items: center; gap: var(--sp-4);
+    padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border-soft);
+    border-radius: var(--r); font-size: var(--fs-sm);
+  }
+  .runrow .grow { flex: 1; }
   /* подзаголовок пары «старый кирпич — новый компонент» */
   .sub {
     font-size: var(--fs-sm); font-weight: 600; color: var(--text-3);
