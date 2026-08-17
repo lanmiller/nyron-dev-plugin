@@ -252,6 +252,24 @@ export function runnerBySessionId(key) {
   return null;
 }
 
+/** Ввод в МЁРТВУЮ сессию поднимает её резюмом, и текст уезжает первым
+ *  вводом (очередь цели стартовой машины — тот же механизм, что у goal).
+ *  Требование CTO 17.08: «написал в мёртвую — поднялся нужный клод, и
+ *  сообщение ушло туда», мера успеха STOVP-58 «ответ доезжает за секунды
+ *  независимо от того, слушает ли сессия будку».
+ *  Живую где-то ещё (Desktop, чужой tmux) НЕ трогаем — вернём null,
+ *  пусть доставляет обычный канал: резюм живой сессии = форк разговора. */
+export function resumeForInput({ project, key, text }) {
+  if (liveAgents().some((a) => a.sessionId === key)) return null;
+  const reg = loadReg();
+  let name = Object.entries(reg.sessions)
+    .find(([, s]) => s.sessionId === key)?.[0];
+  if (name && tmuxAlive(name)) return null;  // панель жива — обычный канал
+  if (!name) name = 'r-' + key.slice(0, 8);  // усыновление не-раннерской
+  if (tmuxAlive(name)) return null;
+  return runnerStart({ project, name, goal: text, resumeId: key });
+}
+
 /** Ответ на диалог разрешения с карточки: только «да» / «нет» — выбор
  *  «не спрашивать больше» человек делает лично в терминале. */
 export function runnerApprove({ name, answer }) {

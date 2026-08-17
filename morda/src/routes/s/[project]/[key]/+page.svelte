@@ -118,7 +118,9 @@
       if (!r.ok) sayError = body.error || `HTTP ${r.status}`;
       else {
         draft = '';
-        sent = body.via === 'tmux' ? `доставлено в панель ${body.pane}` : `в будке (адресовано сессии) — ${body.note}`;
+        sent = body.via === 'tmux' ? `доставлено в панель ${body.pane}`
+          : body.via === 'resume' ? body.note
+            : `в будке (адресовано сессии) — ${body.note}`;
       }
     } catch (e) {
       sayError = String(e.message || e);
@@ -406,7 +408,8 @@
       {#if data.input?.mode === 'tmux'}
         ⌘⏎ — отправить, доставка мгновенная в панель сессии.
       {:else}
-        Уйдёт адресным постом в будку — сессия заберёт при чтении.
+        Мёртвую сессию сообщение поднимет резюмом и уедет в неё; живущую в
+        Desktop доставит будка-почтальон.
         <Button variant="link" size="xs" class="px-0" onclick={() => (details = !details)}>
           {details ? 'свернуть' : 'подробнее'}
         </Button>
