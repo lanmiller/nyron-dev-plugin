@@ -26,6 +26,10 @@
   let adding = $state(false);
   let addProvider = $state('claude');
   let addLabel = $state('');
+  // форма «добавить проект»
+  let addingProject = $state(false);
+  let projName = $state('');
+  let projRoot = $state('');
 
   async function refresh() {
     try {
@@ -280,18 +284,48 @@
 </section>
 
 <section>
-  <div class="sec-h"><h2>Проекты машины</h2></div>
+  <div class="sec-h">
+    <h2>Проекты машины</h2>
+    <Button size="xs" disabled={busy} onclick={() => (addingProject = !addingProject)}>
+      <Icon name="plus" size={13} /> добавить проект
+    </Button>
+  </div>
+  {#if addingProject}
+    <Card.Root class="mb-4">
+      <Card.Content class="add-form">
+        <div class="code-row">
+          <Input placeholder="имя (строчные латиница/цифры/дефис)" bind:value={projName} />
+          <Input placeholder="/абсолютный/путь/к/папке" bind:value={projRoot} class="flex-2" />
+          <Button disabled={busy || !projName.trim() || !projRoot.trim()}
+            onclick={async () => {
+              const out = await act({ action: 'project_add',
+                name: projName.trim(), root: projRoot.trim() });
+              if (out?.added) { addingProject = false; projName = ''; projRoot = ''; }
+            }}>подключить</Button>
+        </div>
+        <p class="hint quiet">Папка обязана существовать; пульт получит к ней
+          доступ: сессии, файлы, будка (.nyron-hub заведётся внутри).</p>
+      </Card.Content>
+    </Card.Root>
+  {/if}
   <div class="runner-list">
     {#each st.overview?.projects || [] as p (p.name)}
       <div class="run-row">
         <Icon name="folder-tree" size={14} class="text-ink-4" />
         <b class="rname">{p.name}</b>
         <span class="quiet mono">{p.root}</span>
+        <span class="spacer"></span>
+        <Button variant="ghost" size="xs" class="text-ink-4" disabled={busy}
+          title="уберёт из списка пульта; файлы папки не трогаются"
+          onclick={async () => {
+            if (!confirm(`Убрать проект «${p.name}» из пульта? Файлы не трогаются.`)) return;
+            await act({ action: 'project_remove', name: p.name });
+          }}>
+          <Icon name="unlink" size={12} /> убрать
+        </Button>
       </div>
     {/each}
   </div>
-  <p class="hint quiet">Список — morda/projects.json (allowlist корней;
-    редактирование со страницы — следующим шагом вместе с паспортом проекта).</p>
 </section>
 
 <style>

@@ -51,6 +51,37 @@ export function projects() {
   return JSON.parse(fs.readFileSync(p, 'utf8'));
 }
 
+// Правка списка проектов — с страницы настроек (CTO 17.08: «нужна кнопка
+// добавления, не у всех папка очевидна»). Путь проверяется фактом
+// существования; удаление трогает только список, не файлы.
+export function projectAdd({ name, root }) {
+  if (!/^[a-z0-9][a-z0-9-]{0,30}$/.test(name || ''))
+    throw new Error('имя проекта: строчные латиница/цифры/дефис');
+  const full = path.resolve(String(root || ''));
+  if (!path.isAbsolute(String(root || ''))) throw new Error('нужен абсолютный путь к папке');
+  if (!fs.existsSync(full) || !fs.statSync(full).isDirectory())
+    throw new Error(`папки нет: ${full}`);
+  const list = projects() || [];
+  if (list.some((p) => p.name === name)) throw new Error(`проект ${name} уже есть`);
+  if (list.some((p) => path.resolve(p.root) === full))
+    throw new Error(`эта папка уже подключена как «${list.find((p) => path.resolve(p.root) === full).name}»`);
+  list.push({ name, root: full });
+  const f = path.join(MORDA_ROOT, 'projects.json');
+  fs.writeFileSync(f + '.tmp', JSON.stringify(list, null, 2));
+  fs.renameSync(f + '.tmp', f);
+  return { added: name, root: full };
+}
+
+export function projectRemove({ name }) {
+  const list = projects() || [];
+  if (!list.some((p) => p.name === name)) throw new Error(`нет проекта ${name}`);
+  const next = list.filter((p) => p.name !== name);
+  const f = path.join(MORDA_ROOT, 'projects.json');
+  fs.writeFileSync(f + '.tmp', JSON.stringify(next, null, 2));
+  fs.renameSync(f + '.tmp', f);
+  return { removed: name };
+}
+
 // root НИКОГДА не приходит с клиента (ревью Sol: произвольный путь из POST
 // создавал бы .nyron-hub где угодно) — только имя проекта, резолв по
 // allowlist projects.json.

@@ -26,15 +26,20 @@
   let launching = $state(false);
   let launchNote = $state(null);
   let launchError = $state(null);
+  // куда рожать сессию — выбор человека, не догадка по сайдбару
+  // (CTO 17.08: «нет выбора, в какой папке запустить»); дефолт — активный
+  let launchProject = $state('');
+  $effect(() => { if (!launchProject && project) launchProject = project.name; });
   async function launch() {
-    if (!goal.trim() || !project) return;
+    const target = launchProject || project?.name;
+    if (!goal.trim() || !target) return;
     launching = true; launchError = null;
     const name = 's-' + Date.now().toString(36).slice(-6);
     try {
       const r = await fetch('/api/runner', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-morda': '1' },
-        body: JSON.stringify({ action: 'start', project: project.name, name, goal: goal.trim() }),
+        body: JSON.stringify({ action: 'start', project: target, name, goal: goal.trim() }),
       });
       const out = await r.json();
       if (!r.ok) { launchError = out.error || `HTTP ${r.status}`; return; }
@@ -43,9 +48,9 @@
       // привязка занимает секунды: стартовые экраны CLI + первый ответ
       for (let i = 0; i < 40; i++) {
         await new Promise((res) => setTimeout(res, 1500));
-        const l = await (await fetch(`/api/runner?project=${encodeURIComponent(project.name)}`)).json();
+        const l = await (await fetch(`/api/runner?project=${encodeURIComponent(target)}`)).json();
         const e = l.sessions?.find((x) => x.name === name);
-        if (e?.sessionId) return goto(`/s/${encodeURIComponent(project.name)}/${e.sessionId}`);
+        if (e?.sessionId) return goto(`/s/${encodeURIComponent(target)}/${e.sessionId}`);
         if (e?.state === 'needs_auth') {
           launchError = 'CLI не авторизован — подключи слот в настройках'; return;
         }
@@ -83,6 +88,12 @@
         if (e.key !== 'Enter' || e.shiftKey) return;
         e.preventDefault(); launch();
       }}></textarea>
+    <select class="launch-proj" bind:value={launchProject} disabled={launching}
+      title="в какой папке родится сессия (список проектов — настройки)">
+      {#each st.overview?.projects || [] as p (p.name)}
+        <option value={p.name}>{p.name}</option>
+      {/each}
+    </select>
     <Button disabled={launching || !goal.trim()} onclick={launch}>
       <Icon name="play" size={14} /> запустить
     </Button>
@@ -167,6 +178,13 @@
     padding: var(--sp-3) var(--sp-4); font: inherit; font-size: var(--fs-sm);
   }
   .launcher textarea:focus { outline: none; border-color: var(--accent); }
+  .launch-proj {
+    flex: none; height: 44px;
+    background: var(--bg-2); color: var(--text-2);
+    border: 1px solid var(--border); border-radius: var(--r);
+    padding: 0 var(--sp-3); font: inherit; font-size: var(--fs-sm);
+  }
+  .launch-proj:focus { outline: none; border-color: var(--accent); }
   .launch-note { font-size: var(--fs-xs); margin-top: var(--sp-2); }
   /* Шина — плотный список: карточка на реплику превратила бы её в стену
      плашек, а это фон работы, а не решения. */

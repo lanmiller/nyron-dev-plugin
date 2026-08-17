@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import { runnerList, runnerStart, runnerStop, runnerResume, runnerApprove,
   slotList, slotAdd, slotRemove, slotConnect, slotCode, slotUsage,
   providerList } from '$lib/server/runner.js';
+import { projectAdd, projectRemove } from '$lib/server/fleet.js';
 import { guarded } from '$lib/server/guard.js';
 
 // Раннер (этап 1 STOVP-58): пульт владеет CLI-сессиями. Одна ручка,
@@ -30,6 +31,8 @@ const ACTIONS = {
   slot_connect: slotConnect,
   slot_code: slotCode,
   slot_usage: slotUsage,
+  project_add: projectAdd,
+  project_remove: projectRemove,
 };
 
 export async function POST({ request }) {
