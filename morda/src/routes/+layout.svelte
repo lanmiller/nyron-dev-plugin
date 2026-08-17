@@ -213,11 +213,13 @@
 
 {#snippet sidebar(inSheet = false)}
   <div class="side" class:in-sheet={inSheet}>
-    <div class="brand">
+    <!-- марка — ссылка на главную: со страниц настроек и дизайн-системы
+         иначе некуда возвращаться (вопрос CTO 17.08 «как главную открыть») -->
+    <a class="brand" href="/" title="на главную — там рождаются новые сессии">
       <Icon name="asterisk" size={18} class="text-primary" />
       <b>STOVP</b>
       <span class="at">{st.overview ? new Date(st.overview.at).toLocaleTimeString('ru') : '…'}</span>
-    </div>
+    </a>
 
     <div class="side-h" title="цвет точки — вердикт сторожа: зелёная — работает; жёлтая — ждёт вашего решения (оформленный ask); оранжевая — спросила в чате и молчит; горчичная — застряла; серая — закончилась; тусклая — сторож её ещё не видел">
       Проекты и сессии <Icon name="circle-help" size={12} class="text-ink-4" />
@@ -381,7 +383,12 @@
     display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%;
     overflow-y: auto; padding: var(--sp-6) var(--sp-5) var(--sp-5);
   }
-  .brand { display: flex; align-items: center; gap: var(--sp-4); padding: 0 var(--sp-4) var(--sp-6); }
+  .brand {
+    display: flex; align-items: center; gap: var(--sp-4);
+    padding: 0 var(--sp-4) var(--sp-6);
+    color: inherit; text-decoration: none;
+  }
+  .brand:hover b { color: var(--accent); }
   /* в шторке справа сверху сидит её крестик — марка под него не лезет */
   .side.in-sheet .brand { padding-right: var(--sp-8); }
   .brand b { font-family: var(--serif); font-size: 17px; font-weight: 500; }
