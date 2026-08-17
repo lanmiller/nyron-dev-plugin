@@ -200,7 +200,7 @@
               <Icon name="key-round" size={13} /> авторизовать
             </Button>
           {/if}
-          {#if s.provider === 'claude' && s.status === 'ok'}
+          {#if (s.provider === 'claude' || s.provider === 'codex') && s.status === 'ok'}
             {#if usage[s.id]}
               {@const u = usage[s.id]}
               <div class="usage">

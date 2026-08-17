@@ -513,12 +513,14 @@ export function slotConnect({ id }) {
   throw new Error(`ссылка не появилась за 8с — tmux attach -t stovp-${name}`);
 }
 
-/** Лимиты подписки слота: /usage в служебной сессии, проценты и даты
- *  сброса — с экрана (память CTO: «/usage снимается через tmux», лимит
- *  общий на аккаунт). Только Claude: у codex такой команды нет. */
+/** Лимиты подписки слота — с экрана служебной сессии (память CTO: «/usage
+ *  снимается через tmux», лимит общий на аккаунт). Claude — /usage;
+ *  Codex — /status (лимиты приезжают только с ответом модели, поэтому
+ *  при пустом статусе делается один мини-запрос). */
 export function slotUsage({ id }) {
   const s = slotById(id);
-  if (s.provider !== 'claude') throw new Error('лимиты умеет только Claude CLI');
+  if (s.provider === 'codex') return codexUsage(s, authName(id));
+  if (s.provider !== 'claude') throw new Error(`лимиты для ${s.provider} пока не умею`);
   const name = authName(id);
   if (!tmuxAlive(name)) startAuthTmux(s, CLAUDE_BIN);
   // дождаться промпта (свежая сессия может проходить онбординг)
@@ -554,6 +556,51 @@ export function slotUsage({ id }) {
   if (!usage.session && !usage.week_all)
     throw new Error('не смог прочитать /usage — открой tmux attach -t stovp-' + name);
   return usage;
+}
+
+// Codex: панель /status. «% left» нормализуем в «использовано», как у
+// Claude. Формат снят живьём 17.08 (codex v0.147): «Weekly limit: […] 97%
+// left / (resets 14:33 on 20 Aug)» + строка топ-модели с префиксом имени.
+function codexUsage(s, name) {
+  if (!tmuxAlive(name)) startAuthTmux(s, CODEX_BIN);
+  const boot = Date.now() + 20_000;
+  while (Date.now() < boot) {
+    const scr = capture(name, 40);
+    if (/Press enter to continue|Yes, continue/i.test(scr)) {
+      try { tmux(['send-keys', '-t', pane(name), 'Enter']); } catch {}
+    } else if (/›/.test(scr)) break;
+    execFileSync('sleep', ['0.5']);
+  }
+  const parse = (scr) => {
+    const out = { session: null, week_all: null, week_model: null };
+    const lines = scr.split('\n').map((l) => l.replace(/│/g, ' ').trim());
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^(.*?)\s*Weekly limit:\s*\[[^\]]*\]\s*(\d+)% left/);
+      if (!m) continue;
+      const resets = (lines[i] + ' ' + (lines[i + 1] || '')).match(/resets ([^)]+)\)/)?.[1] || null;
+      const entry = { used_pct: 100 - Number(m[2]), resets };
+      if (m[1]) out.week_model = entry; else out.week_all = entry;
+    }
+    return out;
+  };
+  sendLine(name, '/status');
+  execFileSync('sleep', ['3']);
+  let u = parse(capture(name, 80));
+  if (!u.week_all && !u.week_model) {
+    // свежая сессия лимитов не знает — один мини-запрос, чтобы приехали
+    sendLine(name, 'ответь одним словом: ок');
+    const until = Date.now() + 45_000;
+    while (Date.now() < until) {
+      execFileSync('sleep', ['3']);
+      sendLine(name, '/status');
+      execFileSync('sleep', ['3']);
+      u = parse(capture(name, 80));
+      if (u.week_all || u.week_model) break;
+    }
+  }
+  if (!u.week_all && !u.week_model)
+    throw new Error('не смог прочитать /status — tmux attach -t stovp-' + name);
+  return { ...u, at: new Date().toISOString() };
 }
 
 /** Код со страницы после входа (только Claude-флоу). */
