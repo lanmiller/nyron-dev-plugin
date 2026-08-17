@@ -18,20 +18,32 @@
   let openAsks = $derived((project?.asks || []).filter((a) => a.status === 'open'));
   let pendingAsks = $derived((project?.asks || []).filter((a) => a.status !== 'open'));
 
-  // Этап 2 STOVP-58: сессия рождается из поля ввода — «сделаем фичу X» /
-  // «закрой эпик DEV-NNN». Пульт запускает CLI-сессию раннером, цель уходит
-  // первым вводом; как раннер привяжет sessionId — открываем её окно.
+  // Этап 2 STOVP-58: сессия рождается из композера — «сделаем фичу X» /
+  // «закрой эпик DEV-NNN». Референс — композер Claude Desktop (CTO 17.08):
+  // отправка стрелкой, снизу режим / модель / effort / подписка. Проект —
+  // НЕ здесь: его выбирает шапка страницы, композер наследует.
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   let goal = $state('');
   let launching = $state(false);
   let launchNote = $state(null);
   let launchError = $state(null);
-  // куда рожать сессию — выбор человека, не догадка по сайдбару
-  // (CTO 17.08: «нет выбора, в какой папке запустить»); дефолт — активный
-  let launchProject = $state('');
-  $effect(() => { if (!launchProject && project) launchProject = project.name; });
+  // дефолты запуска — канон CTO: основной слот + Fable 5, Auto, high
+  let launchMode = $state('auto');
+  let launchModel = $state('fable');
+  let launchEffort = $state('high');
+  let launchSlot = $state('claude-main');
+  let claudeSlots = $state([]);
+  onMount(async () => {
+    try {
+      const r = await (await fetch('/api/runner')).json();
+      claudeSlots = (r.slots || []).filter((s) => s.provider === 'claude');
+      if (!claudeSlots.some((s) => s.id === launchSlot) && claudeSlots[0])
+        launchSlot = claudeSlots[0].id;
+    } catch {}
+  });
   async function launch() {
-    const target = launchProject || project?.name;
+    const target = project?.name;
     if (!goal.trim() || !target) return;
     launching = true; launchError = null;
     const name = 's-' + Date.now().toString(36).slice(-6);
@@ -39,7 +51,12 @@
       const r = await fetch('/api/runner', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-morda': '1' },
-        body: JSON.stringify({ action: 'start', project: target, name, goal: goal.trim() }),
+        body: JSON.stringify({
+          action: 'start', project: target, name, goal: goal.trim(),
+          model: launchModel, effort: launchEffort,
+          mode: launchMode || undefined,
+          slot: launchSlot || undefined,
+        }),
       });
       const out = await r.json();
       if (!r.ok) { launchError = out.error || `HTTP ${r.status}`; return; }
@@ -64,8 +81,18 @@
 {#if project}
   {#if project.error}<p class="err">{project.name}: {project.error}</p>{/if}
 
+  <!-- проект выбирается ЗДЕСЬ и двигает весь экран: файлы, шину, композер
+       (CTO 17.08: «выбор проекта — там, где файлы смотрятся») -->
   <div class="flex items-center gap-2.5">
-    <h1 class="flex-none">{project.name}</h1>
+    <label class="proj-pick" title="проект: файлы, шина и новые сессии — его">
+      <select value={project.name} disabled={launching}
+        onchange={(e) => goto(`/?p=${encodeURIComponent(e.currentTarget.value)}`)}>
+        {#each st.overview?.projects || [] as p (p.name)}
+          <option value={p.name}>{p.name}</option>
+        {/each}
+      </select>
+      <Icon name="chevron-down" size={16} class="text-ink-4" />
+    </label>
     <Button variant="outline" size="sm" onclick={() => (showFiles = !showFiles)}>
       <Icon name={showFiles ? 'x' : 'folder-tree'} size={14} />
       {showFiles ? 'файлы' : 'файлы проекта'}
@@ -79,27 +106,66 @@
     </section>
   {/if}
 
-  <!-- Рождение сессии из пульта (этап 2 STOVP-58): цель — вводом, дальше
-       обычная CLI-сессия со всеми скиллами и хуками плагина -->
-  <section class="launcher">
-    <textarea rows="2" bind:value={goal} disabled={launching}
-      placeholder="Новая сессия: «сделаем фичу X» / «закрой эпик DEV-NNN»…"
-      onkeydown={(e) => {
-        if (e.key !== 'Enter' || e.shiftKey) return;
-        e.preventDefault(); launch();
-      }}></textarea>
-    <select class="launch-proj" bind:value={launchProject} disabled={launching}
-      title="в какой папке родится сессия (список проектов — настройки)">
-      {#each st.overview?.projects || [] as p (p.name)}
-        <option value={p.name}>{p.name}</option>
-      {/each}
-    </select>
-    <Button disabled={launching || !goal.trim()} onclick={launch}>
-      <Icon name="play" size={14} /> запустить
-    </Button>
+  <!-- Рождение сессии (этап 2 STOVP-58): текст + стрелка = новая CLI-сессия
+       со всеми скиллами и хуками. Низ — параметры запуска, как в Claude. -->
+  <section class="launchpad">
+    <div class="composer-box launch-box">
+      <textarea rows="2" bind:value={goal} disabled={launching}
+        placeholder="Опиши задачу — запустится новая сессия в «{project.name}»…"
+        onkeydown={(e) => {
+          if (e.key !== 'Enter' || e.shiftKey) return;
+          e.preventDefault(); launch();
+        }}></textarea>
+      <div class="launch-bar">
+        <label class="chip" title="режим разрешений сессии">
+          <Icon name={launchMode === 'auto' ? 'zap' : launchMode === 'acceptEdits' ? 'file-pen' : launchMode === 'plan' ? 'notebook-pen' : 'hand'} size={13} />
+          <select bind:value={launchMode} disabled={launching}>
+            <option value="auto">Auto</option>
+            <option value="acceptEdits">Accept edits</option>
+            <option value="plan">Plan</option>
+            <option value="">Manual</option>
+            <option value="bypass">Bypass (за забором)</option>
+          </select>
+        </label>
+        <label class="chip" title="модель сессии">
+          <select bind:value={launchModel} disabled={launching}>
+            <option value="fable">Fable 5</option>
+            <option value="opus">Opus 5</option>
+            <option value="sonnet">Sonnet 5</option>
+            <option value="haiku">Haiku 4.5</option>
+          </select>
+        </label>
+        <label class="chip" title="усилие рассуждения (effort)">
+          <Icon name="gauge" size={13} />
+          <select bind:value={launchEffort} disabled={launching}>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="xhigh">Extra</option>
+            <option value="max">Max</option>
+          </select>
+        </label>
+        {#if claudeSlots.length > 1}
+          <label class="chip" title="подписка, на которой поедет сессия">
+            <Icon name="key-round" size={13} />
+            <select bind:value={launchSlot} disabled={launching}>
+              {#each claudeSlots as sl (sl.id)}
+                <option value={sl.id}>{sl.label}</option>
+              {/each}
+            </select>
+          </label>
+        {/if}
+        <span class="grow"></span>
+        <button class="send" disabled={launching || !goal.trim()} onclick={launch}
+          aria-label="запустить новую сессию (Enter)"
+          title="Enter — запустить новую сессию">
+          <Icon name="arrow-up" size={16} />
+        </button>
+      </div>
+    </div>
+    {#if launchError}<p class="err">{launchError}</p>{/if}
+    {#if launchNote && !launchError}<p class="quiet launch-note">{launchNote}</p>{/if}
   </section>
-  {#if launchError}<p class="err">{launchError}</p>{/if}
-  {#if launchNote && !launchError}<p class="quiet launch-note">{launchNote}</p>{/if}
 
   <section>
     <h2 class="eyebrow sect">Ждут вас {#if openAsks.length}<Badge>{openAsks.length}</Badge>{/if}</h2>
@@ -165,26 +231,47 @@
 <style>
   /* надзаголовок секции: класс .eyebrow даёт вид, здесь — только ритм */
   .sect { margin: var(--sp-8) 0 var(--sp-5); display: flex; align-items: center; gap: var(--sp-4); }
-  /* композер рождения сессии: тот же вид, что композер окна сессии
-     (.composer-box app.css задаёт textarea), кнопка — рядом */
-  .launcher {
-    display: flex; gap: var(--sp-3); align-items: flex-end;
-    margin-top: var(--sp-6);
+  /* Заголовок-переключатель проекта: тот же вес, что h1, стрелка рядом —
+     видно, что кликается. Кирпич .composer-box — из системы. */
+  .proj-pick {
+    display: inline-flex; align-items: center; gap: var(--sp-2);
+    cursor: pointer; min-width: 0;
   }
-  .launcher textarea {
-    flex: 1; resize: none; min-height: 44px;
-    background: var(--bg-2); color: var(--text-1);
-    border: 1px solid var(--border); border-radius: var(--r);
-    padding: var(--sp-3) var(--sp-4); font: inherit; font-size: var(--fs-sm);
+  .proj-pick select {
+    appearance: none; background: none; border: 0; padding: 0;
+    color: var(--text-1); font-family: var(--serif);
+    font-size: var(--fs-xl); font-weight: 500; cursor: pointer;
+    max-width: 60vw; text-overflow: ellipsis;
   }
-  .launcher textarea:focus { outline: none; border-color: var(--accent); }
-  .launch-proj {
-    flex: none; height: 44px;
+  .proj-pick select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--r-sm); }
+
+  /* Композер запуска: рамка системы, внутри колонкой — поле и ряд
+     параметров (режим, модель, effort, подписка) со стрелкой отправки. */
+  .launchpad { margin-top: var(--sp-6); }
+  .launch-box { flex-direction: column; align-items: stretch; }
+  .launch-bar {
+    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    padding-top: var(--sp-2);
+  }
+  .launch-bar .grow { flex: 1; }
+  /* чип параметра — пилюля, как в композере Claude («Opus 5», «⚡ Auto») */
+  .launch-bar .chip {
+    display: inline-flex; align-items: center; gap: var(--sp-2);
     background: var(--bg-2); color: var(--text-2);
-    border: 1px solid var(--border); border-radius: var(--r);
-    padding: 0 var(--sp-3); font: inherit; font-size: var(--fs-sm);
+    border: 1px solid var(--border-soft); border-radius: 999px;
+    padding: var(--sp-2) var(--sp-4); cursor: pointer;
+    transition: color var(--t-fast), border-color var(--t-fast);
   }
-  .launch-proj:focus { outline: none; border-color: var(--accent); }
+  .launch-bar .chip:hover { color: var(--text-1); border-color: var(--border); }
+  .launch-bar .chip:focus-within { border-color: var(--accent); color: var(--text-1); }
+  .launch-bar .chip select {
+    appearance: none; background: none; border: 0; padding: 0;
+    color: inherit; font: inherit; font-size: var(--fs-xs); cursor: pointer;
+    outline: none;
+    /* ширина по выбранному значению, а не по самой длинной опции списка
+       («Bypass (за забором)» раздувал чип Auto на мобилке) */
+    field-sizing: content;
+  }
   .launch-note { font-size: var(--fs-xs); margin-top: var(--sp-2); }
   /* Шина — плотный список: карточка на реплику превратила бы её в стену
      плашек, а это фон работы, а не решения. */

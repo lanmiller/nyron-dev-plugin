@@ -95,7 +95,9 @@ function classify(text) {
   // диалог разрешения на инструмент: сессия стоит и ждёт человека —
   // пульт обязан это показывать, а не считать «работает» (этап 2: карточка)
   if (/Do you want to proceed\?|requires approval/i.test(text)) return 'permission';
-  if (/\n❯ ?\n?[\s\S]*shortcuts|\? for shortcuts/.test(text)) return 'prompt';
+  // футер промпта разный по режимам: «? for shortcuts» (manual),
+  // «shift+tab to cycle» (bypass ⏵⏵, plan и др.) — признаём оба (факт 17.08)
+  if (/❯/.test(text) && /\? for shortcuts|shift\+tab to cycle/.test(text)) return 'prompt';
   return 'booting';
 }
 
@@ -158,14 +160,50 @@ function stopPoller(name) {
 // ---------- публичный API ----------
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
+// Модель и режим разрешений — из формы запуска (референс — композер Claude
+// Desktop, CTO 17.08: «режим работы и модель — это тоже важно»).
+// bypassPermissions в списке НЕТ сознательно: канон эпика — «забор до
+// свободы», без PreToolUse-хука-забора этот режим не включается.
+const MODELS = new Set(['fable', 'opus', 'sonnet', 'haiku']);
+const MODES = new Set(['auto', 'acceptEdits', 'plan', 'bypass']);
+const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+
+// Bypass — ТОЛЬКО за забором (канон «забор до свободы», порядок незыблем):
+// раннер генерирует settings-файл с PreToolUse-хуком guard/pretooluse-guard.mjs
+// и подкладывает его bypass-сессии. Файл пере-пишется на актуальный путь
+// машины при каждом запуске — реестр переносим между машинами.
+function guardSettingsFile() {
+  const guard = path.join(MORDA_ROOT, 'guard', 'pretooluse-guard.mjs');
+  if (!fs.existsSync(guard)) throw new Error('забор-хук не найден — bypass закрыт');
+  const file = path.join(MORDA_ROOT, 'runner-guard-settings.json');
+  fs.writeFileSync(file, JSON.stringify({
+    hooks: {
+      PreToolUse: [{
+        matcher: '*',
+        hooks: [{ type: 'command', command: `${process.execPath} ${guard}` }],
+      }],
+    },
+  }, null, 2));
+  return file;
+}
 
 /** Запуск CLI-сессии: tmux + claude, цель — вводом, когда промпт готов.
  *  Имя — только [a-z0-9-]: оно станет именем tmux-сессии.
  *  workdir (опция, только с сервера) — родной каталог сессии при резюме;
  *  обязан лежать в корне проекта (fail-closed, как openFileOutside). */
-export function runnerStart({ project, goal, name, resumeId, workdir }) {
+export function runnerStart({ project, goal, name, resumeId, workdir,
+  model, mode, effort, slot }) {
   const root = rootByName(project); // бросит на чужом имени — allowlist
   if (!NAME_RE.test(name || '')) throw new Error('имя: строчные латиница/цифры/дефис');
+  if (model && !MODELS.has(model)) throw new Error(`модель: ${[...MODELS].join('|')}`);
+  if (mode && !MODES.has(mode)) throw new Error(`режим: ${[...MODES].join('|')} (без диалогов — только после забора-хука)`);
+  if (effort && !EFFORTS.has(effort)) throw new Error(`effort: ${[...EFFORTS].join('|')}`);
+  let slotDef = null;
+  if (slot) {
+    slotDef = loadSlots().slots.find((x) => x.id === slot);
+    if (!slotDef) throw new Error(`нет слота ${slot}`);
+    if (slotDef.provider !== 'claude') throw new Error('сессию запускает только Claude-слот');
+  }
   if (tmuxAlive(name)) throw new Error(`tmux-сессия ${TMUX_PREFIX + name} уже есть`);
   let dir = root;
   if (workdir) {
@@ -179,12 +217,21 @@ export function runnerStart({ project, goal, name, resumeId, workdir }) {
   const prev = reg.sessions[name];
   if (prev && prev.state !== 'stopped' && prev.state !== 'died_on_start' && tmuxAlive(name))
     throw new Error(`запись ${name} уже в реестре`);
-  const args = resumeId ? ` --resume ${resumeId}` : '';
-  execFileSync(TMUX_BIN, ['new-session', '-d', '-s', TMUX_PREFIX + name,
-    '-c', dir, CLAUDE_BIN + args], { timeout: 5000, env: SPAWN_ENV });
+  const args = (resumeId ? ` --resume ${resumeId}` : '')
+    + (model ? ` --model ${model}` : '')
+    + (mode === 'bypass'
+      ? ` --permission-mode bypassPermissions --settings ${guardSettingsFile()}`
+      : mode ? ` --permission-mode ${mode}` : '')
+    + (effort ? ` --effort ${effort}` : '');
+  const targs = ['new-session', '-d', '-s', TMUX_PREFIX + name];
+  for (const [k, v] of Object.entries(slotEnv(slotDef || {}))) targs.push('-e', `${k}=${v}`);
+  targs.push('-c', dir, CLAUDE_BIN + args);
+  execFileSync(TMUX_BIN, targs, { timeout: 5000, env: SPAWN_ENV });
   reg.sessions[name] = {
     project, root: dir, goal: goal || null, goalSent: false,
     sessionId: resumeId || null,
+    model: model || null, mode: mode || null,
+    effort: effort || null, slot: slot || null,
     startedAt: new Date().toISOString(), state: 'starting',
     stoppedAt: null,
   };
@@ -221,6 +268,8 @@ export function runnerResume({ name, goal }) {
     goal: goal || null,           // резюм без цели: контекст уже в сессии
     resumeId: s.sessionId,
     workdir: s.root,              // родной каталог записи, не корень проекта
+    model: s.model || null, mode: s.mode || null,
+    effort: s.effort || null, slot: s.slot || null,
   });
 }
 

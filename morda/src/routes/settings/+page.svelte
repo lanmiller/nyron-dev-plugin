@@ -171,7 +171,7 @@
             <Badge variant="outline"><i class="dot" style="background:{color}"></i>{label}</Badge>
           </Card.Action>
         </Card.Header>
-        <Card.Content>
+        <Card.Content class="slot-body">
           {#if s.hint}<p class="hint quiet">{s.hint}</p>{/if}
           {#if connect[s.id]?.url && s.status !== 'ok'}
             <div class="auth-flow">
@@ -198,44 +198,47 @@
                   подключение сам (callback на эту машину)</p>
               {/if}
             </div>
-          {:else if s.status !== 'ok' && s.status !== 'not_installed'}
-            <Button variant="outline" size="sm" disabled={busy}
-              onclick={() => startConnect(s.id)}>
-              <Icon name="key-round" size={13} /> авторизовать
-            </Button>
           {/if}
-          {#if (s.provider === 'claude' || s.provider === 'codex') && s.status === 'ok'}
-            {#if usage[s.id]}
-              {@const u = usage[s.id]}
-              <div class="usage">
-                {#each [['сессия', u.session], ['неделя', u.week_all], ['неделя, топ-модель', u.week_model]] as [label, v] (label)}
-                  {#if v}
-                    <div class="u-row" title="сброс: {v.resets}">
-                      <span class="u-label">{label}</span>
-                      <span class="u-bar"><i style="width:{v.used_pct}%;background:{usageColor(v.used_pct)}"></i></span>
-                      <span class="u-pct">{v.used_pct}%</span>
-                    </div>
-                  {/if}
-                {/each}
-              </div>
+          {#if usage[s.id] && s.status === 'ok'}
+            {@const u = usage[s.id]}
+            <div class="usage">
+              {#each [['сессия', u.session], ['неделя', u.week_all], ['неделя, топ-модель', u.week_model]] as [label, v] (label)}
+                {#if v}
+                  <div class="u-row" title="сброс: {v.resets}">
+                    <span class="u-label">{label}</span>
+                    <span class="u-bar"><i style="width:{v.used_pct}%;background:{usageColor(v.used_pct)}"></i></span>
+                    <span class="u-pct">{v.used_pct}%</span>
+                  </div>
+                {/if}
+              {/each}
+            </div>
+          {/if}
+          <p class="slot-home mono" title={s.home ? 'каталог слота' : 'домашний каталог CLI — общий, поэтому «основной» не отвязывается'}>{s.home_display}</p>
+          <div class="slot-actions">
+            {#if s.status !== 'ok' && s.status !== 'not_installed' && !connect[s.id]?.url}
+              <Button variant="outline" size="xs" disabled={busy}
+                onclick={() => startConnect(s.id)}>
+                <Icon name="key-round" size={13} /> авторизовать
+              </Button>
             {/if}
-            <Button variant="ghost" size="xs" class="text-ink-4" disabled={usageBusy[s.id]}
-              title="снимает /usage со служебной сессии слота (5–10 секунд)"
-              onclick={() => fetchUsage(s.id)}>
-              <Icon name="gauge" size={12} /> {usage[s.id] ? 'обновить лимиты' : 'лимиты'}
-            </Button>
-          {/if}
-          <p class="hint quiet mono" title={s.home ? 'каталог слота' : 'домашний каталог CLI — общий, поэтому «основной» не отвязывается'}>{s.home_display}</p>
-          {#if s.home}
-            <Button variant="ghost" size="xs" class="text-ink-4" disabled={busy}
-              title="слот уйдёт из реестра; каталог с авторизацией останется на диске — удалить руками: rm -rf {s.home}"
-              onclick={async () => {
-                if (!confirm(`Отвязать копию «${s.label}»? Каталог ${s.home} останется на диске.`)) return;
-                await act({ action: 'slot_remove', id: s.id });
-              }}>
-              <Icon name="unlink" size={12} /> отвязать
-            </Button>
-          {/if}
+            {#if s.status === 'ok'}
+              <Button variant="outline" size="xs" disabled={usageBusy[s.id]}
+                title="снимает лимиты с живой сессии слота (5–10 секунд)"
+                onclick={() => fetchUsage(s.id)}>
+                <Icon name="gauge" size={13} /> {usage[s.id] ? 'обновить лимиты' : 'лимиты'}
+              </Button>
+            {/if}
+            {#if s.home}
+              <Button variant="ghost" size="xs" class="text-ink-4" disabled={busy}
+                title="слот уйдёт из реестра; каталог с авторизацией останется — удалить руками: rm -rf {s.home}"
+                onclick={async () => {
+                  if (!confirm(`Отвязать копию «${s.label}»? Каталог ${s.home} останется на диске.`)) return;
+                  await act({ action: 'slot_remove', id: s.id });
+                }}>
+                <Icon name="unlink" size={13} /> отвязать
+              </Button>
+            {/if}
+          </div>
         </Card.Content>
       </Card.Root>
     {/each}
