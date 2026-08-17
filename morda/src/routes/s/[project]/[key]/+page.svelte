@@ -173,6 +173,12 @@
   let details = $state(false);
   let files = $state(false);   // обозреватель файлов проекта этой сессии
 
+  // шторка вопросов: на десктопе открыта сразу и открывается при новом
+  // вопросе (CTO 17.08: «как на мобилке, но чтобы можно было свернуть»)
+  onMount(() => {
+    if (window.matchMedia('(min-width: 901px)').matches) sheet = true;
+  });
+
   let stateInfo = $derived(STATE_RU[data?.state] || null);
   let isDesktop = $derived(data?.entrypoint === 'claude-desktop');
 
@@ -264,13 +270,52 @@
   });
 
   // Живой TUI-диалог CLI (HITL-пикер, /usage, /model): транскрипт его не
-  // видит — пульт показывает сам экран и даёт клавиши навигации; цифры и
-  // текст уходят обычным вводом композера.
+  // видит. Формы рендерятся НАТИВНО (runner.dialog — структура с экрана,
+  // семантика клавиш снята фактом 17.08); не распарсилось — сырой экран.
   let cliDialog = $derived(data?.runner?.alive
     && ['hitl', 'dialog'].includes(data.runner.screen)
     && data.runner.screen_text ? data.runner : null);
   async function sendKey(k) {
     await runnerAct('key', { key: k });
+    setTimeout(refresh, 600);   // экран tmux дорисовывается после клика
+  }
+  // свой вариант ответа: цифрой фокусируется «Type something», текст
+  // литералом, Enter — одной серверной операцией (между кликами не влезает
+  // поллинг)
+  // форма-слайдер: свёртка своей стрелкой; новая форма раскрывается сама
+  let dlgOpen = $state(true);
+  let hadDialog = false;
+  $effect(() => {
+    const has = !!cliDialog;
+    if (has && !hadDialog) dlgOpen = true;
+    hadDialog = has;
+  });
+  // клик по табу — прыжок Tab/BTab от текущего (подсветку отдаёт парсер)
+  function jumpTab(i) {
+    const tabs = cliDialog?.dialog?.tabs || [];
+    const cur = tabs.findIndex((t) => t.current);
+    if (cur < 0 || i === cur) return;
+    runnerAct('key', { key: i > cur ? 'Tab' : 'BTab', times: Math.abs(i - cur) });
+    setTimeout(refresh, 700);
+  }
+  let freeText = $state('');
+  async function sendFree(n) {
+    if (!freeText.trim()) return;
+    await runnerAct('type', { digit: String(n), text: freeText.trim() });
+    freeText = '';
+    setTimeout(refresh, 600);
+  }
+  // физическая клавиатура работает по форме (жалоба CTO: «кнопочки на
+  // клавиатуре не срабатывают»); ввод в полях не перехватываем
+  const KEYMAP = { ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'BTab',
+    ArrowRight: 'Tab', Tab: 'Tab', Enter: 'Enter', Escape: 'Escape' };
+  function dialogKeydown(e) {
+    if (!cliDialog) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName)) return;
+    const k = KEYMAP[e.key] || (/^[1-9]$/.test(e.key) ? e.key : null);
+    if (!k) return;
+    e.preventDefault();
+    sendKey(e.shiftKey && k === 'Tab' ? 'BTab' : k);
   }
 
   // поле растёт под текст, как в Claude: одна строка по умолчанию,
@@ -294,24 +339,29 @@
     ta.style.height = Math.min(ta.scrollHeight, window.innerHeight * 0.4) + 'px';
   }
   $effect(() => { if (draft === '' && ta) ta.style.height = 'auto'; });
+  // форма-слайдер живёт НЕ в шторке (она всегда над композером), поэтому
+  // здесь только карточки шторки: ask, родные HITL приложения, разрешения
   let openAsks = $derived((data?.asks || []).filter((a) => a.status === 'open'));
   let openCount = $derived(openAsks.length + (data?.pending_hitl ? 1 : 0)
-    + (cliDialog ? 1 : 0)
     + (data?.runner?.alive && data.runner.screen === 'permission' ? 1 : 0));
   // в доке — только живое: открытые и ответы в пути; подтверждённое своё
   // отработало и чат не перекрывает (CTO 10.08)
   let recentDecided = $derived((data?.asks || [])
     .filter((a) => ['answered', 'delivered'].includes(a.status)).slice(-2));
   let sheetCount = $derived(openCount + recentDecided.length);
-  // ответил — шторка закрывается сама, разговор возвращается на экран
+  // ответил — шторка закрывается сама; новый вопрос на десктопе — сам
+  // открывается (на телефоне остаётся кнопкой, чтобы не съедать экран)
   let prevOpen = 0;
   $effect(() => {
     if (openCount < prevOpen) sheet = false;
+    else if (openCount > prevOpen
+      && window.matchMedia('(min-width: 901px)').matches) sheet = true;
     prevOpen = openCount;
   });
 </script>
 
 <svelte:head><title>{data?.title || key?.slice(0, 8)} — STOVP</title></svelte:head>
+<svelte:window onkeydown={dialogKeydown} />
 
 {#if error}
   <p class="err">{error}</p>
@@ -412,24 +462,6 @@
           </div>
         </article>
       {/if}
-      {#if cliDialog}
-        <!-- Экран CLI как есть: HITL-пикер, /usage, /model — в транскрипте
-             их нет до ответа (факт 17.08). Навигация — клавишами отсюда,
-             цифра или свой текст — обычным вводом композера ниже. -->
-        <article class="hitl">
-          <header>
-            <b>В терминале сессии открыт диалог</b>
-            <span class="meta">пульт показывает живой экран; выбор — клавишами ниже, цифрой или текстом из поля ввода</span>
-          </header>
-          <pre class="cli-screen">{cliDialog.screen_text}</pre>
-          <div class="perm-row">
-            {#each [['↑', 'Up'], ['↓', 'Down'], ['Tab', 'Tab'], ['Enter — выбрать', 'Enter'], ['Esc — отмена', 'Escape']] as [label, k] (k)}
-              <Button variant="outline" size="xs" disabled={runnerBusy}
-                onclick={() => sendKey(k)}>{label}</Button>
-            {/each}
-          </div>
-        </article>
-      {/if}
       {#if data.pending_hitl}
         <!-- родная форма AskUserQuestion ждёт человека В ОКНЕ ПРИЛОЖЕНИЯ:
              морда её показывает, но кликнуть вариант можно только там -->
@@ -474,6 +506,113 @@
         <AskCard ask={a} project={project} linkToSession={false} onSent={refresh} />
       {/each}
     </div>
+
+    {#if cliDialog}
+      <!-- Форма CLI (AskUserQuestion и пикеры) — единый слайдер над
+           композером (CTO 17.08): кликабельные табы-вопросы, сворачивается
+           своей стрелкой, без внутреннего скролла. Клик = клавиша в tmux;
+           физическая клавиатура работает (цифры, стрелки, Tab, Enter, Esc). -->
+      <article class="hitl dlg-card">
+        {#if cliDialog.dialog}
+          {@const d = cliDialog.dialog}
+          {@const qtabs = d.tabs?.filter((t) => !t.submit) || []}
+          <header class="dlg-head">
+            <button class="dlg-x" aria-label={dlgOpen ? 'свернуть форму' : 'развернуть форму'}
+              title={dlgOpen ? 'свернуть — ответишь позже' : 'развернуть форму'}
+              onclick={() => (dlgOpen = !dlgOpen)}>
+              <Icon name={dlgOpen ? 'chevron-down' : 'chevron-up'} size={15} />
+            </button>
+            {#if d.tabs && qtabs.length > 1}
+              <div class="dlg-tabs">
+                {#each d.tabs as t, i (t.label)}
+                  <button class="dlg-tab" class:done={t.answered} class:cur={t.current}
+                    disabled={runnerBusy}
+                    title={t.submit ? 'к отправке ответов' : `перейти к вопросу «${t.label}»`}
+                    onclick={() => jumpTab(i)}>
+                    {#if t.answered}<Icon name="check" size={11} />{/if}{t.submit ? 'Отправка' : t.label}
+                  </button>
+                {/each}
+              </div>
+            {:else}
+              <b class="dlg-mini">{d.kind === 'review' ? 'Отправить ответы?' : d.question || 'Форма сессии'}</b>
+            {/if}
+            <button class="dlg-x" title="отменить всю форму (Esc)" aria-label="отменить форму"
+              onclick={() => sendKey('Escape')}><Icon name="x" size={15} /></button>
+          </header>
+          {#if dlgOpen}
+            {#if d.kind === 'question'}
+              {#if d.tabs && qtabs.length > 1}<b class="dlg-q">{d.question}</b>{/if}
+              {#each d.options.filter((o) => !o.chat && !o.free) as o (o.n)}
+                <button class="opt dlg-opt" class:picked={o.selected} disabled={runnerBusy}
+                  title={d.multi ? 'переключить отметку' : 'выбрать и перейти дальше'}
+                  onclick={() => sendKey(String(o.n))}>
+                  {#if d.multi}
+                    <span class="cbx" class:on={o.selected}>{#if o.selected}<Icon name="check" size={12} />{/if}</span>
+                  {/if}
+                  <span class="opt-col">
+                    <b>{o.label}{#if !d.multi && o.selected} ✓{/if}</b>
+                    {#if o.desc}<span>{o.desc}</span>{/if}
+                  </span>
+                </button>
+              {/each}
+              {#each d.options.filter((o) => o.free) as o (o.n)}
+                <div class="opt free-opt" class:picked={o.selected}>
+                  <b>Свой вариант</b>
+                  <div class="free-row">
+                    <input class="free-in" placeholder="напиши свой ответ…" bind:value={freeText}
+                      onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendFree(o.n); } }} />
+                    <Button size="xs" disabled={runnerBusy || !freeText.trim()}
+                      onclick={() => sendFree(o.n)}>ответить</Button>
+                  </div>
+                </div>
+              {/each}
+              {#if d.tabs}
+                <div class="perm-row">
+                  <Button variant="outline" size="xs" disabled={runnerBusy}
+                    title="к предыдущему вопросу — ответ можно перевыбрать"
+                    onclick={() => sendKey('BTab')}>← назад</Button>
+                  <span class="grow-mini"></span>
+                  <Button size="xs" disabled={runnerBusy}
+                    title="к следующему вопросу; выбранное сохраняется"
+                    onclick={() => sendKey('Tab')}>
+                    {d.multi ? 'готово' : 'пропустить'} →
+                  </Button>
+                </div>
+              {/if}
+            {:else}
+              {#each d.answers as a (a.question)}
+                <div class="opt review-row"><b>{a.question}</b><span>→ {a.answer || '—'}</span></div>
+              {/each}
+              <div class="perm-row">
+                <Button variant="outline" size="xs" disabled={runnerBusy}
+                  title="вернуться и поменять ответы" onclick={() => sendKey('BTab')}>← назад</Button>
+                <span class="grow-mini"></span>
+                <Button size="xs" disabled={runnerBusy} onclick={() => sendKey('1')}>отправить ответы</Button>
+                <Button variant="outline" size="xs" disabled={runnerBusy}
+                  title="отменить всю форму" onclick={() => sendKey('2')}>отменить</Button>
+              </div>
+            {/if}
+            <details class="dlg-raw">
+              <summary>экран CLI как есть</summary>
+              <pre class="cli-screen">{cliDialog.screen_text}</pre>
+            </details>
+          {/if}
+        {:else}
+          <!-- фолбэк: пикер не распарсился (напр. /usage) — сырой экран -->
+          <header>
+            <b>В терминале сессии открыт диалог</b>
+            <span class="meta">живой экран; навигация — клавишами ниже</span>
+          </header>
+          <pre class="cli-screen">{cliDialog.screen_text}</pre>
+          <div class="perm-row">
+            {#each [['↑', 'Up'], ['↓', 'Down'], ['Tab', 'Tab'], ['Enter — выбрать', 'Enter'], ['Esc — закрыть', 'Escape']] as [label, k] (k)}
+              <Button variant="outline" size="xs" disabled={runnerBusy}
+                onclick={() => sendKey(k)}>{label}</Button>
+            {/each}
+          </div>
+        {/if}
+      </article>
+    {/if}
 
     <!-- Тот же композер, что на старте сессии (запрос CTO 17.08): сверху
          аккаунт-пометка и вложения, снизу параметры. Разница одна — проект
@@ -607,8 +746,9 @@
       position: sticky; left: auto; right: auto; margin-top: 22px;
       padding: 10px 0 14px;
     }
-    .sheet-row { display: none; }   /* на широком экране карточки видны всегда */
-    .dock-asks { display: block; max-height: 42vh; margin-bottom: 0; }
+    /* шторка и на десктопе (CTO 17.08): открыта по умолчанию и при новом
+       вопросе, но сворачивается той же кнопкой, что на телефоне */
+    .dock-asks { max-height: 42vh; }
   }
 
   /* Родная форма приложения: жёлтая рамка = ждёт человека НЕ здесь. */
@@ -632,6 +772,60 @@
   .hitl label.opt input { margin-top: var(--sp-2); accent-color: var(--accent); }
   .hitl label.opt.picked { border-color: var(--warn); }
   .hitl .opt-body { flex: 1; }
+
+  /* Форма-слайдер (единый виджет над композером): шапка = свёртка +
+     кликабельные табы вопросов + крестик отмены; тело без своего скролла */
+  .dlg-card { margin: 0 0 var(--sp-3); }
+  .hitl header.dlg-head {
+    display: flex; flex-direction: row; align-items: center;
+    gap: var(--sp-2); margin-bottom: var(--sp-3);
+  }
+  .dlg-tabs { flex: 1; display: flex; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
+  .dlg-tab {
+    display: inline-flex; align-items: center; gap: 3px;
+    background: none; border: 1px solid var(--border-soft); border-radius: 999px;
+    padding: 2px var(--sp-3); font: inherit; font-size: var(--fs-micro);
+    color: var(--text-3); cursor: pointer; user-select: none;
+  }
+  .dlg-tab.done { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, transparent); }
+  .dlg-tab.cur { color: var(--text-1); border-color: var(--warn); }
+  .dlg-tab:disabled { opacity: 0.6; cursor: default; }
+  .dlg-mini {
+    flex: 1; min-width: 0; font-size: var(--fs-sm);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .dlg-q { display: block; margin-bottom: var(--sp-3); }
+  .dlg-x {
+    flex: none; background: none; border: 0; color: var(--text-3);
+    padding: var(--sp-1); cursor: pointer; display: grid; place-items: center;
+  }
+  .dlg-x:hover { color: var(--text-1); }
+  .hitl .opt.picked { border-color: var(--accent); }
+  /* мультиселект: явный квадрат-чекбокс слева (жалоба CTO: «не понятно,
+     что чекбоксы») */
+  .hitl .opt.dlg-opt { display: flex; gap: var(--sp-4); align-items: flex-start; }
+  .cbx {
+    flex: none; width: 16px; height: 16px; margin-top: 2px;
+    border: 1.5px solid var(--text-4); border-radius: 4px;
+    display: grid; place-items: center; color: var(--accent-ink);
+  }
+  .cbx.on { background: var(--accent); border-color: var(--accent); }
+  .hitl .opt-col { flex: 1; min-width: 0; text-align: left; }
+  .hitl .opt-col b { display: block; }
+  .hitl .opt-col span { display: block; color: var(--text-3); font-size: var(--fs-xs); }
+  .free-opt b { margin-bottom: var(--sp-2); }
+  .free-row { display: flex; gap: var(--sp-3); }
+  .free-in {
+    flex: 1; background: var(--bg-0); color: var(--text-1);
+    border: 1px solid var(--border-soft); border-radius: var(--r-sm);
+    padding: var(--sp-2) var(--sp-4); font: inherit; font-size: var(--fs-sm);
+  }
+  .review-row span { display: block; color: var(--text-2); }
+  .grow-mini { flex: 1; }
+  .dlg-raw { margin-top: var(--sp-4); }
+  .dlg-raw summary {
+    color: var(--text-4); font-size: var(--fs-xs); cursor: pointer;
+  }
 
   .hint { font-size: var(--fs-xs); margin: var(--sp-3) var(--sp-1) 0; }
   .ok-note { color: var(--ok); }

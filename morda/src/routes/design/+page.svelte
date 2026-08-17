@@ -533,27 +533,43 @@
         <button class="send" aria-label="отправить"><Icon name="arrow-up" size={16} /></button>
       </div>
     </div>
-    <!-- Живой экран CLI-диалога (.cli-screen): HITL-пикер и панели /usage
-         не пишутся в транскрипт до ответа — пульт показывает сам терминал,
-         навигация — мини-клавишами, цифра/текст — обычным вводом -->
+    <!-- Форма-слайдер CLI: AskUserQuestion живёт только на экране терминала
+         (в транскрипт не пишется до ответа), поэтому пульт разбирает экран
+         и рисует форму сам: табы вопросов кликабельны, мультиселект — с
+         квадратами-чекбоксами, свёртка стрелкой, сырой экран — под катом -->
     <div class="hitl-demo">
-      <b>В терминале сессии открыт диалог</b>
-      <pre class="cli-screen">❯ 1. Взять KAN-117 связкой (Recommended)
-  2. Принять ГкТ-хвосты
-  3. Type something.
-Enter to select · Tab/Arrow keys to navigate · Esc to cancel</pre>
+      <div class="dlg-head-demo">
+        <Icon name="chevron-down" size={15} class="text-ink-3" />
+        <span class="dlg-tab done"><Icon name="check" size={11} />Кухня</span>
+        <span class="dlg-tab cur">Добавки</span>
+        <span class="dlg-tab">Напиток</span>
+        <span class="dlg-tab">Отправка</span>
+        <span style="flex:1"></span>
+        <Icon name="x" size={15} class="text-ink-3" />
+      </div>
+      <b>Какие добавки вы хотите?</b>
+      <div class="opt-demo picked">
+        <span class="cbx on"><Icon name="check" size={12} /></span>
+        <span class="opt-col"><b>Хлеб</b><span>свежий</span></span>
+      </div>
+      <div class="opt-demo">
+        <span class="cbx"></span>
+        <span class="opt-col"><b>Соус</b><span>острый</span></span>
+      </div>
       <div class="keys-row">
-        <Button variant="outline" size="xs">↑</Button>
-        <Button variant="outline" size="xs">↓</Button>
-        <Button variant="outline" size="xs">Enter — выбрать</Button>
-        <Button variant="outline" size="xs">Esc — отмена</Button>
+        <Button variant="outline" size="xs">← назад</Button>
+        <span style="flex:1"></span>
+        <Button size="xs">готово →</Button>
       </div>
     </div>
   </div>
   <p class="quiet note">
     Словарь чипов (модель, effort, режим) — $lib/composer-options.js, один
     на обе страницы. Чип-пометка (.chip-note) — факт без выбора: та же
-    пилюля, что PickChip, но не кликается.
+    пилюля, что PickChip, но не кликается. Форма-слайдер собирается из
+    структуры парсера ($lib/server/tui.js); клик уходит клавишей в tmux,
+    физическая клавиатура работает так же. Не распарсилось (например
+    панель /usage) — показывается сырой экран, а не пустота.
   </p>
 </section>
 
@@ -851,5 +867,32 @@ Enter to select · Tab/Arrow keys to navigate · Esc to cancel</pre>
     background: var(--bg-2); border: 1px solid var(--warn);
     border-radius: var(--r); padding: var(--sp-5) var(--sp-6);
   }
-  .keys-row { display: flex; gap: var(--sp-3); margin-top: var(--sp-4); flex-wrap: wrap; }
+  .keys-row { display: flex; gap: var(--sp-3); margin-top: var(--sp-4); flex-wrap: wrap; align-items: center; }
+  /* демо формы-слайдера: те же кирпичи, что в окне сессии */
+  .dlg-head-demo {
+    display: flex; align-items: center; gap: var(--sp-2);
+    margin-bottom: var(--sp-3); flex-wrap: wrap;
+  }
+  .dlg-tab {
+    display: inline-flex; align-items: center; gap: 3px;
+    border: 1px solid var(--border-soft); border-radius: 999px;
+    padding: 2px var(--sp-3); font-size: var(--fs-micro); color: var(--text-3);
+  }
+  .dlg-tab.done { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, transparent); }
+  .dlg-tab.cur { color: var(--text-1); border-color: var(--warn); }
+  .opt-demo {
+    display: flex; gap: var(--sp-4); align-items: flex-start;
+    background: var(--bg-1); border: 1px solid var(--border-soft);
+    border-radius: var(--r-sm); padding: var(--sp-3) var(--sp-5);
+    margin-top: var(--sp-3); font-size: var(--fs-sm);
+  }
+  .opt-demo.picked { border-color: var(--accent); }
+  .cbx {
+    flex: none; width: 16px; height: 16px; margin-top: 2px;
+    border: 1.5px solid var(--text-4); border-radius: 4px;
+    display: grid; place-items: center; color: var(--accent-ink);
+  }
+  .cbx.on { background: var(--accent); border-color: var(--accent); }
+  .opt-col b { display: block; }
+  .opt-col > span { display: block; color: var(--text-3); font-size: var(--fs-xs); }
 </style>

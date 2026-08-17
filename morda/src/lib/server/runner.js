@@ -18,6 +18,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { rootByName, tmuxCandidates, paneProcessTree, MORDA_ROOT,
   CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents, sessionMeta,
   RUNNER_STATE_FILE as STATE_FILE } from './fleet.js';
+import { parseDialog } from './tui.js';
 
 // Префикс всех tmux-сессий раннера: чужие панели (ручной tmux человека)
 // раннер не трогает НИКОГДА — только свои, со своим префиксом.
@@ -56,6 +57,12 @@ function pane(name) {
 function capture(name, lines = 40) {
   try {
     return tmux(['capture-pane', '-t', pane(name), '-p', '-S', String(-lines)]);
+  } catch { return ''; }
+}
+// с ANSI-кодами: по подсветке parseDialog находит текущий таб формы
+function captureEsc(name, lines = 40) {
+  try {
+    return tmux(['capture-pane', '-t', pane(name), '-p', '-e', '-S', String(-lines)]);
   } catch { return ''; }
 }
 function sendLine(name, text) {
@@ -97,8 +104,10 @@ function classify(text) {
   if (/Do you want to proceed\?|requires approval/i.test(text)) return 'permission';
   // интерактивный TUI-пикер (AskUserQuestion, /model и любой выбор):
   // в транскрипт он НЕ пишется до ответа — форма живёт только на экране
-  // (факт 17.08, сессия psylia: HITL стоял в tmux, пульт его не видел)
-  if (/Enter to select|keys to navigate|Esc to cancel/i.test(text)) return 'hitl';
+  // (факт 17.08, сессия psylia: HITL стоял в tmux, пульт его не видел).
+  // Submit-экран формы приходит БЕЗ футера пикера — ловится по заголовку.
+  if (/Enter to select|keys to navigate|Esc to cancel|Ready to submit your answers|Review your answers/i
+    .test(text)) return 'hitl';
   // футер промпта разный по режимам: «? for shortcuts» (manual),
   // «shift+tab to cycle» (bypass ⏵⏵, plan и др.) — признаём оба (факт 17.08)
   if (/❯/.test(text) && /\? for shortcuts|shift\+tab to cycle/.test(text)) return 'prompt';
@@ -322,22 +331,50 @@ export function runnerBySessionId(key) {
       const screen = alive ? classify(capture(name)) : null;
       const screen_text = ['hitl', 'dialog', 'permission'].includes(screen)
         ? capture(name, 45).replace(/\s+$/, '') : null;
+      // нативный рендер формы: структура с экрана (с ANSI — там подсветка
+      // текущего таба); не распарсилось — dialog=null, окно покажет сырой
+      // экран (честный фолбэк)
+      const dialog = screen === 'hitl' && screen_text
+        ? parseDialog(captureEsc(name, 45)) : null;
       const slot = loadSlots().slots.find((x) => x.id === (s.slot || 'claude-main'));
       return { name, ...s, tmux: TMUX_PREFIX + name, alive, screen,
-        screen_text, slot_label: slot?.label || 'основной' };
+        screen_text, dialog, slot_label: slot?.label || 'основной' };
     }
   return null;
 }
 
-/** Клавиша в живой диалог CLI (пикер HITL, /usage, /model): пульт видит
- *  экран — пультом же по нему и ходят. Только навигация и Esc/Enter —
- *  произвольный текст идёт обычным вводом (say). */
-const DIALOG_KEYS = new Set(['Escape', 'Enter', 'Up', 'Down', 'Left', 'Right', 'Tab', 'Space']);
-export function runnerKey({ name, key }) {
+/** Клавиша в живой диалог CLI (пикер HITL, /usage, /model). Семантика
+ *  снята фактом (17.08, stovp-proto-hitl): цифра — выбрать/переключить,
+ *  Tab/BTab — вперёд/назад по вопросам, Enter — выбрать, Esc — отмена. */
+const DIALOG_KEYS = new Set(['Escape', 'Enter', 'Up', 'Down', 'Left', 'Right',
+  'Tab', 'BTab', 'Space', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
+export function runnerKey({ name, key, times = 1 }) {
   if (!tmuxAlive(name)) throw new Error(`нет живой tmux-сессии ${name}`);
   if (!DIALOG_KEYS.has(key)) throw new Error(`клавиша: ${[...DIALOG_KEYS].join('|')}`);
-  tmux(['send-keys', '-t', pane(name), key]);
-  return { sent: key };
+  const n = Math.min(Math.max(Number(times) || 1, 1), 8); // прыжок по табам
+  for (let i = 0; i < n; i++) {
+    tmux(['send-keys', '-t', pane(name), key]);
+    if (n > 1) execFileSync('sleep', ['0.15']);
+  }
+  return { sent: key, times: n };
+}
+
+/** Свой текст в форму: сфокусировать опцию свободного ответа цифрой,
+ *  набрать текст литералом, Enter — выбрать. Всё одной операцией, чтобы
+ *  между нажатиями не влез поллинг. */
+export function runnerType({ name, digit, text, enter = true }) {
+  if (!tmuxAlive(name)) throw new Error(`нет живой tmux-сессии ${name}`);
+  if (digit !== undefined && digit !== null) {
+    if (!/^[1-9]$/.test(String(digit))) throw new Error('digit: 1–9');
+    tmux(['send-keys', '-t', pane(name), String(digit)]);
+    execFileSync('sleep', ['0.4']);
+  }
+  if (text) tmux(['send-keys', '-t', pane(name), '-l', String(text)]);
+  if (enter) {
+    execFileSync('sleep', ['0.2']);
+    tmux(['send-keys', '-t', pane(name), 'Enter']);
+  }
+  return { sent: true };
 }
 
 /** Смена параметров сессии из композера её окна (те же чипы, что на
