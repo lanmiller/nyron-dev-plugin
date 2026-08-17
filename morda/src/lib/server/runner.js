@@ -89,6 +89,9 @@ function classify(text) {
   // подряд, все проходятся Enter-ом (флоу снят живьём 17.08, слот «Мариха»)
   if (/Press Enter to continue|Try the new fullscreen renderer|Choose the text style/i
     .test(text)) return 'onboarding';
+  // открытая панель настроек (/usage, /config…) — закрывается Escape-ом;
+  // без этого слот с забытой панелью вечно «проверяю…» (факт 17.08)
+  if (/Settings\s+Status\s+Config\s+Usage/i.test(text)) return 'dialog';
   // диалог разрешения на инструмент: сессия стоит и ждёт человека —
   // пульт обязан это показывать, а не считать «работает» (этап 2: карточка)
   if (/Do you want to proceed\?|requires approval/i.test(text)) return 'permission';
@@ -403,6 +406,9 @@ export function slotList({ probe = false } = {}) {
         if (kind === 'onboarding' || kind === 'mcp_consent' || kind === 'trust') {
           try { tmux(['send-keys', '-t', pane(name), 'Enter']); } catch {}
         }
+        if (kind === 'dialog') {
+          try { tmux(['send-keys', '-t', pane(name), 'Escape']); } catch {}
+        }
         status = kind === 'needs_auth' || kind === 'login_flow' ? 'needs_auth'
           : kind === 'prompt' ? 'ok' : 'probing';
         // почта аккаунта видна прямо на экране приветствия — показываем,
@@ -505,6 +511,49 @@ export function slotConnect({ id }) {
     execFileSync('sleep', ['0.5']);
   }
   throw new Error(`ссылка не появилась за 8с — tmux attach -t stovp-${name}`);
+}
+
+/** Лимиты подписки слота: /usage в служебной сессии, проценты и даты
+ *  сброса — с экрана (память CTO: «/usage снимается через tmux», лимит
+ *  общий на аккаунт). Только Claude: у codex такой команды нет. */
+export function slotUsage({ id }) {
+  const s = slotById(id);
+  if (s.provider !== 'claude') throw new Error('лимиты умеет только Claude CLI');
+  const name = authName(id);
+  if (!tmuxAlive(name)) startAuthTmux(s, CLAUDE_BIN);
+  // дождаться промпта (свежая сессия может проходить онбординг)
+  const boot = Date.now() + 30_000;
+  while (Date.now() < boot) {
+    const kind = classify(capture(name, 50));
+    if (kind === 'prompt') break;
+    if (kind === 'onboarding' || kind === 'mcp_consent' || kind === 'trust')
+      try { tmux(['send-keys', '-t', pane(name), 'Enter']); } catch {}
+    if (kind === 'needs_auth') throw new Error('слот не авторизован');
+    execFileSync('sleep', ['0.5']);
+  }
+  sendLine(name, '/usage');
+  const until = Date.now() + 8000;
+  let scr = '';
+  while (Date.now() < until) {
+    scr = capture(name, 60);
+    if (/% used/.test(scr)) break;
+    execFileSync('sleep', ['0.5']);
+  }
+  // закрыть панель, вернуть сессию к промпту
+  try { tmux(['send-keys', '-t', pane(name), 'Escape']); } catch {}
+  const take = (label) => {
+    const m = scr.match(new RegExp(label + String.raw`[\s\S]{0,200}?(\d+)% used[\s\S]{0,120}?Resets ([^\n]+)`));
+    return m ? { used_pct: Number(m[1]), resets: m[2].trim() } : null;
+  };
+  const usage = {
+    session: take('Current session'),
+    week_all: take(String.raw`Current week \(all models\)`),
+    week_model: take(String.raw`Current week \((?:Fable|Opus|Sonnet)[^)]*\)`),
+    at: new Date().toISOString(),
+  };
+  if (!usage.session && !usage.week_all)
+    throw new Error('не смог прочитать /usage — открой tmux attach -t stovp-' + name);
+  return usage;
 }
 
 /** Код со страницы после входа (только Claude-флоу). */

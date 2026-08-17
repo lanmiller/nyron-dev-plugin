@@ -80,6 +80,17 @@
     if (out?.sent) connect = { ...connect, [id]: { ...c, sent: true } };
   }
 
+  // лимиты подписки (/usage со служебной сессии слота): id → данные
+  let usage = $state({});
+  let usageBusy = $state({});
+  async function fetchUsage(id) {
+    usageBusy = { ...usageBusy, [id]: true };
+    const out = await act({ action: 'slot_usage', id });
+    usageBusy = { ...usageBusy, [id]: false };
+    if (out?.session || out?.week_all) usage = { ...usage, [id]: out };
+  }
+  const usageColor = (p) => p >= 90 ? 'var(--err)' : p >= 70 ? 'var(--warn)' : 'var(--ok)';
+
   const SLOT_RU = {
     ok: ['подключён', 'var(--ok)'],
     needs_auth: ['протух / не подключён', 'var(--warn)'],
@@ -189,6 +200,27 @@
               <Icon name="key-round" size={13} /> авторизовать
             </Button>
           {/if}
+          {#if s.provider === 'claude' && s.status === 'ok'}
+            {#if usage[s.id]}
+              {@const u = usage[s.id]}
+              <div class="usage">
+                {#each [['сессия', u.session], ['неделя', u.week_all], ['неделя, топ-модель', u.week_model]] as [label, v] (label)}
+                  {#if v}
+                    <div class="u-row" title="сброс: {v.resets}">
+                      <span class="u-label">{label}</span>
+                      <span class="u-bar"><i style="width:{v.used_pct}%;background:{usageColor(v.used_pct)}"></i></span>
+                      <span class="u-pct">{v.used_pct}%</span>
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+            {/if}
+            <Button variant="ghost" size="xs" class="text-ink-4" disabled={usageBusy[s.id]}
+              title="снимает /usage со служебной сессии слота (5–10 секунд)"
+              onclick={() => fetchUsage(s.id)}>
+              <Icon name="gauge" size={12} /> {usage[s.id] ? 'обновить лимиты' : 'лимиты'}
+            </Button>
+          {/if}
           <p class="hint quiet mono" title={s.home ? 'каталог слота' : 'домашний каталог CLI — общий, поэтому «основной» не отвязывается'}>{s.home_display}</p>
           {#if s.home}
             <Button variant="ghost" size="xs" class="text-ink-4" disabled={busy}
@@ -295,6 +327,17 @@
     color: var(--accent); font-size: var(--fs-sm); word-break: break-all;
   }
   .code-row { display: flex; gap: var(--sp-3); }
+  /* лимиты подписки: строка = подпись, полоса, процент; цвет полосы —
+     смысловой (зелёный/жёлтый/красный по близости к потолку) */
+  .usage { display: flex; flex-direction: column; gap: var(--sp-2); margin: var(--sp-3) 0; }
+  .u-row { display: flex; align-items: center; gap: var(--sp-3); font-size: var(--fs-xs); }
+  .u-label { flex: none; width: 118px; color: var(--text-3); }
+  .u-bar {
+    flex: 1; height: 6px; border-radius: 3px; background: var(--bg-2);
+    overflow: hidden; display: block;
+  }
+  .u-bar i { display: block; height: 100%; border-radius: 3px; }
+  .u-pct { flex: none; width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
   .hint { font-size: var(--fs-xs); margin: 0 0 var(--sp-2); }
   .ok-note { color: var(--ok); }
   .runner-list { display: flex; flex-direction: column; gap: var(--sp-2); }
