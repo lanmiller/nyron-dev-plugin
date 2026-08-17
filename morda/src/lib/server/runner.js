@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { rootByName, tmuxCandidates, paneProcessTree, MORDA_ROOT,
-  CLAUDE_BIN, liveAgents } from './fleet.js';
+  CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents } from './fleet.js';
 
 // Файл реестра живёт рядом с projects.json — тот же корень морды.
 const STATE_FILE = process.env.MORDA_RUNNER_STATE
@@ -45,8 +45,8 @@ const pollers = (globalThis.__mordaRunnerPollers ??= new Map()); // name → tim
 // ---------- tmux-механика ----------
 
 function tmux(args, opts = {}) {
-  return execFileSync('tmux', args,
-    { timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'], ...opts }).toString();
+  return execFileSync(TMUX_BIN, args,
+    { timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'], env: SPAWN_ENV, ...opts }).toString();
 }
 function tmuxAlive(name) {
   try { tmux(['has-session', '-t', TMUX_PREFIX + name]); return true; }
@@ -64,8 +64,8 @@ function capture(name, lines = 40) {
 function sendLine(name, text) {
   // -l: литеральный текст (без интерпретации ; и клавиш), Enter отдельно —
   // тот же проверенный канал, что fleet.say
-  execFileSync('tmux', ['send-keys', '-t', pane(name), '-l', text], { timeout: 3000 });
-  execFileSync('tmux', ['send-keys', '-t', pane(name), 'Enter'], { timeout: 3000 });
+  execFileSync(TMUX_BIN, ['send-keys', '-t', pane(name), '-l', text], { timeout: 3000 });
+  execFileSync(TMUX_BIN, ['send-keys', '-t', pane(name), 'Enter'], { timeout: 3000 });
 }
 
 // ---------- привязка панель → sessionId ----------
@@ -166,8 +166,8 @@ export function runnerStart({ project, goal, name, resumeId }) {
   if (prev && prev.state !== 'stopped' && prev.state !== 'died_on_start' && tmuxAlive(name))
     throw new Error(`запись ${name} уже в реестре`);
   const args = resumeId ? ` --resume ${resumeId}` : '';
-  execFileSync('tmux', ['new-session', '-d', '-s', TMUX_PREFIX + name,
-    '-c', root, CLAUDE_BIN + args], { timeout: 5000 });
+  execFileSync(TMUX_BIN, ['new-session', '-d', '-s', TMUX_PREFIX + name,
+    '-c', root, CLAUDE_BIN + args], { timeout: 5000, env: SPAWN_ENV });
   reg.sessions[name] = {
     project, root, goal: goal || null, goalSent: false,
     sessionId: resumeId || null,
@@ -228,6 +228,11 @@ export function runnerList(project) {
       s.state = s.sessionId ? 'stopped' : 'died_on_start';
       s.stoppedAt = s.stoppedAt || new Date().toISOString();
       saveReg(reg);
+    }
+    // живая, а помечена стоп — реестр отстал от факта (рестарт сервера,
+    // пока панель жила): правда — tmux, не память
+    if (alive && (s.state === 'stopped' || s.state === 'died_on_start')) {
+      s.state = 'running'; s.stoppedAt = null; saveReg(reg);
     }
     out.push({ name, ...s, tmux: TMUX_PREFIX + name, alive, screen });
   }
@@ -342,7 +347,7 @@ export function slotList({ probe = false } = {}) {
     if (s.provider === 'codex') {
       // пишет в stderr (факт 17.08) — читаем оба потока
       const r = spawnSync(CODEX_BIN, ['login', 'status'],
-        { timeout: 5000, env: { ...process.env, ...slotEnv(s) } });
+        { timeout: 5000, env: { ...SPAWN_ENV, ...slotEnv(s) } });
       const st = String(r.stdout || '') + String(r.stderr || '');
       status = /logged in/i.test(st) ? 'ok' : 'needs_auth';
       hint = st.trim().split('\n')[0] || null;
@@ -372,7 +377,7 @@ function startAuthTmux(slot, cmd) {
   const args = ['new-session', '-d', '-s', TMUX_PREFIX + authName(slot.id)];
   for (const [k, v] of Object.entries(slotEnv(slot))) args.push('-e', `${k}=${v}`);
   args.push('-c', MORDA_ROOT, cmd);
-  execFileSync('tmux', args, { timeout: 5000 });
+  execFileSync(TMUX_BIN, args, { timeout: 5000 });
 }
 
 /** Добавить слот: свой конфиг-каталог под ~/.stovp-slots/<id> — авторизация

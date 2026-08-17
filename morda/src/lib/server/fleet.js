@@ -511,10 +511,24 @@ export function agentTranscript(project, key, agentId) {
 export const CLAUDE_BIN = process.env.CLAUDE_BIN
   || [path.join(os.homedir(), '.local/bin/claude'), '/opt/homebrew/bin/claude']
     .find((p) => fs.existsSync(p)) || 'claude';
+// Абсолютный путь и для tmux: под launchd PATH минимальный (/usr/bin:/bin…),
+// голое имя не находилось — боевой пульт видел все панели «мёртвыми»
+// (факт 17.08 после перезагрузки приложения).
+export const TMUX_BIN = process.env.TMUX_BIN
+  || ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux']
+    .find((p) => fs.existsSync(p)) || 'tmux';
+// PATH для спавна CLI: claude/codex — node-шимы, под launchd node в PATH
+// нет («env: node: No such file or directory», факт 17.08). Каталог node
+// самого сервера — первым; важно и для tmux: его сервер наследует env
+// первого запуска, а из него — все будущие панели с claude.
+export const SPAWN_ENV = { ...process.env,
+  PATH: [path.dirname(process.execPath), '/opt/homebrew/bin',
+    path.join(os.homedir(), '.local/bin'), process.env.PATH]
+    .filter(Boolean).join(':') };
 export function liveAgents() {
   try {
     return JSON.parse(execFileSync(CLAUDE_BIN, ['agents', '--json'],
-      { timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'] }).toString());
+      { timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'], env: SPAWN_ENV }).toString());
   } catch { return []; }
 }
 
@@ -523,7 +537,7 @@ export function tmuxCandidates(root) {
   let out;
   try {
     // разделитель многосимвольный: таб tmux молча превращает в '_' (факт 09.08)
-    out = execFileSync('tmux', ['list-panes', '-a', '-F',
+    out = execFileSync(TMUX_BIN, ['list-panes', '-a', '-F',
       '#{pane_id}|;|#{pane_pid}|;|#{session_name}|;|#{pane_current_path}|;|#{pane_current_command}'],
       { timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
   } catch { return []; } // tmux не поднят — честно пусто
@@ -619,8 +633,8 @@ export function say({ project, key, text, by }) {
   if (!r) throw new Error(`сессия ${key} не найдена в проекте ${project}`);
   const input = inputFor(root, r.file, r.entrypoint);
   if (input.mode === 'tmux') {
-    execFileSync('tmux', ['send-keys', '-t', input.pane.pane, '-l', text], { timeout: 3000 });
-    execFileSync('tmux', ['send-keys', '-t', input.pane.pane, 'Enter'], { timeout: 3000 });
+    execFileSync(TMUX_BIN, ['send-keys', '-t', input.pane.pane, '-l', text], { timeout: 3000 });
+    execFileSync(TMUX_BIN, ['send-keys', '-t', input.pane.pane, 'Enter'], { timeout: 3000 });
     return { sent: true, via: 'tmux', pane: input.pane.pane };
   }
   const hub = hubFor(root);
