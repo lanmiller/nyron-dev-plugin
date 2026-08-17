@@ -158,7 +158,7 @@
         </Card.Header>
         <Card.Content>
           {#if s.hint}<p class="hint quiet">{s.hint}</p>{/if}
-          {#if connect[s.id]?.url}
+          {#if connect[s.id]?.url && s.status !== 'ok'}
             <div class="auth-flow">
               <p class="hint">Открой ссылку в браузере с профилем НУЖНОГО
                 аккаунта — войдёт тот, кто там залогинен:</p>
@@ -189,8 +189,16 @@
               <Icon name="key-round" size={13} /> авторизовать
             </Button>
           {/if}
+          <p class="hint quiet mono" title={s.home ? 'каталог слота' : 'домашний каталог CLI — общий, поэтому «основной» не отвязывается'}>{s.home_display}</p>
           {#if s.home}
-            <p class="hint quiet mono">{s.home}</p>
+            <Button variant="ghost" size="xs" class="text-ink-4" disabled={busy}
+              title="слот уйдёт из реестра; каталог с авторизацией останется на диске — удалить руками: rm -rf {s.home}"
+              onclick={async () => {
+                if (!confirm(`Отвязать копию «${s.label}»? Каталог ${s.home} останется на диске.`)) return;
+                await act({ action: 'slot_remove', id: s.id });
+              }}>
+              <Icon name="unlink" size={12} /> отвязать
+            </Button>
           {/if}
         </Card.Content>
       </Card.Root>

@@ -84,7 +84,11 @@ function classify(text) {
   if (/Select login method|Paste code here|use the url below/i.test(text)) return 'login_flow';
   if (/Login expired|Not logged in|Run \/login|OAuth session expired/i.test(text)) return 'needs_auth';
   if (/Select any you wish to enable/i.test(text)) return 'mcp_consent';
-  if (/Do you trust the files/i.test(text)) return 'trust';
+  if (/Do you trust the files|Quick safety check/i.test(text)) return 'trust';
+  // онбординг свежего профиля (новый CLAUDE_CONFIG_DIR): четыре экрана
+  // подряд, все проходятся Enter-ом (флоу снят живьём 17.08, слот «Мариха»)
+  if (/Press Enter to continue|Try the new fullscreen renderer|Choose the text style/i
+    .test(text)) return 'onboarding';
   // диалог разрешения на инструмент: сессия стоит и ждёт человека —
   // пульт обязан это показывать, а не считать «работает» (этап 2: карточка)
   if (/Do you want to proceed\?|requires approval/i.test(text)) return 'permission';
@@ -103,9 +107,9 @@ function step(name) {
   }
   const screen = capture(name);
   const kind = classify(screen);
-  if (kind === 'mcp_consent' || kind === 'trust') {
-    // MCP-серверы проекта и доверие корню: корень пришёл из allowlist
-    // projects.json, серверы — из .mcp.json проекта; подтверждаем сами
+  if (kind === 'mcp_consent' || kind === 'trust' || kind === 'onboarding') {
+    // MCP-серверы проекта, доверие корню (корень из allowlist projects.json)
+    // и экраны онбординга нового профиля — подтверждаем сами
     try { tmux(['send-keys', '-t', pane(name), 'Enter']); } catch {}
     return;
   }
@@ -393,6 +397,12 @@ export function slotList({ probe = false } = {}) {
       } else {
         const scr = capture(name, 50);
         const kind = classify(scr);
+        // онбординг нового профиля и согласия двигаем сами: auth-сессию
+        // никто не поллит, её продвигает каждый опрос страницы настроек
+        // (иначе слот вечно висел в «проверяю…» — факт CTO 17.08, «Мариха»)
+        if (kind === 'onboarding' || kind === 'mcp_consent' || kind === 'trust') {
+          try { tmux(['send-keys', '-t', pane(name), 'Enter']); } catch {}
+        }
         status = kind === 'needs_auth' || kind === 'login_flow' ? 'needs_auth'
           : kind === 'prompt' ? 'ok' : 'probing';
         // почта аккаунта видна прямо на экране приветствия — показываем,
@@ -401,7 +411,13 @@ export function slotList({ probe = false } = {}) {
           || (kind === 'login_flow' ? 'логин начат: ссылка → вход → код' : null);
       }
     }
-    return { ...s, kind: p.kind, status, hint };
+    // дом слота показываем всегда: у «основного» это домашний каталог
+    // самого CLI, а не отдельная папка (вопрос CTO 17.08 «почему пути нет»)
+    const home_display = s.home
+      || (s.provider === 'claude'
+        ? process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+        : path.join(os.homedir(), `.${s.provider}`));
+    return { ...s, kind: p.kind, status, hint, home_display };
   });
 }
 
@@ -435,10 +451,13 @@ export function slotRemove({ id }) {
   const d = loadSlots();
   const s = d.slots.find((x) => x.id === id);
   if (!s) throw new Error(`нет слота ${id}`);
-  if (!s.home) throw new Error('основной слот не удаляется — это домашний каталог CLI');
+  if (!s.home) throw new Error('основной слот не отвязывается — это домашний каталог CLI');
   d.slots = d.slots.filter((x) => x.id !== id);
   saveSlots(d);
-  // конфиг-каталог НЕ сносим: там авторизация, удаление — руками
+  // служебную сессию логина глушим, чтобы не висела сиротой
+  const name = authName(id);
+  if (tmuxAlive(name)) { try { tmux(['kill-session', '-t', TMUX_PREFIX + name]); } catch {} }
+  // конфиг-каталог НЕ сносим: там авторизация; удаление — руками
   return { removed: id, home_kept: s.home };
 }
 
