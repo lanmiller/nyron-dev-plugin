@@ -373,10 +373,70 @@ export function runnerBySessionId(key) {
       const permission = screen === 'permission' && screen_text
         ? parsePermission(screen_text) : null;
       const slot = loadSlots().slots.find((x) => x.id === (s.slot || 'claude-main'));
-      return { name, ...s, tmux: TMUX_PREFIX + name, alive, screen, busy,
+      return { name, ...s, queue: s.queue || [], tmux: TMUX_PREFIX + name, alive, screen, busy,
         screen_text, dialog, permission, slot_label: slot?.label || 'основной' };
     }
   return null;
+}
+
+// ---------- очередь сообщений занятой сессии ----------
+//
+// Очередь держит ПУЛЬТ, а не вкладка браузера (CTO 19.08: «что будет, если
+// я отправил и сайт закрыл»): пока модель отвечает, текст ждёт в реестре на
+// диске — переживает закрытие вкладки и перезапуск пульта, и его можно
+// снять, пока он не ушёл. Освободилась сессия — отдаём по одному.
+
+export function queueAdd({ name, text }) {
+  const reg = loadReg();
+  const s = reg.sessions[name];
+  if (!s) throw new Error(`нет записи ${name}`);
+  if (!String(text || '').trim()) throw new Error('пустое сообщение');
+  s.queue = [...(s.queue || []), {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    text: String(text), ts: new Date().toISOString(),
+  }];
+  saveReg(reg);
+  return { queued: s.queue.length };
+}
+
+export function queueRemove({ name, id }) {
+  const reg = loadReg();
+  const s = reg.sessions[name];
+  if (!s) throw new Error(`нет записи ${name}`);
+  s.queue = (s.queue || []).filter((q) => q.id !== id);
+  saveReg(reg);
+  return { queued: s.queue.length };
+}
+
+/** Отдать очередь, если сессия освободилась. Зовётся с каждым опросом
+ *  окна и тикером — так очередь уходит даже с закрытой вкладкой. */
+export function queueFlush(name) {
+  const reg = loadReg();
+  const s = reg.sessions[name];
+  if (!s?.queue?.length || !tmuxAlive(name)) return;
+  const screen = visible(name);
+  if (isBusy(screen) || classify(screen) !== 'prompt') return;  // ещё занята
+  const [next, ...rest] = s.queue;
+  try { sendLine(name, next.text); } catch { return; }
+  s.queue = rest;
+  saveReg(reg);
+}
+
+// фоновый тикер: очередь уходит, даже если пульт никто не открывал
+const flusher = (globalThis.__mordaQueueFlusher ??= setInterval(() => {
+  try {
+    const reg = loadReg();
+    for (const [name, s] of Object.entries(reg.sessions))
+      if (s.queue?.length) queueFlush(name);
+  } catch { /* следующий тик дотянется */ }
+}, 3000));
+
+/** Живой экран tmux сессии — «показать настоящую консоль» (CTO 19.08).
+ *  Читается по требованию окна: реальный терминал под рукой, без tmux attach. */
+export function runnerScreen({ name, lines = 60 }) {
+  if (!tmuxAlive(name)) throw new Error(`нет живой tmux-сессии ${name}`);
+  const n = Math.min(Math.max(Number(lines) || 60, 10), 200);
+  return { screen: capture(name, n).replace(/\s+$/, ''), at: new Date().toISOString() };
 }
 
 /** Клавиша в живой диалог CLI (пикер HITL, /usage, /model). Семантика

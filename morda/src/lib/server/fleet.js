@@ -526,6 +526,21 @@ export function session(project, key) {
   // незакрытый родной HITL (AskUserQuestion без tool_result) — форма ждёт
   // человека; гаснет, если ПОСЛЕ формы уже была реплика человека (ответ
   // доехал каналом приложения — сессия пошла дальше, форма лишь висит в UI)
+  // Служебные вставки рантайма (текст скилла, системные напоминания) —
+  // это НЕ реплика человека: CLI шлёт их как user-сообщение (isMeta), и
+  // в ленте они разворачивались стеной на пол-экрана (жалоба CTO 19.08).
+  // Помечаем их как служебные — окно рисует свёрнутой плашкой.
+  for (const it of r.items) {
+    if (it.kind !== 'user' || it.system) continue;
+    const t = it.text || '';
+    if (t.startsWith('Base directory for this skill')) {
+      const name = t.match(/skills\/([\w-]+)/)?.[1]
+        || t.match(/^#\s+([\w-]+)/m)?.[1] || 'скилл';
+      it.system = `подключён скилл ${name}`;
+    } else if (/^<(system-reminder|command-message|local-command)/.test(t.trim())) {
+      it.system = 'служебная вставка рантайма';
+    }
+  }
   const hitlIdx = r.items.findLastIndex((i) => i.kind === 'tool' && i.questions && !i.result);
   const answeredAfter = hitlIdx >= 0
     && r.items.slice(hitlIdx + 1).some((i) => i.kind === 'user');

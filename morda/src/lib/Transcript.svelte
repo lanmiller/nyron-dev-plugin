@@ -53,6 +53,17 @@
   }
   const hasErr = (tools) => tools.some((t) => t.is_error);
 
+  // Длинные имена MCP-инструментов («mcp__claude_ai_Atlassian_Rovo__search
+  // JiraIssuesUsingJql») распирали строку и делали её нечитаемой на телефоне
+  // (CTO 19.08). Показываем последний осмысленный сегмент, полное имя —
+  // в подсказке и в шторке.
+  function shortTool(name) {
+    const n = String(name || '');
+    if (!n.includes('__')) return n;
+    const parts = n.split('__').filter(Boolean);
+    return parts[parts.length - 1] || n;
+  }
+
   // Раскрытое показываем целиком: сначала внутри своего скролл-контейнера
   // (пачка), потом страницей — чтобы не уехало под композер. Два кадра:
   // в первом Svelte дорисовывает содержимое, во втором высота настоящая.
@@ -104,7 +115,7 @@
                   packOpen = { ...packOpen, [bi]: !off };
                   // как и «N действий»: раскрытое подкручиваем к глазам
                   if (!off) revealPack(e.currentTarget.closest('.toolpack'));
-                }}>{k.name}{k.count > 1 ? ` ×${k.count}` : ''}</button>
+                }} title={k.name}>{shortTool(k.name)}{k.count > 1 ? ` ×${k.count}` : ''}</button>
             {/each}
           </span>
           {#if hasErr(b.tools)}<span class="terr">есть ошибка</span>{/if}
@@ -126,7 +137,7 @@
               {#if openTool}
                 <button class="tool tool-row" class:iserr={it.is_error}
                   onclick={() => openTool(it)}>
-                  <span class="tname">{it.name}</span>
+                  <span class="tname" title={it.name}>{shortTool(it.name)}</span>
                   <span class="tin">{it.input}</span>
                   {#if it.is_error}<span class="terr">ошибка</span>{/if}
                   <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
@@ -135,7 +146,7 @@
                 <details class="tool" class:iserr={it.is_error}
                   ontoggle={(e) => e.currentTarget.open && revealPack(e.currentTarget)}>
                   <summary>
-                    <span class="tname">{it.name}</span>
+                    <span class="tname" title={it.name}>{shortTool(it.name)}</span>
                     <span class="tin">{it.input}</span>
                     {#if it.is_error}<span class="terr">ошибка</span>{/if}
                   </summary>
@@ -212,7 +223,7 @@
         {#if openTool}
           <button class="tool tool-row" class:iserr={it.is_error}
             onclick={() => openTool(it)}>
-            <span class="tname">{it.name}</span>
+            <span class="tname" title={it.name}>{shortTool(it.name)}</span>
             <span class="tin">{it.input}</span>
             {#if it.is_error}<span class="terr">ошибка</span>{/if}
             <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
@@ -221,7 +232,7 @@
           <details class="tool" class:iserr={it.is_error}
             ontoggle={(e) => e.currentTarget.open && revealPack(e.currentTarget)}>
             <summary>
-              <span class="tname">{it.name}</span>
+              <span class="tname" title={it.name}>{shortTool(it.name)}</span>
               <span class="tin">{it.input}</span>
               {#if it.is_error}<span class="terr">ошибка</span>{/if}
             </summary>

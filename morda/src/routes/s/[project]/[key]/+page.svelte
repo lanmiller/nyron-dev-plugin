@@ -31,130 +31,17 @@
   let saying = $state(false);
   let sayError = $state(null);
   let sent = $state(null);
-  let seq = 0;
-
-  let project = $derived(page.params.project);
-  let key = $derived(page.params.key);
-
-  // Окно открывается СРАЗУ после запуска, ещё до привязки транскрипта
-  // (CTO 19.08: ждать молча на главной было непонятно). Ключ вида «n-<имя>»
-  // — это запись раннера: показываем стадию старта и подменяем адрес на
-  // настоящий sessionId, как только он появится.
-  let starting = $derived(key?.startsWith('n-') ? key.slice(2) : null);
-  let startStage = $state('поднимаю CLI-сессию…');
-  let startError = $state(null);
-  const STAGE_RU = {
-    starting: 'поднимаю CLI-сессию…',
-    goal_sent: 'цель отправлена, жду ответа…',
-    running: 'сессия пошла — открываю чат…',
-    needs_auth: null, died_on_start: null,
-  };
-  $effect(() => {
-    if (!starting) return;
-    let stop = false;
-    (async () => {
-      for (let i = 0; i < 120 && !stop; i++) {
-        try {
-          const l = await (await fetch(`/api/runner?project=${encodeURIComponent(project)}`)).json();
-          const e = l.sessions?.find((x) => x.name === starting);
-          if (e?.sessionId) {
-            return replaceState(`/s/${encodeURIComponent(project)}/${e.sessionId}`, {});
-          }
-          if (e?.state === 'needs_auth')
-            startError = 'CLI не авторизован — подключи копию подписки в настройках';
-          else if (e?.state === 'died_on_start')
-            startError = `сессия умерла на старте — посмотри: tmux attach -t ${e.tmux || ''}`;
-          else if (e?.screen === 'permission')
-            startStage = 'сессия спрашивает разрешение…';
-          else startStage = STAGE_RU[e?.state] || 'поднимаю CLI-сессию…';
-        } catch { /* пульт перезапускается — следующий тик дотянется */ }
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-    })();
-    return () => { stop = true; };
-  });
-
-  async function refresh() {
-    const my = ++seq;
-    const [p, k] = [project, key];
-    try {
-      const r = await fetch(`/api/session/${encodeURIComponent(p)}/${k}`);
-      const next = await r.json();
-      if (my !== seq || p !== project || k !== key) return;
-      if (!r.ok) { error = next.error; return; }
-      error = null;
-      const first = data === null;
-      const stick = nearBottom();
-      data = next;
-      if (stick) scrollDown(first);
-    } catch { /* сервер перезапускается — следующий тик дотянется */ }
+  // Очередь живёт на СЕРВЕРЕ (реестр раннера): переживает закрытие вкладки
+  // и перезапуск пульта, уходит сама, когда сессия освободится. Здесь —
+  // только показ и отмена (CTO 19.08).
+  let queued = $derived(data?.runner?.queue || []);
+  async function unqueue(id) {
+    await runnerAct('queue_remove', { id });
+    refresh();
   }
 
-  // Вниз ПОСЛЕ фактической отрисовки: tick() отпускает раньше, чем длинная
-  // лента займёт высоту (жалоба CTO 10.08 — «приходится листать в самый
-  // низ»); на первом показе добиваем повторами, пока высота не устаканится.
-  async function scrollDown(first) {
-    await tick();
-    const to = () => window.scrollTo({ top: document.body.scrollHeight });
-    to();
-    if (!first) return;
-    let h = 0;
-    for (let i = 0; i < 10; i++) {
-      await new Promise((r) => setTimeout(r, 80));
-      if (document.body.scrollHeight === h) break;
-      h = document.body.scrollHeight;
-      to();
-    }
-  }
-
-  function nearBottom() {
-    if (!data) return true; // первая загрузка — сразу вниз
-    return window.innerHeight + window.scrollY > document.body.scrollHeight - 300;
-  }
-
-  onMount(() => {
-    const t = setInterval(refresh, 5000);
-    return () => clearInterval(t);
-  });
-  // смена сессии в URL — перезагрузка окна с чистого листа
-  $effect(() => { if (project && key && !starting) { data = null; refresh(); } });
-
-  // клик по варианту родной формы: адресное сообщение сессии с явной
-  // привязкой к вопросу — доставляет почтальон через канал приложения
-  function sendFormChoice(question, label) {
-    draft = `Ответ на твою форму «${question}»: ${label}`;
-    sendText();
-  }
-
-  // multiSelect-формы: копим отметки по вопросам, шлём одним сообщением
-  let hitlPicked = $state({}); // qi → Set(label)
-  let hitlAny = $derived(Object.values(hitlPicked).some((s) => s?.size));
-  function toggleHitl(qi, label) {
-    const s = new Set(hitlPicked[qi] || []);
-    s.has(label) ? s.delete(label) : s.add(label);
-    hitlPicked = { ...hitlPicked, [qi]: s };
-  }
-  function sendHitlPicked() {
-    const parts = data.pending_hitl.questions
-      .map((q, qi) => {
-        const s = hitlPicked[qi];
-        return s?.size ? `«${q.question}»: ${[...s].join('; ')}` : null;
-      })
-      .filter(Boolean);
-    if (!parts.length) return;
-    draft = `Ответ на твою форму — ${parts.join(' | ')}`;
-    hitlPicked = {};
-    sendText();
-  }
-
-  async function sendText() {
-    if (!draft.trim() && !attachments.length) return;
-    // вложения — путями в хвосте сообщения, как у композера старта
-    const text = (draft.trim() || 'посмотри приложенные файлы') + (attachments.length
-      ? '\n\nПриложенные файлы (смотри их содержимое при необходимости):\n'
-        + attachments.map((a) => `- ${a.path}`).join('\n')
-      : '');
-    saying = true; sayError = null; sent = null;
+  // доставка одного сообщения; true = ушло
+  async function deliver(text) {
     try {
       const r = await fetch('/api/say', {
         method: 'POST',
@@ -162,20 +49,35 @@
         body: JSON.stringify({ project, key, text }),
       });
       const body = await r.json();
-      if (!r.ok) sayError = body.error || `HTTP ${r.status}`;
-      else {
-        draft = '';
-        attachments = [];
-        sent = body.via === 'tmux' ? 'доставлено в чат сессии'
-          : body.via === 'resume' ? body.note
-            : `в будке (адресовано сессии) — ${body.note}`;
-      }
+      if (!r.ok) { sayError = body.error || `HTTP ${r.status}`; return false; }
+      sent = body.via === 'tmux' ? 'доставлено в чат сессии'
+        : body.via === 'resume' ? body.note
+          : `в будке (адресовано сессии) — ${body.note}`;
+      return true;
     } catch (e) {
       sayError = String(e.message || e);
-    } finally {
-      saying = false;
-      refresh();
+      return false;
     }
+  }
+
+  async function sendText() {
+    if (!draft.trim() && !attachments.length) return;
+    const text = (draft.trim() || 'посмотри приложенные файлы') + (attachments.length
+      ? '\n\nПриложенные файлы (смотри их содержимое при необходимости):\n'
+        + attachments.map((a) => `- ${a.path}`).join('\n')
+      : '');
+    // занята — в очередь пульта (видно, можно отменить, не теряется при
+    // закрытии вкладки); свободна — уходит сразу
+    if (data?.runner?.busy && data.runner.name) {
+      const ok = await runnerAct('queue_add', { text });
+      if (ok !== null) { draft = ''; attachments = []; sayError = null; sent = null; }
+      refresh();
+      return;
+    }
+    saying = true; sayError = null; sent = null;
+    try {
+      if (await deliver(text)) { draft = ''; attachments = []; }
+    } finally { saying = false; refresh(); }
   }
 
   async function openCopy(app) {
@@ -234,7 +136,8 @@
         headers: { 'content-type': 'application/json', 'x-morda': '1' },
         body: JSON.stringify({ action, name: data.runner.name, ...extra }),
       });
-      if (!r.ok) sayError = (await r.json()).error || `HTTP ${r.status}`;
+      if (!r.ok) { sayError = (await r.json()).error || `HTTP ${r.status}`; return null; }
+      return await r.json().catch(() => ({}));
     } finally { runnerBusy = false; refresh(); }
   }
 
@@ -252,6 +155,9 @@
       : { label: 'поднять резюмом', icon: 'play', disabled: runnerBusy,
         run: () => runnerAct('resume'),
         title: 'claude --resume — тот же разговор с полным контекстом' }] : []),
+    ...(data.runner?.alive ? [{ label: 'консоль', icon: 'terminal',
+      run: () => (consoleOpen = true),
+      title: 'настоящий экран терминала сессии — как tmux attach, только здесь' }] : []),
     { label: 'копия в Claude', icon: 'external-link', disabled: opening, run: openInClaude,
       title: 'claude://resume — приложение откроет копию этого разговора' },
     ...(data.cwd ? [{ label: files ? 'скрыть файлы' : 'файлы проекта', icon: 'folder-tree',
@@ -363,6 +269,51 @@
       agentSheet = { agent, items: null, error: String(e.message || e) };
     }
   }
+
+  // Чем сессия занята прямо сейчас: последнее действие из ленты. Плюс
+  // «прервать» — Escape в её терминал: останавливает текущий шаг, но НЕ
+  // убивает сессию (в отличие от «остановить» в меню). CTO 19.08.
+  let lastAction = $derived.by(() => {
+    const items = data?.items || [];
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind !== 'tool') continue;
+      const n = String(it.name || '');
+      const short = n.includes('__') ? n.split('__').filter(Boolean).pop() : n;
+      return it.input ? `${short}: ${String(it.input).slice(0, 60)}` : short;
+    }
+    return 'думает над ответом';
+  });
+  async function interrupt() {
+    await runnerAct('key', { key: 'Escape' });
+    setTimeout(refresh, 800);
+  }
+
+  // Живая консоль сессии: настоящий экран tmux под рукой (CTO 19.08 —
+  // «чтобы всегда можно было посмотреть реальную консоль»). Открыта —
+  // обновляем раз в 2 секунды, закрыта — не дёргаем сервер.
+  let consoleOpen = $state(false);
+  let consoleText = $state('');
+  let consoleErr = $state(null);
+  $effect(() => {
+    if (!consoleOpen || !data?.runner?.name) return;
+    let stop = false;
+    const tick = async () => {
+      try {
+        const r = await fetch('/api/runner', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-morda': '1' },
+          body: JSON.stringify({ action: 'screen', name: data.runner.name, lines: 80 }),
+        });
+        const out = await r.json();
+        if (r.ok) { consoleText = out.screen; consoleErr = null; }
+        else consoleErr = out.error;
+      } catch (e) { consoleErr = String(e.message || e); }
+    };
+    tick();
+    const t = setInterval(() => { if (!stop) tick(); }, 2000);
+    return () => { stop = true; clearInterval(t); };
+  });
 
   let freeText = $state('');
   async function sendFree(n) {
@@ -508,6 +459,32 @@
   <Transcript items={data.items} {project} sessionKey={key} tracker={data.tracker}
     {openAgent} {openTool} agents={data.agents} />
 
+  <!-- Живая консоль: реальный экран tmux, обновляется сам -->
+  <Sheet.Root bind:open={consoleOpen}>
+    <Sheet.Content side="bottom" class="agent-sheet">
+      <Sheet.Header class="agent-head">
+        <div class="dlg-col">
+          <Sheet.Title>Консоль сессии</Sheet.Title>
+          <Sheet.Description>живой экран терминала, обновляется каждые 2 секунды</Sheet.Description>
+        </div>
+      </Sheet.Header>
+      <div class="agent-body">
+        {#if consoleErr}
+          <p class="err">{consoleErr}</p>
+        {:else}
+          <pre class="cli-screen">{consoleText || 'читаю экран…'}</pre>
+          <div class="perm-row">
+            <Button variant="outline" size="xs" disabled={runnerBusy}
+              title="Esc в терминал: остановит текущий шаг, сессия останется живой"
+              onclick={interrupt}>прервать работу</Button>
+            <span class="grow-mini"></span>
+            <span class="quiet" style="font-size:var(--fs-xs)">tmux attach -t {data.runner?.tmux}</span>
+          </div>
+        {/if}
+      </div>
+    </Sheet.Content>
+  </Sheet.Root>
+
   <!-- Что сделало действие: ввод и вывод во весь кадр, закрывается свайпом
        или крестиком (телефон; на десктопе плашка раскрывается в ленте) -->
   <Sheet.Root bind:open={toolOpen}>
@@ -530,6 +507,19 @@
       </div>
     </Sheet.Content>
   </Sheet.Root>
+
+  {#each queued as q (q.id)}
+    <!-- ждёт в очереди пульта: уйдёт, когда сессия освободится; крестик снимает -->
+    <div class="user queued">
+      <div class="bubble md-body">
+        {q.text}
+        <button class="q-x" aria-label="убрать из очереди" title="убрать из очереди"
+          onclick={() => unqueue(q.id)}>
+          <Icon name="x" size={13} />
+        </button>
+      </div>
+    </div>
+  {/each}
 
   <!-- Лента субагента во весь экран: заголовок = кто и зачем, тело — та же
        лента, что у сессии (вложенные субагенты открываются поверх) -->
@@ -681,6 +671,15 @@
       {/each}
     </div>
 
+    {#if data.runner?.busy}
+      <!-- как в приложении Claude: строка «работает · чем занята», а
+           остановку даёт сама кнопка композера (стрелка → квадрат) -->
+      <div class="working">
+        <Icon name="sparkles" size={13} class="text-primary" />
+        <span class="work-what">работает · {lastAction}</span>
+      </div>
+    {/if}
+
     {#if cliDialog}
       <!-- Форма CLI (AskUserQuestion и пикеры) — единый слайдер над
            композером (CTO 17.08): кликабельные табы-вопросы, сворачивается
@@ -826,7 +825,7 @@
       <input type="file" multiple hidden bind:this={fileEl}
         onchange={(e) => attachFiles([...e.currentTarget.files])} />
       <textarea rows="1" bind:this={ta} bind:value={draft} oninput={grow}
-        placeholder={data.input?.mode === 'tmux' ? 'написать в чат сессии…' : 'написать сессии…'}
+        placeholder={data.runner?.busy ? 'сообщение подождёт в очереди…' : data.input?.mode === 'tmux' ? 'написать в чат сессии…' : 'написать сессии…'}
         onkeydown={(e) => {
           if (e.key !== 'Enter' || e.shiftKey) return;
           e.preventDefault(); sendText();
@@ -848,11 +847,19 @@
             title="Разрешения — смена перезапустит сессию резюмом" options={MODE_OPTS} />
         {/if}
         <span class="grow"></span>
-        <button class="send" disabled={saying || (!draft.trim() && !attachments.length)}
-          onclick={sendText}
-          aria-label="отправить (Enter)" title="Enter — отправить, Shift+Enter — новая строка">
-          <Icon name="arrow-up" size={16} />
-        </button>
+        {#if data.runner?.busy && !draft.trim() && !attachments.length}
+          <button class="send stop" disabled={runnerBusy} onclick={interrupt}
+            aria-label="остановить текущий шаг"
+            title="остановить текущий шаг; сессия останется живой">
+            <Icon name="square" size={13} />
+          </button>
+        {:else}
+          <button class="send" disabled={saying || (!draft.trim() && !attachments.length)}
+            onclick={sendText}
+            aria-label="отправить (Enter)" title="Enter — отправить, Shift+Enter — новая строка">
+            <Icon name="arrow-up" size={16} />
+          </button>
+        {/if}
       </div>
     </div>
     <!-- Как дойдёт сообщение — одной строкой; развёрнутое объяснение и
@@ -961,7 +968,32 @@
 
   /* Форма-слайдер (единый виджет над композером): шапка = свёртка +
      кликабельные табы вопросов + крестик отмены; тело без своего скролла */
-  .dlg-card { margin: 0 0 var(--sp-3); }
+  /* занятость: одна дышащая строка над композером (референс — Claude) */
+  .working {
+    display: flex; align-items: center; gap: var(--sp-2);
+    padding: 0 var(--sp-2) var(--sp-2); font-size: var(--fs-xs);
+    animation: breathe 1.8s ease-in-out infinite;
+  }
+  .work-what {
+    flex: 1; min-width: 0; color: var(--text-2);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  /* пока сессия занята, стрелка отправки становится кнопкой «стоп» */
+  .send.stop { background: var(--text-1); color: var(--bg-0); }
+
+  /* Форма живёт в приклеенном доке — страницей её не прокрутить, поэтому
+     длинный вопрос листается внутри самой карточки (CTO 19.08: «текст не
+     влез, а скроллить нечем»). Шапка с табами остаётся на месте. */
+  .dlg-card {
+    margin: 0 0 var(--sp-3);
+    max-height: 62vh; overflow-y: auto; overscroll-behavior: contain;
+  }
+  .dlg-card .dlg-head {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--bg-2); padding-top: var(--sp-2);
+  }
+  @media (min-width: 901px) { .dlg-card { max-height: 52vh; } }
   .hitl header.dlg-head {
     display: flex; flex-direction: row; align-items: center;
     gap: var(--sp-2); margin-bottom: var(--sp-3);
