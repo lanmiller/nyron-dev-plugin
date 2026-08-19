@@ -31,6 +31,94 @@
   let saying = $state(false);
   let sayError = $state(null);
   let sent = $state(null);
+  let seq = 0;
+
+  let project = $derived(page.params.project);
+  let key = $derived(page.params.key);
+
+  // Окно открывается СРАЗУ после запуска, ещё до привязки транскрипта
+  // (CTO 19.08: ждать молча на главной было непонятно). Ключ вида «n-<имя>»
+  // — это запись раннера: показываем стадию старта и подменяем адрес на
+  // настоящий sessionId, как только он появится.
+  let starting = $derived(key?.startsWith('n-') ? key.slice(2) : null);
+  let startStage = $state('поднимаю CLI-сессию…');
+  let startError = $state(null);
+  const STAGE_RU = {
+    starting: 'поднимаю CLI-сессию…',
+    goal_sent: 'цель отправлена, жду ответа…',
+    running: 'сессия пошла — открываю чат…',
+    needs_auth: null, died_on_start: null,
+  };
+  $effect(() => {
+    if (!starting) return;
+    let stop = false;
+    (async () => {
+      for (let i = 0; i < 120 && !stop; i++) {
+        try {
+          const l = await (await fetch(`/api/runner?project=${encodeURIComponent(project)}`)).json();
+          const e = l.sessions?.find((x) => x.name === starting);
+          if (e?.sessionId) {
+            return replaceState(`/s/${encodeURIComponent(project)}/${e.sessionId}`, {});
+          }
+          if (e?.state === 'needs_auth')
+            startError = 'CLI не авторизован — подключи копию подписки в настройках';
+          else if (e?.state === 'died_on_start')
+            startError = `сессия умерла на старте — посмотри: tmux attach -t ${e.tmux || ''}`;
+          else if (e?.screen === 'permission')
+            startStage = 'сессия спрашивает разрешение…';
+          else startStage = STAGE_RU[e?.state] || 'поднимаю CLI-сессию…';
+        } catch { /* пульт перезапускается — следующий тик дотянется */ }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    })();
+    return () => { stop = true; };
+  });
+
+  async function refresh() {
+    const my = ++seq;
+    const [p, k] = [project, key];
+    try {
+      const r = await fetch(`/api/session/${encodeURIComponent(p)}/${k}`);
+      const next = await r.json();
+      if (my !== seq || p !== project || k !== key) return;
+      if (!r.ok) { error = next.error; return; }
+      error = null;
+      const first = data === null;
+      const stick = nearBottom();
+      data = next;
+      if (stick) scrollDown(first);
+    } catch { /* сервер перезапускается — следующий тик дотянется */ }
+  }
+
+  // Вниз ПОСЛЕ фактической отрисовки: tick() отпускает раньше, чем длинная
+  // лента займёт высоту (жалоба CTO 10.08 — «приходится листать в самый
+  // низ»); на первом показе добиваем повторами, пока высота не устаканится.
+  async function scrollDown(first) {
+    await tick();
+    const to = () => window.scrollTo({ top: document.body.scrollHeight });
+    to();
+    if (!first) return;
+    let h = 0;
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 80));
+      if (document.body.scrollHeight === h) break;
+      h = document.body.scrollHeight;
+      to();
+    }
+  }
+
+  function nearBottom() {
+    if (!data) return true; // первая загрузка — сразу вниз
+    return window.innerHeight + window.scrollY > document.body.scrollHeight - 300;
+  }
+
+  onMount(() => {
+    const t = setInterval(refresh, 5000);
+    return () => clearInterval(t);
+  });
+  // смена сессии в URL — перезагрузка окна с чистого листа
+  $effect(() => { if (project && key && !starting) { data = null; refresh(); } });
+
   // Очередь живёт на СЕРВЕРЕ (реестр раннера): переживает закрытие вкладки
   // и перезапуск пульта, уходит сама, когда сессия освободится. Здесь —
   // только показ и отмена (CTO 19.08).
