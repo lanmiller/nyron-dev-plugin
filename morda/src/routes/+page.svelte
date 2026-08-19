@@ -90,19 +90,10 @@
       if (!r.ok) { launchError = out.error || `HTTP ${r.status}`; return; }
       goal = '';
       attachments = [];
-      launchNote = 'сессия стартует — жду привязки транскрипта…';
-      // привязка занимает секунды: стартовые экраны CLI + первый ответ
-      for (let i = 0; i < 40; i++) {
-        await new Promise((res) => setTimeout(res, 1500));
-        const l = await (await fetch(`/api/runner?project=${encodeURIComponent(target)}`)).json();
-        const e = l.sessions?.find((x) => x.name === name);
-        if (e?.sessionId) return goto(`/s/${encodeURIComponent(target)}/${e.sessionId}`);
-        if (e?.state === 'needs_auth') {
-          launchError = 'CLI не авторизован — подключи слот в настройках'; return;
-        }
-        if (e?.state === 'died_on_start') { launchError = 'сессия умерла на старте — tmux attach -t ' + (e.tmux || ''); return; }
-      }
-      launchNote = 'старт затянулся — смотри статус в настройках (раннер)';
+      // окно открываем СРАЗУ, не дожидаясь привязки транскрипта: ждать
+      // молча на главной было непонятно (CTO 19.08). Ключ — имя записи
+      // раннера с префиксом «n-»; окно само подменит его на sessionId.
+      return goto(`/s/${encodeURIComponent(target)}/n-${name}`);
     } finally { launching = false; }
   }
 </script>

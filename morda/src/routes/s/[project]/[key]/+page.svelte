@@ -10,6 +10,7 @@
   // так и оставался схлопнутым — действия просто не показывались.
   import { onMount, getContext, tick } from 'svelte';
   import { page } from '$app/state';
+  import { replaceState } from '$app/navigation';
   import Transcript from '$lib/Transcript.svelte';
   import AskCard from '$lib/AskCard.svelte';
   import FileBrowser from '$lib/FileBrowser.svelte';
@@ -34,6 +35,44 @@
 
   let project = $derived(page.params.project);
   let key = $derived(page.params.key);
+
+  // Окно открывается СРАЗУ после запуска, ещё до привязки транскрипта
+  // (CTO 19.08: ждать молча на главной было непонятно). Ключ вида «n-<имя>»
+  // — это запись раннера: показываем стадию старта и подменяем адрес на
+  // настоящий sessionId, как только он появится.
+  let starting = $derived(key?.startsWith('n-') ? key.slice(2) : null);
+  let startStage = $state('поднимаю CLI-сессию…');
+  let startError = $state(null);
+  const STAGE_RU = {
+    starting: 'поднимаю CLI-сессию…',
+    goal_sent: 'цель отправлена, жду ответа…',
+    running: 'сессия пошла — открываю чат…',
+    needs_auth: null, died_on_start: null,
+  };
+  $effect(() => {
+    if (!starting) return;
+    let stop = false;
+    (async () => {
+      for (let i = 0; i < 120 && !stop; i++) {
+        try {
+          const l = await (await fetch(`/api/runner?project=${encodeURIComponent(project)}`)).json();
+          const e = l.sessions?.find((x) => x.name === starting);
+          if (e?.sessionId) {
+            return replaceState(`/s/${encodeURIComponent(project)}/${e.sessionId}`, {});
+          }
+          if (e?.state === 'needs_auth')
+            startError = 'CLI не авторизован — подключи копию подписки в настройках';
+          else if (e?.state === 'died_on_start')
+            startError = `сессия умерла на старте — посмотри: tmux attach -t ${e.tmux || ''}`;
+          else if (e?.screen === 'permission')
+            startStage = 'сессия спрашивает разрешение…';
+          else startStage = STAGE_RU[e?.state] || 'поднимаю CLI-сессию…';
+        } catch { /* пульт перезапускается — следующий тик дотянется */ }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    })();
+    return () => { stop = true; };
+  });
 
   async function refresh() {
     const my = ++seq;
@@ -78,7 +117,7 @@
     return () => clearInterval(t);
   });
   // смена сессии в URL — перезагрузка окна с чистого листа
-  $effect(() => { if (project && key) { data = null; refresh(); } });
+  $effect(() => { if (project && key && !starting) { data = null; refresh(); } });
 
   // клик по варианту родной формы: адресное сообщение сессии с явной
   // привязкой к вопросу — доставляет почтальон через канал приложения
@@ -390,7 +429,25 @@
 <svelte:head><title>{data?.title || key?.slice(0, 8)} — STOVP</title></svelte:head>
 <svelte:window onkeydown={dialogKeydown} />
 
-{#if error}
+{#if starting}
+  <!-- сессия рождается: человек видит стадию, а не пустой экран -->
+  <header class="s-head">
+    <a href="/?p={encodeURIComponent(project)}" class="back">
+      <Icon name="arrow-left" size={13} /> {project}
+    </a>
+    <h1 class="s-title">Новая сессия</h1>
+  </header>
+  <div class="starting">
+    {#if startError}
+      <p class="err">{startError}</p>
+      <a class="quiet" href="/settings">открыть настройки раннера →</a>
+    {:else}
+      <span class="spin"><Icon name="loader-circle" size={18} /></span>
+      <b>{startStage}</b>
+      <span class="quiet">цель уже отправлена — как только сессия ответит, чат откроется сам</span>
+    {/if}
+  </div>
+{:else if error}
   <p class="err">{error}</p>
 {:else if !data}
   <!-- каркас рисуется сразу: у диспетчеров транскрипт мегабайтный, и пустой

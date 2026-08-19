@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "morda-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "morda", "run", "dev"],
+      "port": 5747
+    },
+    {
+      "name": "morda-live",
+      "url": "http://127.0.0.1:4747"
+    }
+  ]
+}

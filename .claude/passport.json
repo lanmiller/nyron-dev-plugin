@@ -19,15 +19,22 @@
   },
   "mcp": {
     "jira-nyron": {
-      "keys": ["jira.env"],
-      "smoke": { "tool": "jira_get_user_profile", "args": { "user_identifier": "$JIRA_USERNAME" } }
+      "keys": [
+        "env"
+      ],
+      "smoke": {
+        "tool": "jira_get_user_profile",
+        "args": {
+          "user_identifier": "$JIRA_USERNAME"
+        }
+      }
     }
   },
   "keys": {
-    "jira.env": {
+    "env": {
       "JIRA_URL": "адрес Jira, например https://nyron.atlassian.net",
       "JIRA_USERNAME": "корп-почта пользователя Jira",
-      "JIRA_API_TOKEN": "секрет: id.atlassian.com → Security → API tokens",
+      "JIRA_API_TOKEN": "секрет: id.atlassian.com → Security → API tokens; владелец — CTO",
       "CONFLUENCE_URL": "адрес вики: <JIRA_URL>/wiki",
       "CONFLUENCE_USERNAME": "та же корп-почта",
       "CONFLUENCE_API_TOKEN": "тот же API-токен"
@@ -36,5 +43,12 @@
   "guard": true,
   "precommit": true,
   "last_audit": "2026-08-18",
-  "audit_interval_days": 14
+  "audit_interval_days": 14,
+  "optional_keys": {
+    "env": {
+      "MORDA_USER": "логин входа в пульт, когда он выставлен наружу (пусто = локально без пароля)",
+      "MORDA_PASSWORD": "пароль входа в пульт; смена требует перезапуска пульта",
+      "TUNA_TOKEN": "ключ туннеля tuna.am для показа пульта с телефона"
+    }
+  }
 }

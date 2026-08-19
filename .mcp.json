@@ -4,7 +4,7 @@
       "command": "node",
       "args": [
         "morda/keys/with-keys.mjs",
-        ".secrets/jira.env",
+        ".secrets/env",
         "--",
         "python3",
         "nyron-dev/hub/jira-slim.py",
