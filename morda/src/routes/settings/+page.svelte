@@ -222,7 +222,7 @@
           {#if usage[s.id] && s.status === 'ok'}
             {@const u = usage[s.id]}
             <div class="usage">
-              {#each [['сессия', u.session], ['неделя', u.week_all], ['неделя, топ-модель', u.week_model]] as [label, v] (label)}
+              {#each [['5-часовой лимит', u.session], ['неделя, все модели', u.week_all], ['неделя, топ-модель', u.week_model]] as [label, v] (label)}
                 {#if v}
                   <div class="u-row" title="сброс: {v.resets}">
                     <span class="u-label">{label}</span>

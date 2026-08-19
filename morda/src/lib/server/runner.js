@@ -78,6 +78,13 @@ function sendLine(name, text) {
   // тот же проверенный канал, что fleet.say
   execFileSync(TMUX_BIN, ['send-keys', '-t', pane(name), '-l', text], { timeout: 3000 });
   execFileSync(TMUX_BIN, ['send-keys', '-t', pane(name), 'Enter'], { timeout: 3000 });
+  if (text.includes('\n')) {
+    // многострочный ввод CLI принимает как вставку: первый Enter закрывает
+    // вставку, отправляет второй (факт 19.08 — цель аудитора легла в поле
+    // и не ушла); на уже отправленном лишний Enter безвреден
+    execFileSync('sleep', ['0.4']);
+    execFileSync(TMUX_BIN, ['send-keys', '-t', pane(name), 'Enter'], { timeout: 3000 });
+  }
 }
 
 // ---------- привязка панель → sessionId ----------
@@ -515,10 +522,30 @@ export function slotEnv(slot) {
 }
 const authName = (id) => `auth-${id}`;    // tmux: stovp-auth-<id>
 
+// Служебные auth-сессии не живут вечно: постояв без дела полчаса, глушатся
+// (поднимутся сами при следующей проверке/подключении). Иначе на машине
+// копятся «висящие терминалы» с клодом — жалоба CTO 19.08: сессии от 17.08
+// всё ещё держали по процессу.
+const AUTH_IDLE_MS = 30 * 60 * 1000;
+function reapIdleAuth() {
+  let lines = [];
+  try {
+    lines = tmux(['ls', '-F', '#{session_name} #{session_activity}']).trim().split('\n');
+  } catch { return; }
+  for (const line of lines) {
+    const [name, act] = line.split(' ');
+    if (!name?.startsWith(TMUX_PREFIX + 'auth-')) continue;
+    if (Date.now() - Number(act) * 1000 > AUTH_IDLE_MS) {
+      try { tmux(['kill-session', '-t', name]); } catch {}
+    }
+  }
+}
+
 /** Статусы слотов: подключён / не подключён / протух — фактом, не памятью.
  *  codex отвечает мгновенно (login status); claude — экраном служебной
  *  сессии: probe=true поднимает её, probe=false только смотрит живую. */
 export function slotList({ probe = false } = {}) {
+  reapIdleAuth();
   return loadSlots().slots.map((s) => {
     const p = PROVIDERS[s.provider];
     if (!p) return { ...s, status: 'unknown', hint: `неизвестный провайдер ${s.provider}` };
