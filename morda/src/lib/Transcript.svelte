@@ -15,7 +15,7 @@
   // openAgent — способ показать субагента отдельной поверхностью (шторка
   // окна сессии). Не передан — работает старая вложенная раскрывашка.
   let { items, project = null, sessionKey = null, depth = 0, tracker = null,
-    openAgent = null, agents: sessionAgents = [] } = $props();
+    openAgent = null, openTool = null, agents: sessionAgents = [] } = $props();
 
   // Пачка действий: типы — фильтры (CTO 19.08 «Read, Bash, Agent как
   // фильтры»). Клик по типу разворачивает пачку и оставляет только его.
@@ -53,23 +53,15 @@
   }
   const hasErr = (tools) => tools.some((t) => t.is_error);
 
-  // раскрытая пачка не должна оказаться под композером: подкручиваем к ней
-  // после отрисовки содержимого (высота меняется в этот же кадр)
+  // Раскрытое показываем целиком: сначала внутри своего скролл-контейнера
+  // (пачка), потом страницей — чтобы не уехало под композер. Два кадра:
+  // в первом Svelte дорисовывает содержимое, во втором высота настоящая.
+  // Раскрыл — экран встаёт на начало раскрытого (отступ под липкую шапку
+  // задан в CSS через scroll-margin-top).
   function revealPack(el) {
     if (!el) return;
-    // два кадра: в первом Svelte дорисовывает содержимое, во втором
-    // высота уже настоящая и есть что подкручивать
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      const dock = parseInt(getComputedStyle(document.documentElement)
-        .getPropertyValue('--dock-h')) || 0;
-      const r = el.getBoundingClientRect();
-      const bottom = window.innerHeight - dock - 12;
-      if (r.bottom <= bottom && r.top >= 0) return;
-      // не тащим верх пачки выше экрана: прокручиваем ровно настолько,
-      // чтобы её низ встал над композером
-      const delta = Math.min(r.top - 12, r.bottom - bottom);
-      window.scrollBy({ top: delta, behavior: 'smooth' });
-    }));
+    requestAnimationFrame(() => requestAnimationFrame(() =>
+      el.scrollIntoView({ block: 'start', behavior: 'smooth' })));
   }
 
   async function toggleAgent(a, open) {
@@ -131,15 +123,26 @@
                 <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
               </button>
             {:else}
-              <details class="tool" class:iserr={it.is_error}>
-                <summary>
+              {#if openTool}
+                <button class="tool tool-row" class:iserr={it.is_error}
+                  onclick={() => openTool(it)}>
                   <span class="tname">{it.name}</span>
                   <span class="tin">{it.input}</span>
                   {#if it.is_error}<span class="terr">ошибка</span>{/if}
-                </summary>
-                {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
-                <div class="tout"><b>вывод</b><pre>{it.result || '(пусто)'}</pre></div>
-              </details>
+                  <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
+                </button>
+              {:else}
+                <details class="tool" class:iserr={it.is_error}
+                  ontoggle={(e) => e.currentTarget.open && revealPack(e.currentTarget)}>
+                  <summary>
+                    <span class="tname">{it.name}</span>
+                    <span class="tin">{it.input}</span>
+                    {#if it.is_error}<span class="terr">ошибка</span>{/if}
+                  </summary>
+                  {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
+                  <div class="tout"><b>вывод</b><pre>{it.result || '(пусто)'}</pre></div>
+                </details>
+              {/if}
             {/if}
           {/each}
         </div>
@@ -206,15 +209,26 @@
           {/if}
         </details>
       {:else}
-        <details class="tool" class:iserr={it.is_error}>
-          <summary>
+        {#if openTool}
+          <button class="tool tool-row" class:iserr={it.is_error}
+            onclick={() => openTool(it)}>
             <span class="tname">{it.name}</span>
             <span class="tin">{it.input}</span>
             {#if it.is_error}<span class="terr">ошибка</span>{/if}
-          </summary>
-          {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
-          <div class="tout"><b>вывод</b><pre>{it.result || '(пусто)'}</pre></div>
-        </details>
+            <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
+          </button>
+        {:else}
+          <details class="tool" class:iserr={it.is_error}
+            ontoggle={(e) => e.currentTarget.open && revealPack(e.currentTarget)}>
+            <summary>
+              <span class="tname">{it.name}</span>
+              <span class="tin">{it.input}</span>
+              {#if it.is_error}<span class="terr">ошибка</span>{/if}
+            </summary>
+            {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
+            <div class="tout"><b>вывод</b><pre>{it.result || '(пусто)'}</pre></div>
+          </details>
+        {/if}
       {/if}
       {/if}
     {/if}
@@ -261,15 +275,24 @@
   .think { border-left: 2px solid var(--border-soft); padding-left: 10px; }
   .think > summary { color: var(--text-4); font-size: 12.5px; cursor: pointer; font-style: italic; }
   .think-body { color: var(--text-3); font-size: 13px; margin-top: 4px; }
-  .tool {
+  .tool, .toolpack {
     background: var(--bg-2); border: 1px solid var(--border-soft);
     border-radius: 8px; font-size: 13px;
+    /* раскрытое встаёт под липкую шапку окна сессии, а не под неё */
+    scroll-margin-top: calc(var(--bar-h, 0px) + 64px);
   }
   /* различие несёт цвет всей рамки: толстая полоса сбоку — узнаваемый
      признак ИИ-вёрстки (детектор impeccable, 11.08) */
   .tool.iserr { border-color: var(--hot); }
   .tool.agent { border-color: var(--accent); }
   .tool.agent > summary .tname { color: var(--accent); }
+  /* строка действия — кнопка: тап открывает шторку с вводом и выводом
+     (одно поведение на телефоне и на десктопе) */
+  .tool-row {
+    display: flex; gap: 8px; align-items: center; width: 100%;
+    padding: 8px 10px; text-align: left; font: inherit; cursor: pointer;
+    color: var(--text-1); min-height: var(--tap);
+  }
   /* строка субагента как кнопка: тап открывает его ленту шторкой */
   .agent-row {
     display: flex; gap: 8px; align-items: center; width: 100%;
@@ -316,11 +339,5 @@
     padding: 6px 10px; min-width: 0; color: var(--text-3);
   }
   .toolpack[open] > summary { border-bottom: 1px solid var(--border-soft); }
-  /* раскрытая пачка не выталкивает разговор за экран: свой скролл, чтобы
-     на телефоне она целиком помещалась в кадр (CTO 19.08) */
-  .packbody {
-    display: flex; flex-direction: column; gap: 4px; padding: 6px;
-    max-height: 46vh; overflow-y: auto; overscroll-behavior: contain;
-  }
-  @media (min-width: 901px) { .packbody { max-height: 54vh; } }
+  .packbody { display: flex; flex-direction: column; gap: 4px; padding: 6px; }
 </style>

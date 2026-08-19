@@ -306,6 +306,11 @@
   // (CTO 19.08, mobile-first): тап по строке открывает шторку с его лентой.
   let agentSheet = $state(null);   // { agent, items, error } | null
   let agentOpen = $state(false);
+  // содержимое действия на телефоне — той же шторкой (в ленте под
+  // композером места не остаётся, а шторка всегда открывается во весь кадр)
+  let toolSheet = $state(null);    // элемент ленты | null
+  let toolOpen = $state(false);
+  function openTool(it) { toolSheet = it; toolOpen = true; }
   let agentsOpen = $state(false);  // раскрыт ли список агентов у чипа
   async function openAgent(agent) {
     agentSheet = { agent, items: null, error: null };
@@ -444,7 +449,30 @@
 
 
   <Transcript items={data.items} {project} sessionKey={key} tracker={data.tracker}
-    {openAgent} agents={data.agents} />
+    {openAgent} {openTool} agents={data.agents} />
+
+  <!-- Что сделало действие: ввод и вывод во весь кадр, закрывается свайпом
+       или крестиком (телефон; на десктопе плашка раскрывается в ленте) -->
+  <Sheet.Root bind:open={toolOpen}>
+    <Sheet.Content side="bottom" class="agent-sheet">
+      <Sheet.Header class="agent-head">
+        <div class="dlg-col">
+          <Sheet.Title>{toolSheet?.name || 'действие'}</Sheet.Title>
+          {#if toolSheet?.is_error}
+            <Sheet.Description class="text-hot">завершилось ошибкой</Sheet.Description>
+          {/if}
+        </div>
+      </Sheet.Header>
+      <div class="agent-body">
+        {#if toolSheet?.input}
+          <p class="tsec">ввод</p>
+          <pre class="cli-screen">{toolSheet.input}</pre>
+        {/if}
+        <p class="tsec">вывод</p>
+        <pre class="cli-screen">{toolSheet?.result || '(пусто)'}</pre>
+      </div>
+    </Sheet.Content>
+  </Sheet.Root>
 
   <!-- Лента субагента во весь экран: заголовок = кто и зачем, тело — та же
        лента, что у сессии (вложенные субагенты открываются поверх) -->
@@ -988,6 +1016,12 @@
   }
   .ag-state { flex: none; color: var(--ok); font-size: var(--fs-xs); }
   .ag-state.bad { color: var(--hot); }
+  /* подписи «ввод» / «вывод» в шторке действия */
+  .tsec {
+    margin: var(--sp-4) 0 var(--sp-2); color: var(--text-4);
+    font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .agent-body .cli-screen { white-space: pre-wrap; max-height: none; }
 
   .hint { font-size: var(--fs-xs); margin: var(--sp-3) var(--sp-1) 0; }
   .ok-note { color: var(--ok); }
