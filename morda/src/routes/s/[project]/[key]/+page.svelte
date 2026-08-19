@@ -306,6 +306,7 @@
   // (CTO 19.08, mobile-first): тап по строке открывает шторку с его лентой.
   let agentSheet = $state(null);   // { agent, items, error } | null
   let agentOpen = $state(false);
+  let agentsOpen = $state(false);  // раскрыт ли список агентов у чипа
   async function openAgent(agent) {
     agentSheet = { agent, items: null, error: null };
     agentOpen = true;
@@ -441,47 +442,63 @@
     </div>
   {/if}
 
-  <!-- Агенты сессии одной полосой: фоновые в ленту не попадают вовсе
-       (у них нет привязки к строке), а знать, кто работает, надо.
-       Тап — лента агента шторкой на 70% (CTO 19.08). -->
-  {#if data.agents?.length}
-    <div class="agents-strip">
-      {#each data.agents as a (a.agentId)}
-        <button class="agent-chip" class:busy={a.busy}
-          title={a.description || a.agentType || a.agentId}
-          onclick={() => openAgent(a)}>
-          <i class="dot" style="background:{a.busy ? 'var(--ok)' : 'var(--text-4)'}"></i>
-          <b>{a.name || a.agentId}</b>
-          <span>{a.busy ? 'работает' : 'готов'}</span>
-        </button>
-      {/each}
-    </div>
-  {/if}
 
   <Transcript items={data.items} {project} sessionKey={key} tracker={data.tracker}
-    {openAgent} />
+    {openAgent} agents={data.agents} />
 
   <!-- Лента субагента во весь экран: заголовок = кто и зачем, тело — та же
        лента, что у сессии (вложенные субагенты открываются поверх) -->
   <Sheet.Root bind:open={agentOpen}>
     <Sheet.Content side="bottom" class="agent-sheet">
-      <Sheet.Header>
-        <Sheet.Title>
-          {agentSheet?.agent?.name || agentSheet?.agent?.agentId || 'субагент'}
-          {#if agentSheet?.agent?.agentType}<span class="quiet"> · {agentSheet.agent.agentType}</span>{/if}
-        </Sheet.Title>
-        {#if agentSheet?.agent?.description}
-          <Sheet.Description>{agentSheet.agent.description}</Sheet.Description>
+      <Sheet.Header class="agent-head">
+        {#if agentSheet}
+          <button class="dlg-x" aria-label="к списку агентов"
+            onclick={() => (agentSheet = null)}><Icon name="arrow-left" size={16} /></button>
         {/if}
+        <div class="dlg-col">
+          <Sheet.Title>
+            {#if agentSheet}
+              {agentSheet.agent?.name || agentSheet.agent?.agentId || 'субагент'}
+              {#if agentSheet.agent?.agentType}<span class="quiet"> · {agentSheet.agent.agentType}</span>{/if}
+            {:else}
+              Агенты сессии
+            {/if}
+          </Sheet.Title>
+          {#if agentSheet?.agent?.description}
+            <Sheet.Description>{agentSheet.agent.description}</Sheet.Description>
+          {:else if !agentSheet}
+            <Sheet.Description>кого сессия подняла себе в помощь — тап открывает его ленту</Sheet.Description>
+          {/if}
+        </div>
       </Sheet.Header>
       <div class="agent-body">
-        {#if agentSheet?.error}
+        {#if !agentSheet}
+          <!-- список: статус точкой, имя, задача; тап — его лента -->
+          <!-- строки как в шторке выбора модели: имя, задача, статус.
+               Воркфлоу пойдут этим же списком (kind='workflow') —
+               помощник сессии он и есть, отличается только иконкой. -->
+          <div class="ag-list">
+            {#each data.agents || [] as a (a.agentId)}
+              <button class="ag-row" class:on={a.busy} onclick={() => openAgent(a)}>
+                <Icon name={a.kind === 'workflow' ? 'workflow' : 'bot'} size={17}
+                  class="flex-none {a.failed ? 'text-hot' : a.busy ? 'text-ok' : 'text-ink-4'}" />
+                <span class="ag-col">
+                  <b>{a.name || a.agentId}</b>
+                  {#if a.description}<span class="ag-desc">{a.description}</span>{/if}
+                </span>
+                {#if a.busy}<span class="ag-state">работает</span>
+                {:else if a.failed}<span class="ag-state bad">ошибка</span>{/if}
+                <Icon name="chevron-right" size={16} class="text-ink-4 flex-none" />
+              </button>
+            {/each}
+          </div>
+        {:else if agentSheet.error}
           <p class="err">{agentSheet.error}</p>
-        {:else if !agentSheet?.items}
+        {:else if !agentSheet.items}
           <p class="quiet">читаю ленту субагента…</p>
         {:else}
           <Transcript items={agentSheet.items} {project} sessionKey={key}
-            tracker={data.tracker} {openAgent} />
+            tracker={data.tracker} {openAgent} agents={data.agents} />
         {/if}
       </div>
     </Sheet.Content>
@@ -690,12 +707,24 @@
          аккаунт-пометка и вложения, снизу параметры. Разница одна — проект
          уже выбран рождением сессии. -->
     <div class="composer-box launch-box">
-      {#if data.runner || attachments.length}
+      {#if data.runner || attachments.length || data.agents?.length}
         <div class="launch-top">
           {#if data.runner}
             <span class="chip-note" title="аккаунт, с которого едет сессия — задан при запуске">
               <Icon name="key-round" size={13} />{data.runner.slot_label || 'основной'}
             </span>
+          {/if}
+          <!-- агенты и воркфлоу сессии — чипом здесь же (CTO 19.08: так
+               чище); тап открывает список шторкой, из него — лента агента -->
+          {#if data.agents?.length}
+            {@const busyN = data.agents.filter((a) => a.busy).length}
+            <button class="agent-chip" class:busy={busyN > 0}
+              title="субагенты этой сессии — открыть список"
+              onclick={() => { agentSheet = null; agentOpen = true; }}>
+              <i class="dot" style="background:{busyN ? 'var(--ok)' : 'var(--text-4)'}"></i>
+              <b>агенты {data.agents.length}</b>
+              {#if busyN}<span>{busyN} в работе</span>{/if}
+            </button>
           {/if}
           {#each attachments as a (a.path)}
             <span class="att" title={a.path}>
@@ -899,10 +928,12 @@
     color: var(--text-4); font-size: var(--fs-xs); cursor: pointer;
   }
 
-  /* Полоса агентов сессии: горизонтальная лента чипов, влезает на телефон */
+  /* Агенты: один чип-сводка (как «детали»), под ним — полоса агентов */
+  .agents-box { margin-bottom: var(--sp-4); }
+  .agent-chip.head { color: var(--text-2); }
   .agents-strip {
-    display: flex; gap: var(--sp-2); overflow-x: auto; padding-bottom: var(--sp-2);
-    margin-bottom: var(--sp-4);
+    display: flex; gap: var(--sp-2); overflow-x: auto;
+    padding: var(--sp-3) 0 var(--sp-2);
   }
   .agent-chip {
     display: inline-flex; align-items: center; gap: var(--sp-2); flex: none;
@@ -917,14 +948,40 @@
 
   /* Шторка субагента: 70% высоты снизу (CTO 19.08) — видно и его ленту, и
      край разговора сессии под ней; скролл только внутри тела */
+  /* высота по содержимому, но не выше 70% экрана: короткий список не
+     превращается в пустое полотно, длинная лента скроллится внутри */
   :global(.agent-sheet) {
-    height: 70vh; border-radius: var(--r-lg) var(--r-lg) 0 0;
-    display: flex; flex-direction: column;
+    max-height: 70vh; border-radius: var(--r-lg) var(--r-lg) 0 0;
+    display: flex; flex-direction: column; gap: 0;
   }
+  :global(.agent-head) { padding-bottom: var(--sp-4); }
   .agent-body {
-    flex: 1; overflow-y: auto; padding: 0 var(--sp-5) calc(var(--sp-5) + var(--safe-b));
-    display: flex; flex-direction: column; gap: var(--sp-4);
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 0 var(--sp-5) calc(var(--sp-5) + var(--safe-b));
   }
+  /* строка агента: точка-статус, имя и задача, стрелка — как строки
+     раннера, только тап-таргет крупнее (палец) */
+  /* тот же кирпич, что строки шторки выбора (PickChip .pick-row):
+     прозрачная рамка, подсветка активного — единый язык выбора */
+  .ag-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .ag-row {
+    display: flex; align-items: center; gap: var(--sp-4); width: 100%;
+    background: var(--bg-2); color: var(--text-1); text-align: left;
+    border: 1px solid transparent; border-radius: var(--r);
+    padding: var(--sp-4) var(--sp-5); font: inherit; font-size: var(--fs-sm);
+    min-height: var(--tap); cursor: pointer;
+    transition: border-color var(--t-fast);
+  }
+  .ag-row:hover { border-color: var(--border-soft); }
+  .ag-row.on { border-color: var(--accent); }
+  .ag-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .ag-col b { font-weight: 500; }
+  .ag-desc {
+    color: var(--text-3); font-size: var(--fs-xs);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ag-state { flex: none; color: var(--ok); font-size: var(--fs-xs); }
+  .ag-state.bad { color: var(--hot); }
 
   .hint { font-size: var(--fs-xs); margin: var(--sp-3) var(--sp-1) 0; }
   .ok-note { color: var(--ok); }

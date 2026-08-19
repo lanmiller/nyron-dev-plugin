@@ -566,10 +566,19 @@ export function sessionAgents(project, key) {
     const agentId = f.replace(/^agent-/, '').replace(/\.meta\.json$/, '');
     let m = {};
     try { m = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch {}
-    let updatedAt = null, size = 0;
+    let updatedAt = null, size = 0, failed = false;
+    const jsonl = path.join(dir, `agent-${agentId}.jsonl`);
     try {
-      const st = fs.statSync(path.join(dir, `agent-${agentId}.jsonl`));
+      const st = fs.statSync(jsonl);
       updatedAt = st.mtimeMs; size = st.size;
+      // упал ли: хвост его ленты несёт ошибку рантайма или API
+      const fd = fs.openSync(jsonl, 'r');
+      const len = Math.min(st.size, 8192);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, st.size - len);
+      fs.closeSync(fd);
+      const tail = buf.toString('utf8');
+      failed = /"isApiErrorMessage":true|"subtype":"error"|"is_error":true/.test(tail);
     } catch {}
     out.push({
       agentId, name: m.name || null, agentType: m.agentType || null,
@@ -578,6 +587,7 @@ export function sessionAgents(project, key) {
       updatedAt: updatedAt ? new Date(updatedAt).toISOString() : null,
       // пишет в последние полминуты — считаем живым
       busy: !!updatedAt && now - updatedAt < 30_000,
+      failed,
     });
   }
   return out.sort((a, b) => (a.updatedAt || '') < (b.updatedAt || '') ? 1 : -1);

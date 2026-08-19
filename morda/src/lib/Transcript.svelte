@@ -15,7 +15,18 @@
   // openAgent — способ показать субагента отдельной поверхностью (шторка
   // окна сессии). Не передан — работает старая вложенная раскрывашка.
   let { items, project = null, sessionKey = null, depth = 0, tracker = null,
-    openAgent = null } = $props();
+    openAgent = null, agents: sessionAgents = [] } = $props();
+
+  // Пачка действий: типы — фильтры (CTO 19.08 «Read, Bash, Agent как
+  // фильтры»). Клик по типу разворачивает пачку и оставляет только его.
+  let packFilter = $state({});   // индекс блока → имя типа | null
+  let packOpen = $state({});     // индекс блока → раскрыта ли пачка
+  // Строка «Agent …» внутри пачки — фоновый агент: у него нет привязки к
+  // вызову, но описание совпадает с меткой строки, по нему и находим.
+  const agentOf = (it) => (it.name === 'Agent' || it.name === 'Task')
+    ? sessionAgents.find((a) => a.description && it.input
+        && (a.description === it.input || it.input.startsWith(a.description))) || null
+    : null;
 
   let agents = $state({}); // agentId → { items } | { error } | 'loading'
 
@@ -35,10 +46,10 @@
     return out;
   });
   // «Bash ×3 · hub_read ×2» — что именно делала сессия, без разворачивания
-  function groupLabel(tools) {
+  function groupKinds(tools) {
     const by = new Map();
     for (const t of tools) by.set(t.name, (by.get(t.name) || 0) + 1);
-    return [...by].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(' · ');
+    return [...by].map(([name, count]) => ({ name, count }));
   }
   const hasErr = (tools) => tools.some((t) => t.is_error);
 
@@ -58,23 +69,54 @@
   {#each blocks as b, bi (bi)}
     {#if b.group && b.tools.length > 1}
       <!-- пачка технических действий: одна строка вместо стены плашек -->
-      <details class="toolpack" class:iserr={hasErr(b.tools)}>
-        <summary>
+      <!-- пачку раскрывает и «N действий», и чип типа; состояние держим
+           сами: реактивный open перебивал нативный клик по summary -->
+      <details class="toolpack" class:iserr={hasErr(b.tools)} open={!!packOpen[bi]}>
+        <summary onclick={(e) => {
+          e.preventDefault();
+          packOpen = { ...packOpen, [bi]: !packOpen[bi] };
+          if (packOpen[bi] === false) packFilter = { ...packFilter, [bi]: null };
+        }}>
           <span class="tname"><Icon name="layers" size={13} /> {b.tools.length} действ{b.tools.length < 5 ? 'ия' : 'ий'}</span>
-          <span class="tin">{groupLabel(b.tools)}</span>
+          <!-- типы = фильтры: клик открывает пачку и оставляет этот вид -->
+          <span class="kinds">
+            {#each groupKinds(b.tools) as k (k.name)}
+              <button class="kind" class:on={packFilter[bi] === k.name}
+                onclick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const off = packFilter[bi] === k.name;
+                  packFilter = { ...packFilter, [bi]: off ? null : k.name };
+                  packOpen = { ...packOpen, [bi]: !off };
+                }}>{k.name}{k.count > 1 ? ` ×${k.count}` : ''}</button>
+            {/each}
+          </span>
           {#if hasErr(b.tools)}<span class="terr">есть ошибка</span>{/if}
+          <Icon name={packOpen[bi] ? 'chevron-up' : 'chevron-down'} size={14}
+            class="text-ink-4 flex-none" />
         </summary>
         <div class="packbody">
-          {#each b.tools as it (it)}
-            <details class="tool" class:iserr={it.is_error}>
-              <summary>
-                <span class="tname">{it.name}</span>
-                <span class="tin">{it.input}</span>
-                {#if it.is_error}<span class="terr">ошибка</span>{/if}
-              </summary>
-              {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
-              <div class="tout"><b>вывод</b><pre>{it.result || '(пусто)'}</pre></div>
-            </details>
+          {#each b.tools.filter((t) => !packFilter[bi] || t.name === packFilter[bi]) as it (it)}
+            {@const ag = agentOf(it)}
+            {#if ag && openAgent}
+              <!-- фоновый агент строкой: открывается той же шторкой -->
+              <button class="tool agent agent-row" onclick={() => openAgent(ag)}>
+                <span class="tname"><Icon name="bot" size={13} /> {ag.name || 'агент'}</span>
+                <span class="tin">{ag.description || it.input}</span>
+                {#if ag.busy}<span class="terr" style="color:var(--ok)">работает</span>{/if}
+                <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
+              </button>
+            {:else}
+              <details class="tool" class:iserr={it.is_error}>
+                <summary>
+                  <span class="tname">{it.name}</span>
+                  <span class="tin">{it.input}</span>
+                  {#if it.is_error}<span class="terr">ошибка</span>{/if}
+                </summary>
+                {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
+                <div class="tout"><b>вывод</b><pre>{it.result || '(пусто)'}</pre></div>
+              </details>
+            {/if}
           {/each}
         </div>
       </details>
@@ -211,7 +253,21 @@
     display: flex; gap: 8px; align-items: baseline; cursor: pointer;
     padding: 6px 10px; min-width: 0;
   }
+  /* у пачки строка выше: в ней живут чипы-фильтры */
+  .toolpack > summary { align-items: center; }
   .tool[open] > summary { border-bottom: 1px solid var(--border-soft); }
+  /* типы действий = фильтры: пилюли, чтобы читались кликабельными
+     (CTO 19.08: слипшиеся «ReadBash ×3Agent ×3» никто не нажмёт) */
+  .kinds { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0; }
+  .kind {
+    background: var(--bg-1); color: var(--text-3);
+    border: 1px solid var(--border-soft); border-radius: 999px;
+    padding: 1px 8px; font: inherit; font-family: var(--mono);
+    font-size: 11.5px; cursor: pointer; white-space: nowrap;
+    transition: color var(--t-fast), border-color var(--t-fast);
+  }
+  .kind:hover { color: var(--text-1); border-color: var(--border); }
+  .kind.on { color: var(--accent); border-color: var(--accent); }
   .tname { font-family: var(--mono); font-size: 12px; color: var(--text-2); flex: none; }
   .tin {
     color: var(--text-4); font-family: var(--mono); font-size: 12px;
