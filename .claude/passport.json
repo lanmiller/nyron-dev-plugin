@@ -33,5 +33,8 @@
       "CONFLUENCE_API_TOKEN": "тот же API-токен"
     }
   },
-  "guard": true
+  "guard": true,
+  "precommit": true,
+  "last_audit": "2026-08-18",
+  "audit_interval_days": 14
 }

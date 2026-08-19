@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { runnerList, runnerStart, runnerStop, runnerResume, runnerApprove,
-  runnerRetune, runnerKey, runnerType,
+  runnerRetune, runnerKey, runnerType, auditStart,
   slotList, slotAdd, slotRemove, slotConnect, slotCode, slotUsage,
   providerList } from '$lib/server/runner.js';
 import { projectAdd, projectRemove } from '$lib/server/fleet.js';
@@ -29,6 +29,7 @@ const ACTIONS = {
   retune: runnerRetune,
   key: runnerKey,
   type: runnerType,
+  audit_start: auditStart,
   slot_probe: () => ({ slots: slotList({ probe: true }) }),
   slot_add: slotAdd,
   slot_remove: slotRemove,

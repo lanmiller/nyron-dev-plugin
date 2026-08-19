@@ -99,6 +99,7 @@
   // каждый пункт фактом, красный несёт шаг починки. Прогон долгий
   // (докерный MCP), поэтому явный спиннер на кнопке.
   let passport = $state({}); // имя проекта → { busy, items, at, error }
+  let auditNote = $state({}); // имя проекта → строка после запуска аудитора
   async function verify(name) {
     passport = { ...passport, [name]: { busy: true } };
     try {
@@ -345,6 +346,14 @@
             <Icon name={pv?.busy ? 'loader-circle' : 'shield-check'} size={13} />
             {pv?.busy ? 'проверяю…' : 'проверить готовность'}
           </Button>
+          <Button variant="outline" size="xs" disabled={busy}
+            title="сессия-аудитор: карта проекта → секреты → сборка паспорта и ключницы → предложения по канону → аттестация; вопросы задаёт формами"
+            onclick={async () => {
+              const out = await act({ action: 'audit_start', project: p.name });
+              if (out) auditNote = { ...auditNote, [p.name]: `аудитор запущен (${out.tmux || ''}) — сессия появится в списке слева и в разделе раннера` };
+            }}>
+            <Icon name="search-check" size={13} /> аудит проекта
+          </Button>
           <Button variant="ghost" size="xs" class="text-ink-4" disabled={busy}
             title="уберёт из списка пульта; файлы папки не трогаются"
             onclick={async () => {
@@ -354,6 +363,7 @@
             <Icon name="unlink" size={12} /> убрать
           </Button>
         </div>
+        {#if auditNote[p.name]}<p class="hint ok-note">{auditNote[p.name]}</p>{/if}
         {#if pv?.error}<p class="err">{pv.error}</p>{/if}
         {#if pv?.items}
           <div class="checklist">

@@ -19,6 +19,7 @@ import { rootByName, tmuxCandidates, paneProcessTree, MORDA_ROOT,
   CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents, sessionMeta,
   RUNNER_STATE_FILE as STATE_FILE } from './fleet.js';
 import { parseDialog } from './tui.js';
+import { passportQuick } from './passport.js';
 
 // Префикс всех tmux-сессий раннера: чужие панели (ручной tmux человека)
 // раннер не трогает НИКОГДА — только свои, со своим префиксом.
@@ -233,6 +234,13 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
   const prev = reg.sessions[name];
   if (prev && prev.state !== 'stopped' && prev.state !== 'died_on_start' && tmuxAlive(name))
     throw new Error(`запись ${name} уже в реестре`);
+  // гейт паспорта (гриль 18.08): bypass-сессия — только по зелёным
+  // быстрым проверкам; паспорта нет — гейт молчит (переходный период)
+  if (mode === 'bypass') {
+    const problems = passportQuick(root);
+    if (problems.length)
+      throw new Error(`паспорт проекта красный — bypass закрыт: ${problems.join('; ')} (почини через «проверить готовность» в настройках)`);
+  }
   const args = (resumeId ? ` --resume ${resumeId}` : '')
     + (model ? ` --model ${model}` : '')
     + (mode === 'bypass'
@@ -729,6 +737,26 @@ function codexUsage(s, name) {
   if (!u.week_all && !u.week_model)
     throw new Error('не смог прочитать /status — tmux attach -t stovp-' + name);
   return { ...u, at: new Date().toISOString() };
+}
+
+/** Аудит проекта (STOVP-59, «подключить проект»): запускает сессию-аудитора
+ *  с промтом из канона (docs/specs — раздел «Сам промт»). Аудитор работает
+ *  НЕ в bypass: правки канона идут списком предложений, диалоги разрешений
+ *  видны карточками в пульте. */
+export function auditStart({ project }) {
+  const root = rootByName(project);
+  const spec = path.join(MORDA_ROOT, '..', 'docs', 'specs', '2026-08-18-project-audit-prompt.md');
+  const text = fs.readFileSync(spec, 'utf8');
+  const m = text.match(/## Сам промт[^\n]*\n\n([\s\S]*?)\n\n## /);
+  if (!m) throw new Error('в спеке не нашёлся раздел «Сам промт» — проверь docs/specs/2026-08-18-project-audit-prompt.md');
+  const prompt = m[1].split('\n')
+    .map((l) => l.replace(/^>\s?/, '')).join('\n').trim();
+  const name = 'audit-' + Date.now().toString(36).slice(-5);
+  return runnerStart({
+    project, name,
+    goal: `${prompt}\n\nПроект: «${project}», корень: ${root}. Вопросы человеку задавай формами AskUserQuestion (пульт показывает их нативно); каждую закрытую ступень — сообщением в чат.`,
+    model: 'fable', mode: 'acceptEdits', effort: 'high',
+  });
 }
 
 /** Код со страницы после входа (только Claude-флоу). */

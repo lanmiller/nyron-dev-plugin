@@ -118,6 +118,34 @@ function guardAnswers(input) {
   } catch (e) { return { ok: false, fact: String(e.message || e) }; }
 }
 
+// ---------- быстрый гейт волн (гриль 18.08: «волна не стартует по красному») ----------
+//
+// Дешёвые проверки без MCP-смоуков — зовётся раннером ПЕРЕД стартом
+// bypass-сессии. Паспорта нет — гейт молчит (переходный период: запрет
+// «неаттестованный проект — волны не запускаются» включится после
+// аттестации ai-evolve). Возвращает список проблем; пустой = зелёный.
+export function passportQuick(root) {
+  let pp = null;
+  try { pp = JSON.parse(fs.readFileSync(path.join(root, '.claude', 'passport.json'), 'utf8')); }
+  catch { return []; }
+  const problems = [];
+  const dir = path.join(root, '.secrets');
+  if (git(root, ['check-ignore', '.secrets']) === null)
+    problems.push('.secrets не в git-игноре');
+  for (const [file, vars] of Object.entries(pp.keys || {})) {
+    const full = path.join(dir, file);
+    if (!fs.existsSync(full)) { problems.push(`нет ключа ${file}`); continue; }
+    const have = readEnvFile(full);
+    for (const name of Object.keys(vars))
+      if (!have[name]) problems.push(`${file}: не задана ${name}`);
+  }
+  const tracked = git(root, ['ls-files', '.secrets']);
+  if (tracked) problems.push('в git закоммичено из .secrets — вынеси и ротируй');
+  if (pp.guard && !fs.existsSync(path.join(MORDA_ROOT, 'guard', 'pretooluse-guard.mjs')))
+    problems.push('файла забора нет');
+  return problems;
+}
+
 // ---------- сам прогон ----------
 
 export async function passportCheck({ project }) {
@@ -233,7 +261,28 @@ export async function passportCheck({ project }) {
       `установи/обнови плагин: /plugin marketplace add git@gitlab.com:your2563006/nyron-dev-plugin.git (маркетплейс ${p.marketplace})`));
   }
 
-  // 6. забор: опасный вход → deny, мусорный вход → deny (fail-closed)
+  // 6. замок на коммит: pre-commit хук с секрет-детектором установлен
+  // (гриль 18.08: ловим значение ДО git-истории, а не ротируем после)
+  if (pp.precommit) {
+    const hook = path.join(root, '.git', 'hooks', 'pre-commit');
+    let ok = false;
+    try { ok = fs.readFileSync(hook, 'utf8').includes('pre-commit-secrets'); } catch {}
+    items.push(item('precommit', 'Замок на коммит (pre-commit)', ok,
+      ok ? 'хук стоит и зовёт pre-commit-secrets.sh' : 'хука нет или он не наш',
+      `поставь: printf '#!/bin/sh\\nexec sh "<клон-плагина>/morda/keys/pre-commit-secrets.sh"\\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`));
+  }
+
+  // 7. ревизия не просрочена (два ритма, гриль 18.08): паспорт хранит дату
+  // последней ревизии; вышел интервал — жёлтая карточка «пора ревизия»
+  if (pp.last_audit) {
+    const days = Math.floor((Date.now() - Date.parse(pp.last_audit)) / 86_400_000);
+    const limit = pp.audit_interval_days || 14;
+    items.push(item('audit-fresh', 'Ревизия паспорта', days <= limit,
+      `последняя — ${pp.last_audit} (${days} дн. назад, интервал ${limit})`,
+      'запусти ревизию кнопкой «аудит проекта»: дрейф факт↔паспорт + чистка канона, выход — список предложений'));
+  }
+
+  // 8. забор: опасный вход → deny, мусорный вход → deny (fail-closed)
   if (pp.guard) {
     const dangerous = guardAnswers(JSON.stringify({
       tool_name: 'Bash', tool_input: { command: 'sudo rm -rf /' }, cwd: root,
