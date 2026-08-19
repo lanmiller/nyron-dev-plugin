@@ -954,7 +954,13 @@
     max-height: 70vh; border-radius: var(--r-lg) var(--r-lg) 0 0;
     display: flex; flex-direction: column; gap: 0;
   }
-  :global(.agent-head) { padding-bottom: var(--sp-4); }
+  /* шапка шторки — строка: «назад», заголовок, крестик справа
+     (по умолчанию Sheet.Header ставит детей колонкой и центрует) */
+  :global(.agent-head) {
+    flex-direction: row; align-items: flex-start; gap: var(--sp-3);
+    padding-bottom: var(--sp-4);
+  }
+  :global(.agent-head) .dlg-x { margin-top: 1px; }
   .agent-body {
     flex: 1; min-height: 0; overflow-y: auto;
     padding: 0 var(--sp-5) calc(var(--sp-5) + var(--safe-b));

@@ -53,6 +53,25 @@
   }
   const hasErr = (tools) => tools.some((t) => t.is_error);
 
+  // раскрытая пачка не должна оказаться под композером: подкручиваем к ней
+  // после отрисовки содержимого (высота меняется в этот же кадр)
+  function revealPack(el) {
+    if (!el) return;
+    // два кадра: в первом Svelte дорисовывает содержимое, во втором
+    // высота уже настоящая и есть что подкручивать
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const dock = parseInt(getComputedStyle(document.documentElement)
+        .getPropertyValue('--dock-h')) || 0;
+      const r = el.getBoundingClientRect();
+      const bottom = window.innerHeight - dock - 12;
+      if (r.bottom <= bottom && r.top >= 0) return;
+      // не тащим верх пачки выше экрана: прокручиваем ровно настолько,
+      // чтобы её низ встал над композером
+      const delta = Math.min(r.top - 12, r.bottom - bottom);
+      window.scrollBy({ top: delta, behavior: 'smooth' });
+    }));
+  }
+
   async function toggleAgent(a, open) {
     if (!open || agents[a.agentId] || !project || !sessionKey) return;
     agents[a.agentId] = 'loading';
@@ -74,8 +93,11 @@
       <details class="toolpack" class:iserr={hasErr(b.tools)} open={!!packOpen[bi]}>
         <summary onclick={(e) => {
           e.preventDefault();
-          packOpen = { ...packOpen, [bi]: !packOpen[bi] };
-          if (packOpen[bi] === false) packFilter = { ...packFilter, [bi]: null };
+          const willOpen = !packOpen[bi];
+          packOpen = { ...packOpen, [bi]: willOpen };
+          if (!willOpen) packFilter = { ...packFilter, [bi]: null };
+          // раскрытая пачка не должна остаться под композером
+          if (willOpen) revealPack(e.currentTarget.parentElement);
         }}>
           <span class="tname"><Icon name="layers" size={13} /> {b.tools.length} действ{b.tools.length < 5 ? 'ия' : 'ий'}</span>
           <!-- типы = фильтры: клик открывает пачку и оставляет этот вид -->
@@ -88,6 +110,8 @@
                   const off = packFilter[bi] === k.name;
                   packFilter = { ...packFilter, [bi]: off ? null : k.name };
                   packOpen = { ...packOpen, [bi]: !off };
+                  // как и «N действий»: раскрытое подкручиваем к глазам
+                  if (!off) revealPack(e.currentTarget.closest('.toolpack'));
                 }}>{k.name}{k.count > 1 ? ` ×${k.count}` : ''}</button>
             {/each}
           </span>
@@ -224,12 +248,16 @@
   /* Оформление маркдауна — общее правило .md-body в app.css (там же его
      берёт просмотрщик файлов). Здесь только то, что про место в ленте. */
   .assistant { max-width: 100%; }
+  /* вывод инструмента не растягивает ленту: своя рамка со скроллом
+     (CTO 19.08 — «ls -la» на пол-экрана телефона) */
   .tout pre {
     background: var(--bg-0); border: 1px solid var(--border-soft);
-    border-radius: 8px; padding: 10px 12px; overflow-x: auto;
+    border-radius: 8px; padding: 10px 12px; overflow: auto;
     font-family: var(--mono); font-size: 12.5px; line-height: 1.45;
     white-space: pre-wrap; margin: 6px 0;
+    max-height: 34vh; overscroll-behavior: contain;
   }
+  @media (min-width: 901px) { .tout pre { max-height: 44vh; } }
   .think { border-left: 2px solid var(--border-soft); padding-left: 10px; }
   .think > summary { color: var(--text-4); font-size: 12.5px; cursor: pointer; font-style: italic; }
   .think-body { color: var(--text-3); font-size: 13px; margin-top: 4px; }
@@ -288,5 +316,11 @@
     padding: 6px 10px; min-width: 0; color: var(--text-3);
   }
   .toolpack[open] > summary { border-bottom: 1px solid var(--border-soft); }
-  .packbody { display: flex; flex-direction: column; gap: 4px; padding: 6px; }
+  /* раскрытая пачка не выталкивает разговор за экран: свой скролл, чтобы
+     на телефоне она целиком помещалась в кадр (CTO 19.08) */
+  .packbody {
+    display: flex; flex-direction: column; gap: 4px; padding: 6px;
+    max-height: 46vh; overflow-y: auto; overscroll-behavior: contain;
+  }
+  @media (min-width: 901px) { .packbody { max-height: 54vh; } }
 </style>
