@@ -60,6 +60,13 @@ function capture(name, lines = 40) {
     return tmux(['capture-pane', '-t', pane(name), '-p', '-S', String(-lines)]);
   } catch { return ''; }
 }
+// ТОЛЬКО видимый экран, без скролл-истории: для классификации состояния.
+// История затеняла текущее — «use the url below» из прожитого логина
+// держал слот в needs_auth при готовом промпте (факт CTO 19.08, stovpe3tt)
+function visible(name) {
+  try { return tmux(['capture-pane', '-t', pane(name), '-p']); }
+  catch { return ''; }
+}
 // с ANSI-кодами: по подсветке parseDialog находит текущий таб формы
 function captureEsc(name, lines = 40) {
   try {
@@ -124,8 +131,7 @@ function step(name) {
     s.stoppedAt = new Date().toISOString();
     saveReg(reg); return stopPoller(name);
   }
-  const screen = capture(name);
-  const kind = classify(screen);
+  const kind = classify(visible(name));
   if (kind === 'mcp_consent' || kind === 'trust' || kind === 'onboarding') {
     // MCP-серверы проекта, доверие корню (корень из allowlist projects.json)
     // и экраны онбординга нового профиля — подтверждаем сами
@@ -307,7 +313,7 @@ export function runnerList(project) {
     const alive = tmuxAlive(name);
     let screen = null;
     if (alive) {
-      const kind = classify(capture(name));
+      const kind = classify(visible(name));
       screen = kind;
       if (kind === 'needs_auth' && s.state !== 'needs_auth') {
         s.state = 'needs_auth'; saveReg(reg);
@@ -336,7 +342,7 @@ export function runnerBySessionId(key) {
   for (const [name, s] of Object.entries(reg.sessions))
     if (s.sessionId === key) {
       const alive = tmuxAlive(name);
-      const screen = alive ? classify(capture(name)) : null;
+      const screen = alive ? classify(visible(name)) : null;
       const screen_text = ['hitl', 'dialog', 'permission'].includes(screen)
         ? capture(name, 45).replace(/\s+$/, '') : null;
       // нативный рендер формы: структура с экрана (с ANSI — там подсветка
@@ -431,7 +437,7 @@ export function resumeForInput({ project, key, text }) {
  *  «не спрашивать больше» человек делает лично в терминале. */
 export function runnerApprove({ name, answer }) {
   if (!tmuxAlive(name)) throw new Error(`нет живой tmux-сессии ${name}`);
-  if (classify(capture(name)) !== 'permission')
+  if (classify(visible(name)) !== 'permission')
     throw new Error('сессия сейчас не ждёт разрешения');
   if (answer === 'yes') tmux(['send-keys', '-t', pane(name), '1']);
   else if (answer === 'no') tmux(['send-keys', '-t', pane(name), 'Escape']);
@@ -534,8 +540,11 @@ export function slotList({ probe = false } = {}) {
           status = 'probing'; hint = 'поднимаю служебную сессию — секунды';
         } else hint = 'нажми «проверить фактом»';
       } else {
+        // классификация — ТОЛЬКО по видимому экрану (история затеняла:
+        // прожитый «use the url below» держал needs_auth при готовом
+        // промпте — факт CTO 19.08); почту для подсказки ищем и в истории
         const scr = capture(name, 50);
-        const kind = classify(scr);
+        const kind = classify(visible(name));
         // онбординг нового профиля и согласия двигаем сами: auth-сессию
         // никто не поллит, её продвигает каждый опрос страницы настроек
         // (иначе слот вечно висел в «проверяю…» — факт CTO 17.08, «Мариха»)
@@ -623,7 +632,7 @@ export function slotConnect({ id }) {
   let kind = 'booting';
   const boot = Date.now() + 25_000;
   while (Date.now() < boot) {
-    kind = classify(capture(name, 50));
+    kind = classify(visible(name));
     if (kind !== 'booting') break;
     execFileSync('sleep', ['0.5']);
   }
@@ -662,7 +671,7 @@ export function slotUsage({ id }) {
   // дождаться промпта (свежая сессия может проходить онбординг)
   const boot = Date.now() + 30_000;
   while (Date.now() < boot) {
-    const kind = classify(capture(name, 50));
+    const kind = classify(visible(name));
     if (kind === 'prompt') break;
     if (kind === 'onboarding' || kind === 'mcp_consent' || kind === 'trust')
       try { tmux(['send-keys', '-t', pane(name), 'Enter']); } catch {}
