@@ -276,7 +276,14 @@
         {@const [label, color] = RUN_RU[r.screen === 'permission' ? 'permission' : r.state] || ['?', 'var(--text-4)']}
         <div class="run-row">
           <i class="dot" style="background:{color}"></i>
-          <b class="rname">{r.name}</b>
+          <!-- имя — ссылка в чат сессии: раньше кликался только серый id,
+               и живой диалог «ждёт разрешения» было некуда открыть -->
+          {#if r.sessionId}
+            <a class="rname rlink" href="/s/{encodeURIComponent(r.project)}/{r.sessionId}"
+              title="открыть чат сессии">{r.name}</a>
+          {:else}
+            <b class="rname">{r.name}</b>
+          {/if}
           <span class="quiet">{r.project}</span>
           <Badge variant="outline">{label}</Badge>
           {#if r.sessionId}
@@ -440,7 +447,9 @@
     padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border-soft);
     border-radius: var(--r); font-size: var(--fs-sm); min-width: 0;
   }
-  .rname { flex: none; }
+  .rname { flex: none; font-weight: 600; }
+  .rlink { color: var(--text-1); text-decoration: none; }
+  .rlink:hover { color: var(--accent); }
   .run-row .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .spacer { flex: 1; }
 </style>
