@@ -40,6 +40,46 @@ function parseTabs(line, currentLabel) {
 
 const ANSI_RE = /\[[0-9;]*m/g;
 
+/**
+ * Запрос разрешения с экрана CLI → структура для карточки (CTO 19.08:
+ * «почему индикации нет» — человек должен видеть, ЧТО именно разрешает,
+ * а не только кнопки «разрешить/отказать»).
+ *
+ * Формат экрана (снят фактом с живой сессии-аудитора):
+ *   Bash command
+ *     <команда, может быть многострочной>
+ *     <описание одной строкой>
+ *   Contains simple_expansion        ← пометки CLI, необязательны
+ *   Do you want to proceed?
+ *   ❯ 1. Yes / 2. No
+ */
+export function parsePermission(raw) {
+  const lines = raw.replace(ANSI_RE, '').split('\n').map((l) => l.replace(/\s+$/, ''));
+  const ask = lines.findIndex((l) => /Do you want to proceed\?|requires approval/i.test(l));
+  if (ask < 0) return null;
+  // блок запроса — непустые строки над вопросом (до рамки/верха экрана)
+  const block = [];
+  for (let i = ask - 1; i >= 0 && ask - i < 25; i--) {
+    const t = lines[i];
+    if (/^[─—-]{10,}$/.test(t.trim())) break;
+    if (t.trim()) block.unshift(t);
+  }
+  if (!block.length) return null;
+  // пометки CLI («Contains simple_expansion») — не часть команды
+  const notes = block.filter((l) => /^\s*(Contains|This command|Note:)/i.test(l))
+    .map((l) => l.trim());
+  const rest = block.filter((l) => !notes.includes(l.trim()));
+  // заголовок — ПЕРВАЯ строка блока, если она короткая («Bash command»,
+  // «Edit file», имя MCP-тулзы); иначе весь блок — тело
+  const first = rest[0]?.trim() || '';
+  const hasHead = first.length <= 40 && !/[.;:)]$/.test(first);
+  return {
+    title: hasHead ? first : 'Действие сессии',
+    body: rest.slice(hasHead ? 1 : 0).map((l) => l.replace(/^ {0,3}/, '')).join('\n').trim(),
+    notes,
+  };
+}
+
 // подсветка фоном (SGR 48;5;N) внутри строки — так CLI помечает текущий таб
 function highlighted(rawLine) {
   const m = rawLine.match(/\[48;5;\d+m([^]+)/);

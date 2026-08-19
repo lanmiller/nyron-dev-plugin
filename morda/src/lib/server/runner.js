@@ -18,7 +18,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { rootByName, tmuxCandidates, paneProcessTree, MORDA_ROOT,
   CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents, sessionMeta,
   RUNNER_STATE_FILE as STATE_FILE } from './fleet.js';
-import { parseDialog } from './tui.js';
+import { parseDialog, parsePermission } from './tui.js';
 import { passportQuick } from './passport.js';
 
 // Префикс всех tmux-сессий раннера: чужие панели (ручной tmux человека)
@@ -127,6 +127,14 @@ function classify(text) {
   // «shift+tab to cycle» (bypass ⏵⏵, plan и др.) — признаём оба (факт 17.08)
   if (/❯/.test(text) && /\? for shortcuts|shift\+tab to cycle/.test(text)) return 'prompt';
   return 'booting';
+}
+
+// Работает ли модель прямо сейчас (вопрос CTO 19.08 «видим ли, что клод
+// работает»): CLI во время ответа держит в футере «esc to interrupt» и
+// крутит спиннер со счётчиком токенов. Признак железный — сам CLI его
+// печатает, пока идёт запрос.
+function isBusy(text) {
+  return /esc to interrupt|↓ \d+[\d.,]*k? tokens|\(\d+s\s*·/.test(text);
 }
 
 function step(name) {
@@ -318,10 +326,12 @@ export function runnerList(project) {
   for (const [name, s] of Object.entries(reg.sessions)) {
     if (project && s.project !== project) continue;
     const alive = tmuxAlive(name);
-    let screen = null;
+    let screen = null, busy = false;
     if (alive) {
-      const kind = classify(visible(name));
+      const vis = visible(name);
+      const kind = classify(vis);
       screen = kind;
+      busy = isBusy(vis);
       if (kind === 'needs_auth' && s.state !== 'needs_auth') {
         s.state = 'needs_auth'; saveReg(reg);
       }
@@ -335,7 +345,7 @@ export function runnerList(project) {
     if (alive && (s.state === 'stopped' || s.state === 'died_on_start')) {
       s.state = 'running'; s.stoppedAt = null; saveReg(reg);
     }
-    out.push({ name, ...s, tmux: TMUX_PREFIX + name, alive, screen });
+    out.push({ name, ...s, tmux: TMUX_PREFIX + name, alive, screen, busy });
   }
   return out.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
 }
@@ -349,7 +359,9 @@ export function runnerBySessionId(key) {
   for (const [name, s] of Object.entries(reg.sessions))
     if (s.sessionId === key) {
       const alive = tmuxAlive(name);
-      const screen = alive ? classify(visible(name)) : null;
+      const vis = alive ? visible(name) : '';
+      const screen = alive ? classify(vis) : null;
+      const busy = alive && isBusy(vis);
       const screen_text = ['hitl', 'dialog', 'permission'].includes(screen)
         ? capture(name, 45).replace(/\s+$/, '') : null;
       // нативный рендер формы: структура с экрана (с ANSI — там подсветка
@@ -357,9 +369,12 @@ export function runnerBySessionId(key) {
       // экран (честный фолбэк)
       const dialog = screen === 'hitl' && screen_text
         ? parseDialog(captureEsc(name, 45)) : null;
+      // что именно просят разрешить — в карточку, а не только кнопки
+      const permission = screen === 'permission' && screen_text
+        ? parsePermission(screen_text) : null;
       const slot = loadSlots().slots.find((x) => x.id === (s.slot || 'claude-main'));
-      return { name, ...s, tmux: TMUX_PREFIX + name, alive, screen,
-        screen_text, dialog, slot_label: slot?.label || 'основной' };
+      return { name, ...s, tmux: TMUX_PREFIX + name, alive, screen, busy,
+        screen_text, dialog, permission, slot_label: slot?.label || 'основной' };
     }
   return null;
 }
@@ -625,7 +640,13 @@ export function slotAdd({ provider, label }) {
   return slot;
 }
 
-export function slotRemove({ id }) {
+/** Отвязать слот. Два исхода, человек выбирает в карточке (CTO 19.08):
+ *  purge=false — только из реестра, каталог с авторизацией остаётся
+ *  (вернёшь слот тем же именем — войдёт без логина);
+ *  purge=true — сносим и каталог: вход умирает, нужен новый логин.
+ *  Сносим ТОЛЬКО внутри ~/.stovp-slots (fail-closed): чужой путь в поле
+ *  home не должен превращаться в rm по произвольной папке. */
+export function slotRemove({ id, purge = false }) {
   const d = loadSlots();
   const s = d.slots.find((x) => x.id === id);
   if (!s) throw new Error(`нет слота ${id}`);
@@ -635,8 +656,12 @@ export function slotRemove({ id }) {
   // служебную сессию логина глушим, чтобы не висела сиротой
   const name = authName(id);
   if (tmuxAlive(name)) { try { tmux(['kill-session', '-t', TMUX_PREFIX + name]); } catch {} }
-  // конфиг-каталог НЕ сносим: там авторизация; удаление — руками
-  return { removed: id, home_kept: s.home };
+  if (!purge) return { removed: id, home_kept: s.home };
+  const full = path.resolve(s.home);
+  if (full !== SLOTS_HOME && !full.startsWith(SLOTS_HOME + path.sep))
+    throw new Error(`каталог слота вне ${SLOTS_HOME} — удаляй руками: ${full}`);
+  fs.rmSync(full, { recursive: true, force: true });
+  return { removed: id, home_purged: full };
 }
 
 /** Подключение слота: служебная tmux с CLI этого слота, ссылку — карточкой. */
@@ -776,9 +801,11 @@ function codexUsage(s, name) {
 }
 
 /** Аудит проекта (STOVP-59, «подключить проект»): запускает сессию-аудитора
- *  с промтом из канона (docs/specs — раздел «Сам промт»). Аудитор работает
- *  НЕ в bypass: правки канона идут списком предложений, диалоги разрешений
- *  видны карточками в пульте. */
+ *  с промтом из канона (docs/specs — раздел «Сам промт»). Режим bypass —
+ *  но ТОЛЬКО за забором (решение CTO 19.08): аудитор читает весь репозиторий
+ *  и историю git, диалог на каждую команду делал его неработоспособным;
+ *  опасное режет забор (снос вне проекта, силовой пуш, серверы, sudo,
+ *  ключница), а правки канона промт требует нести списком предложений. */
 export function auditStart({ project }) {
   const root = rootByName(project);
   const spec = path.join(MORDA_ROOT, '..', 'docs', 'specs', '2026-08-18-project-audit-prompt.md');
@@ -791,7 +818,7 @@ export function auditStart({ project }) {
   return runnerStart({
     project, name,
     goal: `${prompt}\n\nПроект: «${project}», корень: ${root}. Вопросы человеку задавай формами AskUserQuestion (пульт показывает их нативно); каждую закрытую ступень — сообщением в чат.`,
-    model: 'fable', mode: 'acceptEdits', effort: 'high',
+    model: 'fable', mode: 'bypass', effort: 'high',
   });
 }
 

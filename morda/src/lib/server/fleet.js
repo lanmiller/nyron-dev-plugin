@@ -538,12 +538,49 @@ export function session(project, key) {
     asks,
     tracker,
     pending_hitl: pendingHitl ? { ts: pendingHitl.ts, questions: pendingHitl.questions } : null,
+    agents: sessionAgents(project, key),
     input: inputFor(root, file, r.entrypoint),
   };
 }
 
 export function agentTranscript(project, key, agentId) {
   return T.readAgent(rootByName(project), key, agentId);
+}
+
+/** Агенты сессии из каталога subagents/ — ВСЕ, включая фоновых.
+ *  Фоновый агент (Agent с run_in_background) в мете не несёт toolUseId,
+ *  поэтому к строке ленты не привязывается и раньше был невидим совсем
+ *  (факт 19.08: аудитор поднял троих, в пульте — ни одного). Статус —
+ *  по свежести его jsonl: пишет прямо сейчас или уже закончил. */
+export function sessionAgents(project, key) {
+  const root = rootByName(project);
+  const r = readSessionCached(root, key);
+  if (!r?.file) return [];
+  const dir = path.join(path.dirname(r.file), key, 'subagents');
+  let files = [];
+  try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.meta.json')); }
+  catch { return []; }
+  const now = Date.now();
+  const out = [];
+  for (const f of files) {
+    const agentId = f.replace(/^agent-/, '').replace(/\.meta\.json$/, '');
+    let m = {};
+    try { m = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch {}
+    let updatedAt = null, size = 0;
+    try {
+      const st = fs.statSync(path.join(dir, `agent-${agentId}.jsonl`));
+      updatedAt = st.mtimeMs; size = st.size;
+    } catch {}
+    out.push({
+      agentId, name: m.name || null, agentType: m.agentType || null,
+      description: m.description || null, model: m.model || null,
+      team: m.teamName || null, size,
+      updatedAt: updatedAt ? new Date(updatedAt).toISOString() : null,
+      // пишет в последние полминуты — считаем живым
+      busy: !!updatedAt && now - updatedAt < 30_000,
+    });
+  }
+  return out.sort((a, b) => (a.updatedAt || '') < (b.updatedAt || '') ? 1 : -1);
 }
 
 /** Мета сессии для раннера: cwd — РОДНОЙ каталог сессии из транскрипта.

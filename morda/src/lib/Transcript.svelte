@@ -12,7 +12,10 @@
   import { md } from '$lib/md.js';
   import Icon from '$lib/Icon.svelte';
 
-  let { items, project = null, sessionKey = null, depth = 0, tracker = null } = $props();
+  // openAgent — способ показать субагента отдельной поверхностью (шторка
+  // окна сессии). Не передан — работает старая вложенная раскрывашка.
+  let { items, project = null, sessionKey = null, depth = 0, tracker = null,
+    openAgent = null } = $props();
 
   let agents = $state({}); // agentId → { items } | { error } | 'loading'
 
@@ -107,7 +110,17 @@
         <div class="think-body md-body">{@html md(it.text, tracker)}</div>
       </details>
     {:else if it.kind === 'tool'}
-      {#if it.agent}
+      {#if it.agent && openAgent}
+        <!-- Окно сессии умеет показать субагента шторкой во весь экран
+             (mobile-first, CTO 19.08: вложенный аккордеон на телефоне
+             нечитаем). Где шторки нет (главная) — старая раскрывашка ниже. -->
+        <button class="tool agent agent-row" onclick={() => openAgent(it.agent)}>
+          <span class="tname"><Icon name="bot" size={13} /> субагент</span>
+          <span class="tin">{it.agent.name || it.agent.agentId}{it.agent.agentType ? ` · ${it.agent.agentType}` : ''}{it.agent.description ? ` — ${it.agent.description}` : ''}</span>
+          {#if it.is_error}<span class="terr">ошибка</span>{/if}
+          <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
+        </button>
+      {:else if it.agent}
         <details class="tool agent"
           ontoggle={(e) => toggleAgent(it.agent, e.currentTarget.open)}>
           <summary>
@@ -187,6 +200,13 @@
   .tool.iserr { border-color: var(--hot); }
   .tool.agent { border-color: var(--accent); }
   .tool.agent > summary .tname { color: var(--accent); }
+  /* строка субагента как кнопка: тап открывает его ленту шторкой */
+  .agent-row {
+    display: flex; gap: 8px; align-items: center; width: 100%;
+    padding: 8px 10px; text-align: left; font: inherit; cursor: pointer;
+    color: var(--text-1); min-height: var(--tap);
+  }
+  .agent-row .tname { color: var(--accent); display: inline-flex; align-items: center; gap: 4px; }
   .tool > summary {
     display: flex; gap: 8px; align-items: baseline; cursor: pointer;
     padding: 6px 10px; min-width: 0;

@@ -100,6 +100,7 @@
   // (докерный MCP), поэтому явный спиннер на кнопке.
   let passport = $state({}); // имя проекта → { busy, items, at, error }
   let auditNote = $state({}); // имя проекта → строка после запуска аудитора
+  let unlinking = $state({}); // id слота → открыт выбор «отключить / удалить»
   async function verify(name) {
     passport = { ...passport, [name]: { busy: true } };
     try {
@@ -250,15 +251,34 @@
             {/if}
             {#if s.home}
               <Button variant="ghost" size="xs" class="text-ink-4" disabled={busy}
-                title="слот уйдёт из реестра; каталог с авторизацией останется — удалить руками: rm -rf {s.home}"
-                onclick={async () => {
-                  if (!confirm(`Отвязать копию «${s.label}»? Каталог ${s.home} останется на диске.`)) return;
-                  await act({ action: 'slot_remove', id: s.id });
-                }}>
+                title="убрать копию из пульта — спросим, оставить вход или снести"
+                onclick={() => (unlinking = { ...unlinking, [s.id]: !unlinking[s.id] })}>
                 <Icon name="unlink" size={13} /> отвязать
               </Button>
             {/if}
           </div>
+          {#if unlinking[s.id]}
+            <!-- два исхода отвязки: вход остаётся (вернёшь копию без логина)
+                 или сносится вместе с каталогом (CTO 19.08) -->
+            <div class="unlink-row">
+              <span class="hint quiet">Копию «{s.label}» — как убрать?</span>
+              <Button variant="outline" size="xs" disabled={busy}
+                title="каталог с авторизацией останется: вернёшь копию тем же именем — войдёт без логина"
+                onclick={async () => {
+                  await act({ action: 'slot_remove', id: s.id });
+                  unlinking = { ...unlinking, [s.id]: false };
+                }}>только отключить</Button>
+              <Button variant="outline" size="xs" disabled={busy}
+                class="border-hot/50 text-hot"
+                title="снесёт {s.home} — вход умрёт, при возврате нужен новый логин"
+                onclick={async () => {
+                  await act({ action: 'slot_remove', id: s.id, purge: true });
+                  unlinking = { ...unlinking, [s.id]: false };
+                }}>удалить полностью</Button>
+              <Button variant="ghost" size="xs" class="text-ink-4"
+                onclick={() => (unlinking = { ...unlinking, [s.id]: false })}>отмена</Button>
+            </div>
+          {/if}
         </Card.Content>
       </Card.Root>
     {/each}
@@ -285,7 +305,9 @@
             <b class="rname">{r.name}</b>
           {/if}
           <span class="quiet">{r.project}</span>
-          <Badge variant="outline">{label}</Badge>
+          <!-- работает ли модель прямо сейчас: CLI держит «esc to interrupt»,
+               пока идёт запрос (вопрос CTO 19.08) -->
+          <Badge variant="outline">{r.busy ? 'думает…' : label}</Badge>
           {#if r.sessionId}
             <a class="quiet mono" href="/s/{encodeURIComponent(r.project)}/{r.sessionId}">
               {r.sessionId.slice(0, 8)}
@@ -447,6 +469,13 @@
     padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border-soft);
     border-radius: var(--r); font-size: var(--fs-sm); min-width: 0;
   }
+  /* выбор при отвязке: вход оставить или снести вместе с каталогом */
+  .unlink-row {
+    display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+    margin-top: var(--sp-3); padding-top: var(--sp-3);
+    border-top: 1px solid var(--border-soft);
+  }
+  .unlink-row .hint { margin: 0; }
   .rname { flex: none; font-weight: 600; }
   .rlink { color: var(--text-1); text-decoration: none; }
   .rlink:hover { color: var(--accent); }

@@ -15,6 +15,7 @@
   import FileBrowser from '$lib/FileBrowser.svelte';
   import Icon from '$lib/Icon.svelte';
   import PickChip from '$lib/PickChip.svelte';
+  import * as Sheet from '$lib/ui/sheet/index.js';
   import { MODEL_OPTS, EFFORT_OPTS, MODE_OPTS } from '$lib/composer-options.js';
   import { Button } from '$lib/ui/button/index.js';
   import { Badge } from '$lib/ui/badge/index.js';
@@ -201,7 +202,10 @@
   // Действия сессии — один список на два места показа: чипы в шапке
   // (широкий экран) и пункты меню в общей шапке (телефон).
   let actions = $derived(data ? [
-    ...(stateInfo ? [{ label: stateInfo[0], dot: stateInfo[1], note: true }] : []),
+    // «думает…» — модель отвечает прямо сейчас (CLI держит «esc to
+    // interrupt»); иначе обычное состояние сторожа
+    ...(data.runner?.busy ? [{ label: 'думает…', dot: 'var(--ok)', note: true }]
+      : stateInfo ? [{ label: stateInfo[0], dot: stateInfo[1], note: true }] : []),
     ...(data.runner ? [data.runner.alive
       ? { label: 'остановить', icon: 'pause', disabled: runnerBusy,
         run: () => runnerAct('stop'),
@@ -298,6 +302,23 @@
     runnerAct('key', { key: i > cur ? 'Tab' : 'BTab', times: Math.abs(i - cur) });
     setTimeout(refresh, 700);
   }
+  // Субагент — отдельной поверхностью, а не вложенным аккордеоном
+  // (CTO 19.08, mobile-first): тап по строке открывает шторку с его лентой.
+  let agentSheet = $state(null);   // { agent, items, error } | null
+  let agentOpen = $state(false);
+  async function openAgent(agent) {
+    agentSheet = { agent, items: null, error: null };
+    agentOpen = true;
+    try {
+      const r = await fetch(`/api/agent/${encodeURIComponent(project)}/${key}/${agent.agentId}`);
+      const out = await r.json();
+      agentSheet = r.ok ? { agent, items: out.items, error: null }
+        : { agent, items: null, error: out.error || `HTTP ${r.status}` };
+    } catch (e) {
+      agentSheet = { agent, items: null, error: String(e.message || e) };
+    }
+  }
+
   let freeText = $state('');
   async function sendFree(n) {
     if (!freeText.trim()) return;
@@ -420,7 +441,51 @@
     </div>
   {/if}
 
-  <Transcript items={data.items} {project} sessionKey={key} tracker={data.tracker} />
+  <!-- Агенты сессии одной полосой: фоновые в ленту не попадают вовсе
+       (у них нет привязки к строке), а знать, кто работает, надо.
+       Тап — лента агента шторкой на 70% (CTO 19.08). -->
+  {#if data.agents?.length}
+    <div class="agents-strip">
+      {#each data.agents as a (a.agentId)}
+        <button class="agent-chip" class:busy={a.busy}
+          title={a.description || a.agentType || a.agentId}
+          onclick={() => openAgent(a)}>
+          <i class="dot" style="background:{a.busy ? 'var(--ok)' : 'var(--text-4)'}"></i>
+          <b>{a.name || a.agentId}</b>
+          <span>{a.busy ? 'работает' : 'готов'}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+
+  <Transcript items={data.items} {project} sessionKey={key} tracker={data.tracker}
+    {openAgent} />
+
+  <!-- Лента субагента во весь экран: заголовок = кто и зачем, тело — та же
+       лента, что у сессии (вложенные субагенты открываются поверх) -->
+  <Sheet.Root bind:open={agentOpen}>
+    <Sheet.Content side="bottom" class="agent-sheet">
+      <Sheet.Header>
+        <Sheet.Title>
+          {agentSheet?.agent?.name || agentSheet?.agent?.agentId || 'субагент'}
+          {#if agentSheet?.agent?.agentType}<span class="quiet"> · {agentSheet.agent.agentType}</span>{/if}
+        </Sheet.Title>
+        {#if agentSheet?.agent?.description}
+          <Sheet.Description>{agentSheet.agent.description}</Sheet.Description>
+        {/if}
+      </Sheet.Header>
+      <div class="agent-body">
+        {#if agentSheet?.error}
+          <p class="err">{agentSheet.error}</p>
+        {:else if !agentSheet?.items}
+          <p class="quiet">читаю ленту субагента…</p>
+        {:else}
+          <Transcript items={agentSheet.items} {project} sessionKey={key}
+            tracker={data.tracker} {openAgent} />
+        {/if}
+      </div>
+    </Sheet.Content>
+  </Sheet.Root>
 
   <div class="dock" bind:this={dockEl}>
     <!-- Узкий экран: сводка-кнопка вместо стопки карточек -->
@@ -448,9 +513,16 @@
              лично в терминале (это решение шире одного клика). -->
         <article class="hitl">
           <header>
-            <b>Сессия ждёт разрешения на действие</b>
+            <b>Сессия ждёт разрешения: {data.runner.permission?.title || 'действие'}</b>
             <span class="meta">диалог CLI в её терминале — реши здесь или tmux attach -t {data.runner.tmux}</span>
           </header>
+          <!-- ЧТО именно просят: команда/файл как есть, плюс пометки CLI -->
+          {#if data.runner.permission?.body}
+            <pre class="cli-screen">{data.runner.permission.body}</pre>
+          {/if}
+          {#each data.runner.permission?.notes || [] as n (n)}
+            <p class="meta">{n}</p>
+          {/each}
           <div class="perm-row">
             <Button disabled={runnerBusy} onclick={() => runnerAct('approve', { answer: 'yes' })}>
               разрешить
@@ -825,6 +897,33 @@
   .dlg-raw { margin-top: var(--sp-4); }
   .dlg-raw summary {
     color: var(--text-4); font-size: var(--fs-xs); cursor: pointer;
+  }
+
+  /* Полоса агентов сессии: горизонтальная лента чипов, влезает на телефон */
+  .agents-strip {
+    display: flex; gap: var(--sp-2); overflow-x: auto; padding-bottom: var(--sp-2);
+    margin-bottom: var(--sp-4);
+  }
+  .agent-chip {
+    display: inline-flex; align-items: center; gap: var(--sp-2); flex: none;
+    background: var(--bg-2); color: var(--text-2);
+    border: 1px solid var(--border-soft); border-radius: 999px;
+    padding: var(--sp-2) var(--sp-4); font: inherit; font-size: var(--fs-xs);
+    cursor: pointer; min-height: 30px;
+  }
+  .agent-chip.busy { border-color: color-mix(in oklab, var(--ok) 50%, transparent); }
+  .agent-chip b { color: var(--text-1); font-weight: 500; }
+  .agent-chip span { color: var(--text-4); }
+
+  /* Шторка субагента: 70% высоты снизу (CTO 19.08) — видно и его ленту, и
+     край разговора сессии под ней; скролл только внутри тела */
+  :global(.agent-sheet) {
+    height: 70vh; border-radius: var(--r-lg) var(--r-lg) 0 0;
+    display: flex; flex-direction: column;
+  }
+  .agent-body {
+    flex: 1; overflow-y: auto; padding: 0 var(--sp-5) calc(var(--sp-5) + var(--safe-b));
+    display: flex; flex-direction: column; gap: var(--sp-4);
   }
 
   .hint { font-size: var(--fs-xs); margin: var(--sp-3) var(--sp-1) 0; }
