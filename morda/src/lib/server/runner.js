@@ -107,6 +107,14 @@ function classify(text) {
   if (/Login expired|Not logged in|Run \/login|OAuth session expired/i.test(text)) return 'needs_auth';
   if (/Select any you wish to enable/i.test(text)) return 'mcp_consent';
   if (/Do you trust the files|Quick safety check/i.test(text)) return 'trust';
+  // согласие на браузерные инструменты у свежего профиля слота: сессия
+  // стояла на нём вечно, окно показывало «поднимаю CLI-сессию…» (факт
+  // 20.08, слот «Мариха»). Флоту браузер не нужен — отвечаем «нет».
+  if (/use my browser|keep browser tools off/i.test(text)) return 'browser_consent';
+  // предупреждение про режим без вопросов: человек УЖЕ выбрал этот режим
+  // в композере пульта, повторно подтверждать в терминале незачем
+  // (CTO 20.08: «не хочу как пользователь об этом париться»)
+  if (/Bypass Permissions mode|accept all responsibility/i.test(text)) return 'bypass_warning';
   // онбординг свежего профиля (новый CLAUDE_CONFIG_DIR): четыре экрана
   // подряд, все проходятся Enter-ом (флоу снят живьём 17.08, слот «Мариха»)
   if (/Press Enter to continue|Try the new fullscreen renderer|Choose the text style/i
@@ -147,6 +155,16 @@ function step(name) {
     saveReg(reg); return stopPoller(name);
   }
   const kind = classify(visible(name));
+  if (kind === 'browser_consent') {
+    // «No, keep browser tools off» — второй пункт: браузер флоту не нужен
+    try { tmux(['send-keys', '-t', pane(name), '2']); } catch {}
+    return;
+  }
+  if (kind === 'bypass_warning') {
+    // «Yes, I accept» — режим выбран человеком при запуске; забор на месте
+    try { tmux(['send-keys', '-t', pane(name), '2']); } catch {}
+    return;
+  }
   if (kind === 'mcp_consent' || kind === 'trust' || kind === 'onboarding') {
     // MCP-серверы проекта, доверие корню (корень из allowlist projects.json)
     // и экраны онбординга нового профиля — подтверждаем сами
@@ -332,6 +350,25 @@ export function runnerList(project) {
       const kind = classify(vis);
       screen = kind;
       busy = isBusy(vis);
+      // стартовые согласия двигаем и здесь: поллер старта конечен (3 минуты),
+      // а сессия могла упереться в экран позже — тогда она висела «стартует»
+      // навсегда (факт 20.08, слот «Мариха»: согласие про браузер)
+      if (s.state === 'starting' || s.state === 'goal_sent') {
+        if (kind === 'browser_consent' || kind === 'bypass_warning') {
+          try { tmux(['send-keys', '-t', pane(name), '2']); } catch {}
+        }
+        else if (kind === 'mcp_consent' || kind === 'trust' || kind === 'onboarding') {
+          try { tmux(['send-keys', '-t', pane(name), 'Enter']); } catch {}
+        } else if (kind === 'prompt' && !s.sessionId) {
+          // промпт готов: досылаем цель и добиваем привязку
+          if (!s.goalSent && s.goal) {
+            try { sendLine(name, s.goal); s.goalSent = true; s.state = 'goal_sent'; saveReg(reg); } catch {}
+          } else {
+            const id = bindSessionId(name, s.root);
+            if (id) { s.sessionId = id; s.state = 'running'; saveReg(reg); }
+          }
+        }
+      }
       if (kind === 'needs_auth' && s.state !== 'needs_auth') {
         s.state = 'needs_auth'; saveReg(reg);
       }
@@ -652,6 +689,11 @@ export function slotList({ probe = false } = {}) {
         // (иначе слот вечно висел в «проверяю…» — факт CTO 17.08, «Мариха»)
         if (kind === 'onboarding' || kind === 'mcp_consent' || kind === 'trust') {
           try { tmux(['send-keys', '-t', pane(name), 'Enter']); } catch {}
+        }
+        // первый запуск нового профиля спрашивает про браузер и про режим —
+        // человек подключает подписку, а не читает эти экраны (CTO 20.08)
+        if (kind === 'browser_consent' || kind === 'bypass_warning') {
+          try { tmux(['send-keys', '-t', pane(name), '2']); } catch {}
         }
         if (kind === 'dialog') {
           try { tmux(['send-keys', '-t', pane(name), 'Escape']); } catch {}

@@ -482,6 +482,31 @@ export function sessions(project) {
 // умерло»). Короткий кэш: свежесть 3 с достаточна для чтения ленты.
 const sessCache = new Map(); // root|key → { sig, r }
 const WINDOW_BYTES = 3 * 1024 * 1024;   // хвост разговора: старше — история
+// Транскрипты сессии, запущенной под слотом, лежат в каталоге ЭТОГО слота
+// (<home>/projects), а не в ~/.claude/projects — иначе окно не находит ленту
+// (факт 20.08, слот «Мариха»). Подставляем каталог на время чтения.
+function slotProjectsDir(key) {
+  try {
+    const reg = JSON.parse(fs.readFileSync(RUNNER_STATE_FILE, 'utf8'));
+    const rec = Object.values(reg.sessions || {}).find((s) => s.sessionId === key);
+    if (!rec?.slot) return null;
+    const slots = JSON.parse(fs.readFileSync(path.join(MORDA_ROOT, 'slots.json'), 'utf8'));
+    const home = (slots.slots || []).find((x) => x.id === rec.slot)?.home;
+    return home ? path.join(home, 'projects') : null;
+  } catch { return null; }
+}
+function withSlotDir(key, fn) {
+  const dir = slotProjectsDir(key);
+  if (!dir || !fs.existsSync(dir)) return fn();
+  const prev = process.env.CLAUDE_PROJECTS_DIR;
+  process.env.CLAUDE_PROJECTS_DIR = dir;
+  try { return fn(); }
+  finally {
+    if (prev === undefined) delete process.env.CLAUDE_PROJECTS_DIR;
+    else process.env.CLAUDE_PROJECTS_DIR = prev;
+  }
+}
+
 function readSessionCached(root, key) {
   const k = `${root}|${key}`;
   const c = sessCache.get(k);
@@ -497,7 +522,7 @@ function readSessionCached(root, key) {
   }
   // читаем хвост, а не весь файл: у диспетчеров это мегабайты, а окно всё
   // равно показывает конец разговора (флаг truncated честно об этом говорит)
-  const r = T.readSession(root, key, { maxBytes: WINDOW_BYTES });
+  const r = withSlotDir(key, () => T.readSession(root, key, { maxBytes: WINDOW_BYTES }));
   if (r?.file) {
     try { const st = fs.statSync(r.file); sig = `${st.size}:${st.mtimeMs}`; } catch {}
   }
@@ -559,7 +584,7 @@ export function session(project, key) {
 }
 
 export function agentTranscript(project, key, agentId) {
-  return T.readAgent(rootByName(project), key, agentId);
+  return withSlotDir(key, () => T.readAgent(rootByName(project), key, agentId));
 }
 
 /** Агенты сессии из каталога subagents/ — ВСЕ, включая фоновых.
@@ -613,7 +638,7 @@ export function sessionAgents(project, key) {
  *  (nyron видит stovp), и резюм в корне «их» проекта убивал сессию на
  *  старте — claude --resume ищет разговор по cwd (факт 17.08). */
 export function sessionMeta(project, key) {
-  const r = T.readSession(rootByName(project), key, { maxBytes: 64 * 1024 });
+  const r = withSlotDir(key, () => T.readSession(rootByName(project), key, { maxBytes: 64 * 1024 }));
   return r ? { cwd: r.cwd, cwd_alive: r.cwd_alive, entrypoint: r.entrypoint } : null;
 }
 
@@ -663,10 +688,30 @@ export function runnerOwned() {
   return out;
 }
 export function liveAgents() {
+  // Слоты с отдельным конфиг-каталогом (CLAUDE_CONFIG_DIR) — свои сессии:
+  // без обхода каталогов сессия слота не привязывалась и окно вечно ждало
+  // (факт 20.08, слот «Мариха»).
+  const homes = [null];
   try {
-    return JSON.parse(execFileSync(CLAUDE_BIN, ['agents', '--json'],
-      { timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'], env: SPAWN_ENV }).toString());
-  } catch { return []; }
+    const slots = JSON.parse(fs.readFileSync(path.join(MORDA_ROOT, 'slots.json'), 'utf8'));
+    for (const sl of slots.slots || [])
+      if (sl.provider === 'claude' && sl.home) homes.push(sl.home);
+  } catch {}
+  const out = [];
+  const seen = new Set();
+  for (const home of homes) {
+    try {
+      const env = home ? { ...SPAWN_ENV, CLAUDE_CONFIG_DIR: home } : SPAWN_ENV;
+      const rows = JSON.parse(execFileSync(CLAUDE_BIN, ['agents', '--json'],
+        { timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'], env }).toString());
+      for (const r of rows) {
+        if (seen.has(r.sessionId)) continue;
+        seen.add(r.sessionId);
+        out.push({ ...r, slotHome: home });
+      }
+    } catch { /* этот каталог не отвечает — остальные всё равно спросим */ }
+  }
+  return out;
 }
 
 // Панели tmux, где в корне проекта крутится claude.
