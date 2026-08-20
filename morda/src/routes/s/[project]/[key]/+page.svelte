@@ -559,7 +559,8 @@
       </Sheet.Header>
       <div class="agent-body">
         <TmuxPanel screen={consoleText} tmux={data.runner?.tmux} error={consoleErr}
-          busy={runnerBusy} onKey={(k) => sendKey(k)} />
+          busy={runnerBusy} onKey={(k) => sendKey(k)}
+          onType={async (t) => { await runnerAct('type', { text: t }); setTimeout(refresh, 600); }} />
       </div>
     </Sheet.Content>
   </Sheet.Root>

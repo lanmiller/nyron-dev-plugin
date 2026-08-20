@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { runnerList, runnerStart, runnerStop, runnerResume, runnerApprove,
   runnerRetune, runnerKey, runnerType, runnerScreen, auditStart,
-  slotScreen, slotKey,
+  slotScreen, slotKey, slotType, slotSync,
   queueAdd, queueRemove,
   slotList, slotAdd, slotRemove, slotConnect, slotCode, slotUsage,
   providerList } from '$lib/server/runner.js';
@@ -33,6 +33,8 @@ const ACTIONS = {
   screen: runnerScreen,
   slot_screen: slotScreen,
   slot_key: slotKey,
+  slot_type: slotType,
+  slot_sync: slotSync,
   queue_add: queueAdd,
   queue_remove: queueRemove,
   type: runnerType,

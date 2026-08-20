@@ -479,6 +479,57 @@ export function slotScreen({ id, lines = 60 }) {
   return { screen: capture(name, n).replace(/\s+$/, ''), tmux: TMUX_PREFIX + name };
 }
 
+/** Раздать копии конфиг основного аккаунта (CTO 20.08: «нужно подкидывать
+ *  один общий конфиг на все копии»). Копии должны ВЕСТИ СЕБЯ одинаково:
+ *  те же MCP-серверы, скиллы, правила, плагины и настройки. НЕ трогаем
+ *  авторизацию и историю копии — это её собственность:
+ *    копируем: settings.json, mcp_config.json, skills/, rules/, agents/,
+ *              commands/, plugins/ (маркетплейсы и реестр установленного);
+ *    мержим:   mcpServers из ~/.claude.json (user-scope серверы);
+ *    НЕ трогаем: projects/, sessions/, history, вход в аккаунт. */
+export function slotSync({ id }) {
+  const s = slotById(id);
+  if (!s.home) throw new Error('основной слот сам себе источник — синхронизировать нечего');
+  const src = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+  const copied = [];
+  for (const item of ['settings.json', 'mcp_config.json', 'skills', 'rules',
+    'agents', 'commands', 'plugins']) {
+    const from = path.join(src, item);
+    if (!fs.existsSync(from)) continue;
+    const to = path.join(s.home, item);
+    try {
+      fs.rmSync(to, { recursive: true, force: true });
+      fs.cpSync(from, to, { recursive: true });
+      copied.push(item);
+    } catch (e) { throw new Error(`не скопировал ${item}: ${e.message}`); }
+  }
+  // user-scope MCP живут в ~/.claude.json рядом с аккаунтом: вмерживаем
+  // ТОЛЬКО секцию серверов, остальное (вход, история) — копии не трогаем
+  let servers = 0;
+  try {
+    const mainCfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8'));
+    const slotFile = path.join(s.home, '.claude.json');
+    const slotCfg = fs.existsSync(slotFile)
+      ? JSON.parse(fs.readFileSync(slotFile, 'utf8')) : {};
+    slotCfg.mcpServers = { ...(slotCfg.mcpServers || {}), ...(mainCfg.mcpServers || {}) };
+    servers = Object.keys(slotCfg.mcpServers).length;
+    fs.writeFileSync(slotFile + '.tmp', JSON.stringify(slotCfg, null, 2));
+    fs.renameSync(slotFile + '.tmp', slotFile);
+  } catch (e) { throw new Error(`не смержил MCP-серверы: ${e.message}`); }
+  return { copied, mcpServers: servers,
+    note: 'перезапусти служебную сессию слота, чтобы конфиг подхватился' };
+}
+
+export function slotType({ id, text, enter = true }) {
+  const s = slotById(id);
+  const name = authName(s.id);
+  if (!tmuxAlive(name)) throw new Error('служебной сессии нет');
+  if (!String(text || '').length) throw new Error('пустой ввод');
+  if (enter) sendLine(name, String(text));
+  else tmux(['send-keys', '-t', pane(name), '-l', String(text)]);
+  return { sent: true };
+}
+
 export function slotKey({ id, key }) {
   const s = slotById(id);
   const name = authName(s.id);

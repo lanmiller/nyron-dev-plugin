@@ -102,7 +102,8 @@
   // (докерный MCP), поэтому явный спиннер на кнопке.
   let passport = $state({}); // имя проекта → { busy, items, at, error }
   let auditNote = $state({}); // имя проекта → строка после запуска аудитора
-  let unlinking = $state({}); // id слота → открыт выбор «отключить / удалить»
+  let unlinking = $state({});
+  let syncNote = $state({}); // id слота → что скопировано с основного // id слота → открыт выбор «отключить / удалить»
   async function verify(name) {
     passport = { ...passport, [name]: { busy: true } };
     try {
@@ -141,6 +142,10 @@
   async function termKey(k) {
     await act({ action: 'slot_key', id: termSlot, key: k });
     setTimeout(termTick, 400);
+  }
+  async function termType(text) {
+    await act({ action: 'slot_type', id: termSlot, text });
+    setTimeout(termTick, 600);
   }
 
   const SLOT_RU = {
@@ -221,6 +226,7 @@
         </Card.Header>
         <Card.Content class="slot-body">
           {#if s.hint}<p class="hint quiet">{s.hint}</p>{/if}
+          {#if syncNote[s.id]}<p class="hint ok-note">{syncNote[s.id]}</p>{/if}
           {#if connect[s.id]?.url && s.status !== 'ok'}
             <div class="auth-flow">
               <p class="hint">Открой ссылку в браузере с профилем НУЖНОГО
@@ -281,6 +287,19 @@
               onclick={() => openTerm(s.id)}>
               <Icon name="terminal" size={13} /> терминал
             </Button>
+            {#if s.home && s.provider === 'claude'}
+              <!-- копия должна вести себя как основной: те же MCP, скиллы,
+                   правила, плагины (CTO 20.08). Вход и история — её -->
+              <Button variant="outline" size="xs" disabled={busy}
+                title="скопировать в копию настройки, MCP-серверы, скиллы, правила и плагины основного аккаунта; вход и история копии не трогаются"
+                onclick={async () => {
+                  const out = await act({ action: 'slot_sync', id: s.id });
+                  if (out?.copied) syncNote = { ...syncNote,
+                    [s.id]: `взято у основного: ${out.copied.join(', ')} · MCP-серверов ${out.mcpServers}` };
+                }}>
+                <Icon name="copy" size={13} /> взять конфиг основного
+              </Button>
+            {/if}
             {#if s.status === 'ok'}
               <Button variant="outline" size="xs" disabled={usageBusy[s.id]}
                 title="снимает лимиты с живой сессии слота (5–10 секунд)"
@@ -464,7 +483,7 @@
       <Sheet.Description>живой экран служебной сессии, обновляется каждые 2 секунды</Sheet.Description>
     </Sheet.Header>
     <div class="term-body">
-      <TmuxPanel screen={termText} tmux={termTmux} error={termErr} busy={busy} onKey={termKey} />
+      <TmuxPanel screen={termText} tmux={termTmux} error={termErr} busy={busy} onKey={termKey} onType={termType} />
     </div>
   </Sheet.Content>
 </Sheet.Root>
