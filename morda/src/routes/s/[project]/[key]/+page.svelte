@@ -17,6 +17,7 @@
   import Icon from '$lib/Icon.svelte';
   import PickChip from '$lib/PickChip.svelte';
   import * as Sheet from '$lib/ui/sheet/index.js';
+  import TmuxPanel from '$lib/TmuxPanel.svelte';
   import { MODEL_OPTS, EFFORT_OPTS, MODE_OPTS } from '$lib/composer-options.js';
   import { Button } from '$lib/ui/button/index.js';
   import { Badge } from '$lib/ui/badge/index.js';
@@ -557,18 +558,8 @@
         </div>
       </Sheet.Header>
       <div class="agent-body">
-        {#if consoleErr}
-          <p class="err">{consoleErr}</p>
-        {:else}
-          <pre class="cli-screen">{consoleText || 'читаю экран…'}</pre>
-          <div class="perm-row">
-            <Button variant="outline" size="xs" disabled={runnerBusy}
-              title="Esc в терминал: остановит текущий шаг, сессия останется живой"
-              onclick={interrupt}>прервать работу</Button>
-            <span class="grow-mini"></span>
-            <span class="quiet" style="font-size:var(--fs-xs)">tmux attach -t {data.runner?.tmux}</span>
-          </div>
-        {/if}
+        <TmuxPanel screen={consoleText} tmux={data.runner?.tmux} error={consoleErr}
+          busy={runnerBusy} onKey={(k) => sendKey(k)} />
       </div>
     </Sheet.Content>
   </Sheet.Root>
@@ -864,13 +855,8 @@
             <b>В терминале сессии открыт диалог</b>
             <span class="meta">живой экран; навигация — клавишами ниже</span>
           </header>
-          <pre class="cli-screen">{cliDialog.screen_text}</pre>
-          <div class="perm-row">
-            {#each [['↑', 'Up'], ['↓', 'Down'], ['Tab', 'Tab'], ['Enter — выбрать', 'Enter'], ['Esc — закрыть', 'Escape']] as [label, k] (k)}
-              <Button variant="outline" size="xs" disabled={runnerBusy}
-                onclick={() => sendKey(k)}>{label}</Button>
-            {/each}
-          </div>
+          <TmuxPanel screen={cliDialog.screen_text} tmux={cliDialog.tmux}
+            busy={runnerBusy} onKey={(k) => sendKey(k)} />
         {/if}
       </article>
     {/if}

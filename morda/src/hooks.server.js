@@ -38,8 +38,17 @@ function same(a, b) {
   return diff === 0;
 }
 
+// Локальный заход (сам мак) пароля не требует: пульт слушает 127.0.0.1, и
+// снаружи туда попасть нельзя иначе как через туннель — а туннель приходит
+// с чужим Host. Так вход спрашивают ровно там, где он нужен (CTO 20.08).
+function isLocal(event) {
+  const host = (event.request.headers.get('host') || '').split(':')[0];
+  return host === '127.0.0.1' || host === 'localhost' || host === '[::1]';
+}
+
 export async function handle({ event, resolve }) {
   if (!auth) return resolve(event);           // пароля нет — локальный режим
+  if (isLocal(event)) return resolve(event);  // свой мак — без пароля
   const header = event.request.headers.get('authorization') || '';
   if (header.startsWith('Basic ')) {
     let user = '', pass = '';

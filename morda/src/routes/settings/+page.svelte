@@ -13,6 +13,8 @@
   import { Badge } from '$lib/ui/badge/index.js';
   import { Input } from '$lib/ui/input/index.js';
   import * as Card from '$lib/ui/card/index.js';
+  import * as Sheet from '$lib/ui/sheet/index.js';
+  import TmuxPanel from '$lib/TmuxPanel.svelte';
   import { age } from '$lib/states.js';
 
   const st = getContext('morda');
@@ -114,6 +116,31 @@
     } catch (e) {
       passport = { ...passport, [name]: { error: String(e.message || e) } };
     }
+  }
+
+  // Терминал слота (CTO 20.08: иконка терминала на карточке логина —
+  // посмотреть служебную сессию и дожать вход стрелками с телефона).
+  let termOpen = $state(false);
+  let termSlot = $state(null);
+  let termText = $state('');
+  let termErr = $state(null);
+  let termTmux = $state(null);
+  function openTerm(id) { termSlot = id; termText = ''; termErr = null; termOpen = true; }
+  async function termTick() {
+    if (!termOpen || !termSlot) return;
+    const out = await act({ action: 'slot_screen', id: termSlot });
+    if (out?.screen !== undefined) { termText = out.screen; termTmux = out.tmux; termErr = null; }
+    else termErr = error;
+  }
+  $effect(() => {
+    if (!termOpen) return;
+    termTick();
+    const t = setInterval(termTick, 2000);
+    return () => clearInterval(t);
+  });
+  async function termKey(k) {
+    await act({ action: 'slot_key', id: termSlot, key: k });
+    setTimeout(termTick, 400);
   }
 
   const SLOT_RU = {
@@ -237,11 +264,23 @@
           <p class="slot-home mono" title={s.home ? 'каталог слота' : 'домашний каталог CLI — общий, поэтому «основной» не отвязывается'}>{s.home_display}</p>
           <div class="slot-actions">
             {#if s.status !== 'ok' && s.status !== 'not_installed' && !connect[s.id]?.url}
-              <Button variant="outline" size="xs" disabled={busy}
-                onclick={() => startConnect(s.id)}>
-                <Icon name="key-round" size={13} /> авторизовать
-              </Button>
+              {#if s.home}
+                <Button variant="outline" size="xs" disabled={busy}
+                  onclick={() => startConnect(s.id)}>
+                  <Icon name="key-round" size={13} /> авторизовать
+                </Button>
+              {:else}
+                <!-- основной слот делит каталог с рабочим CLI: логин отсюда
+                     рвёт Remote Control приложения (факт 20.08) -->
+                <span class="hint quiet">логинься в самом приложении: этот слот —
+                  общий каталог CLI, вход отсюда оборвёт Remote Control</span>
+              {/if}
             {/if}
+            <Button variant="outline" size="xs" disabled={busy}
+              title="открыть терминал служебной сессии слота — видно, что происходит, и можно дожать стрелками"
+              onclick={() => openTerm(s.id)}>
+              <Icon name="terminal" size={13} /> терминал
+            </Button>
             {#if s.status === 'ok'}
               <Button variant="outline" size="xs" disabled={usageBusy[s.id]}
                 title="снимает лимиты с живой сессии слота (5–10 секунд)"
@@ -417,7 +456,28 @@
   </div>
 </section>
 
+<!-- Терминал слота: живой экран + клавиши (одна панель на весь пульт) -->
+<Sheet.Root bind:open={termOpen}>
+  <Sheet.Content side="bottom" class="term-sheet">
+    <Sheet.Header>
+      <Sheet.Title>Терминал слота{termSlot ? ` · ${termSlot}` : ''}</Sheet.Title>
+      <Sheet.Description>живой экран служебной сессии, обновляется каждые 2 секунды</Sheet.Description>
+    </Sheet.Header>
+    <div class="term-body">
+      <TmuxPanel screen={termText} tmux={termTmux} error={termErr} busy={busy} onKey={termKey} />
+    </div>
+  </Sheet.Content>
+</Sheet.Root>
+
 <style>
+  :global(.term-sheet) {
+    max-height: 78vh; border-radius: var(--r-lg) var(--r-lg) 0 0;
+    display: flex; flex-direction: column;
+  }
+  .term-body {
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 0 var(--sp-5) calc(var(--sp-5) + var(--safe-b));
+  }
   .head { margin-bottom: var(--sp-7); }
   .head h1 { font-size: var(--fs-xl); margin: 0 0 var(--sp-2); }
   .head p { margin: 0; font-size: var(--fs-sm); }

@@ -468,6 +468,26 @@ const flusher = (globalThis.__mordaQueueFlusher ??= setInterval(() => {
   } catch { /* следующий тик дотянется */ }
 }, 3000));
 
+/** Экран и клавиши служебной сессии СЛОТА (карточка подписки): тот же
+ *  терминал под рукой, что у рабочих сессий (CTO 20.08) — посмотреть, что
+ *  происходит при входе, и дожать стрелками с телефона. */
+export function slotScreen({ id, lines = 60 }) {
+  const s = slotById(id);
+  const name = authName(s.id);
+  if (!tmuxAlive(name)) throw new Error('служебной сессии нет — нажми «проверить фактом»');
+  const n = Math.min(Math.max(Number(lines) || 60, 10), 200);
+  return { screen: capture(name, n).replace(/\s+$/, ''), tmux: TMUX_PREFIX + name };
+}
+
+export function slotKey({ id, key }) {
+  const s = slotById(id);
+  const name = authName(s.id);
+  if (!tmuxAlive(name)) throw new Error('служебной сессии нет');
+  if (!DIALOG_KEYS.has(key)) throw new Error(`клавиша: ${[...DIALOG_KEYS].join('|')}`);
+  tmux(['send-keys', '-t', pane(name), key]);
+  return { sent: key };
+}
+
 /** Живой экран tmux сессии — «показать настоящую консоль» (CTO 19.08).
  *  Читается по требованию окна: реальный терминал под рукой, без tmux attach. */
 export function runnerScreen({ name, lines = 60 }) {
@@ -769,6 +789,11 @@ export function slotRemove({ id, purge = false }) {
 /** Подключение слота: служебная tmux с CLI этого слота, ссылку — карточкой. */
 export function slotConnect({ id }) {
   const s = slotById(id);
+  // Основной слот делит домашний каталог с рабочим CLI и приложением:
+  // /login в нём переустанавливает токен и рвёт Remote Control — так и
+  // «выбило» main (факт 20.08). Логин основного — только руками человека.
+  if (!s.home)
+    throw new Error('основной аккаунт делит каталог с рабочим CLI: логинься в самом приложении/терминале, иначе рвётся Remote Control. Для флота заведи отдельную копию подписки');
   const name = authName(id);
   if (s.provider === 'codex') {
     if (!tmuxAlive(name)) startAuthTmux(s, CODEX_BIN + ' login');
