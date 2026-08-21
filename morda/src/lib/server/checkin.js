@@ -35,9 +35,12 @@ export function lastActivityMs(file, key, mtime, { tmpBase } = {}) {
   if (!file || !key) return best;
   const slugDir = path.dirname(file);
   best = Math.max(best, maxMtime(path.join(slugDir, key, 'subagents')));
-  // Выводы фоновых команд: /private/tmp/claude-<uid>/<слаг>/<key>/tasks —
-  // слаг тот же, что у каталога транскриптов (факт этой машины 21.08)
-  const base = tmpBase ?? path.join('/private/tmp',
+  // Выводы фоновых команд: <tmp>/claude-<uid>/<слаг>/<key>/tasks — слаг тот
+  // же, что у каталога транскриптов. Корень — /tmp: на маке это симлинк на
+  // /private/tmp (факт 21.08), на линуксе — прямой путь; os.tmpdir() НЕ
+  // годится (на маке это /var/folders, CLI пишет не туда). Иное окружение —
+  // env MORDA_SCRATCH_BASE (кросс-ревью Sol r4).
+  const base = tmpBase ?? process.env.MORDA_SCRATCH_BASE ?? path.join('/tmp',
     `claude-${typeof process.getuid === 'function' ? process.getuid() : 0}`);
   best = Math.max(best, maxMtime(path.join(base, path.basename(slugDir), key, 'tasks')));
   return best;
