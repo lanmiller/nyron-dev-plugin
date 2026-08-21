@@ -552,6 +552,7 @@ export function slotKey({ id, key }) {
   const s = slotById(id);
   const name = authName(s.id);
   if (!tmuxAlive(name)) throw new Error('служебной сессии нет');
+  if (KEYS_DENIED.has(key)) throw new Error(KEYS_DENIED.get(key));
   if (!DIALOG_KEYS.has(key)) throw new Error(`клавиша: ${[...DIALOG_KEYS].join('|')}`);
   tmux(['send-keys', '-t', pane(name), key]);
   return { sent: key };
@@ -569,9 +570,19 @@ export function runnerScreen({ name, lines = 60 }) {
  *  снята фактом (17.08, stovp-proto-hitl): цифра — выбрать/переключить,
  *  Tab/BTab — вперёд/назад по вопросам, Enter — выбрать, Esc — отмена. */
 const DIALOG_KEYS = new Set(['Escape', 'Enter', 'Up', 'Down', 'Left', 'Right',
-  'Tab', 'BTab', 'Space', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
+  'Tab', 'BTab', 'Space', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+  // живой терминал в браузере (CTO 21.08: «на десктопе нужен нормальный
+  // контроль, как в настоящем терминале»): правка строки, прокрутка, отмена
+  'BSpace', 'DC', 'Home', 'End', 'PPage', 'NPage',
+  'C-c', 'C-a', 'C-e', 'C-u', 'C-k', 'C-w', 'C-l', 'C-r']);
+
+// C-d закрывает оболочку и убивает сессию — из браузера его не пропускаем:
+// человек хотел прервать шаг, а получил бы гибель сессии (страх CTO 21.08
+// «главное не уебать рабочий»). В настоящем терминале он ему доступен.
+const KEYS_DENIED = new Map([['C-d', 'C-d закроет оболочку и убьёт сессию — прерывание это Escape, остановка — кнопка «остановить»']]);
 export function runnerKey({ name, key, times = 1 }) {
   if (!tmuxAlive(name)) throw new Error(`нет живой tmux-сессии ${name}`);
+  if (KEYS_DENIED.has(key)) throw new Error(KEYS_DENIED.get(key));
   if (!DIALOG_KEYS.has(key)) throw new Error(`клавиша: ${[...DIALOG_KEYS].join('|')}`);
   const n = Math.min(Math.max(Number(times) || 1, 1), 8); // прыжок по табам
   for (let i = 0; i < n; i++) {

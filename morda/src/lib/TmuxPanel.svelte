@@ -19,6 +19,43 @@
     await onType(t);
   }
 
+  // Живой режим (десктоп): экран ловит фокус и принимает НАСТОЯЩИЕ нажатия —
+  // буквы, Backspace, Ctrl-сочетания. Кнопки-стрелки остаются для телефона,
+  // где физической клавиатуры нет (CTO 21.08: «на десктопе кнопки — костыль,
+  // нужен нормальный контроль как в живом терминале»).
+  let live = $state(false);
+  let screenEl = $state(null);
+  let buf = '';               // печатаемые символы копим и шлём пачкой
+  let flushT = null;
+  function flush() {
+    const t = buf; buf = ''; flushT = null;
+    if (t && onType) onType(t, { enter: false });
+  }
+  // имена клавиш у tmux свои — переводим раскладку браузера в его словарь
+  const NAMED = {
+    Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'BSpace',
+    Delete: 'DC', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left',
+    ArrowRight: 'Right', Home: 'Home', End: 'End', PageUp: 'PPage', PageDown: 'NPage',
+  };
+  const CTRL_OK = new Set(['a', 'c', 'e', 'k', 'l', 'r', 'u', 'w']);
+  function onKeydown(e) {
+    if (!live || !onKey) return;
+    if (e.metaKey) return;                       // ⌘C/⌘V — браузеру, не сессии
+    if (e.ctrlKey) {
+      const c = e.key.toLowerCase();
+      if (!CTRL_OK.has(c)) return;               // прочее (в т.ч. Ctrl-D) не шлём
+      e.preventDefault(); flush(); onKey(`C-${c}`); return;
+    }
+    const named = e.shiftKey && e.key === 'Tab' ? 'BTab' : NAMED[e.key];
+    if (named) { e.preventDefault(); flush(); onKey(named); return; }
+    if (e.key.length === 1) {                    // обычный символ — в пачку
+      e.preventDefault();
+      buf += e.key;
+      clearTimeout(flushT);
+      flushT = setTimeout(flush, 90);
+    }
+  }
+
   // порядок кнопок — как на клавиатуре: навигация, потом подтверждение
   const KEYS = [
     ['Up', '↑', 'вверх'],
@@ -34,7 +71,20 @@
 {#if error}
   <p class="err">{error}</p>
 {:else}
-  <pre class="cli-screen">{screen || 'читаю экран…'}</pre>
+  <div class="screen-wrap">
+    <pre class="cli-screen" class:live tabindex="0" bind:this={screenEl}
+      onkeydown={onKeydown}
+      onfocus={() => (live = !!onKey)}
+      onblur={() => { flush(); live = false; }}
+      role="textbox" aria-label="экран терминала — кликни, чтобы печатать прямо в сессию"
+    >{screen || 'читаю экран…'}</pre>
+    {#if onKey}
+      <button class="live-hint" onclick={() => screenEl?.focus()}>
+        {live ? 'печатаешь прямо в сессию · Esc-ом не выйти, кликни мимо'
+          : 'кликни по экрану — и печатай как в терминале'}
+      </button>
+    {/if}
+  </div>
   {#if onType}
     <div class="tinput">
       <input placeholder="набрать в терминал…" bind:value={line} disabled={busy}
@@ -57,6 +107,18 @@
 {/if}
 
 <style>
+  /* Живой режим: экран сам ловит клавиши. Рамка показывает, что фокус тут и
+     нажатия уходят в сессию, а не в браузер. */
+  .screen-wrap { position: relative; }
+  .cli-screen:focus { outline: none; }
+  .cli-screen.live { box-shadow: inset 0 0 0 2px var(--accent, var(--primary)); }
+  .live-hint {
+    display: block; width: 100%; margin-top: var(--sp-2); padding: 0;
+    background: none; border: 0; text-align: left; cursor: pointer;
+    color: var(--text-4); font: inherit; font-size: var(--fs-xs);
+  }
+  .cli-screen.live + .live-hint { color: var(--accent, var(--primary)); }
+
   /* клавиши крупные: это единственный способ управлять сессией с телефона */
   .keys {
     display: grid; grid-template-columns: repeat(4, 1fr);

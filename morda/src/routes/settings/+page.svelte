@@ -106,6 +106,30 @@
   const auditOf = (project) => (data?.sessions || []).find(
     (r) => r.project === project && r.name.startsWith('audit-') && r.alive);
   let unlinking = $state({});
+  // Ключница проекта: значения ключей вводит ЧЕЛОВЕК и только здесь — сессиям
+  // забор их не отдаёт. Наружу пульт возвращает имена, значения — никогда.
+  let keysFor = $state(null);       // имя проекта → открыта шторка
+  let keysNames = $state([]);
+  let keysDraft = $state('');
+  let keysNote = $state(null);
+  async function openKeys(name) {
+    keysFor = name; keysDraft = ''; keysNote = null; keysNames = [];
+    const r = await act({ action: 'keys_status', project: name });
+    if (r) keysNames = r.names || [];
+  }
+  async function keysRun(action, extra = {}) {
+    const r = await act({ action, project: keysFor, ...extra });
+    if (!r) return;
+    const parts = [];
+    if (r.added?.length) parts.push(`добавлено: ${r.added.join(', ')}`);
+    if (r.updated?.length) parts.push(`обновлено: ${r.updated.join(', ')}`);
+    if (r.skipped?.length) parts.push(`пропущено непонятных строк: ${r.skipped.length}`);
+    if (r.ignoreFixed) parts.push('.secrets добавлена в .gitignore');
+    keysNote = parts.length ? parts.join('; ') : 'ничего не изменилось';
+    keysDraft = '';
+    const st = await act({ action: 'keys_status', project: keysFor });
+    if (st) keysNames = st.names || [];
+  }
   let syncNote = $state({}); // id слота → что скопировано с основного // id слота → открыт выбор «отключить / удалить»
   async function verify(name) {
     passport = { ...passport, [name]: { busy: true } };
@@ -146,8 +170,8 @@
     await act({ action: 'slot_key', id: termSlot, key: k });
     setTimeout(termTick, 400);
   }
-  async function termType(text) {
-    await act({ action: 'slot_type', id: termSlot, text });
+  async function termType(text, o = {}) {
+    await act({ action: 'slot_type', id: termSlot, text, enter: o.enter !== false });
     setTimeout(termTick, 600);
   }
 
@@ -453,6 +477,11 @@
               <Icon name="search-check" size={13} /> аудит проекта
             </Button>
           {/if}
+          <Button variant="outline" size="xs" disabled={busy}
+            title="ключи проекта: показать имена, залить значения, забрать их из .mcp.json"
+            onclick={() => openKeys(p.name)}>
+            <Icon name="key-round" size={13} /> ключи
+          </Button>
           <Button variant="ghost" size="xs" class="text-ink-4" disabled={busy}
             title="уберёт из списка пульта; файлы папки не трогаются"
             onclick={async () => {
@@ -487,6 +516,44 @@
 </section>
 
 <!-- Терминал слота: живой экран + клавиши (одна панель на весь пульт) -->
+<!-- Ключница проекта: единственное место, где человек имеет дело со
+     значениями. Пульт их не показывает обратно — только имена. -->
+<Sheet.Root open={!!keysFor} onOpenChange={(v) => { if (!v) keysFor = null; }}>
+  <Sheet.Content side="bottom" class="agent-sheet">
+    <Sheet.Header class="agent-head">
+      <div class="dlg-col">
+        <Sheet.Title>Ключи проекта «{keysFor}»</Sheet.Title>
+        <Sheet.Description>
+          значения видит только этот файл — сессиям забор их не отдаёт
+        </Sheet.Description>
+      </div>
+    </Sheet.Header>
+    <div class="agent-body keys-body">
+      <div class="k-names">
+        {#if keysNames.length}
+          {#each keysNames as n (n)}<Badge variant="outline" class="mono">{n}</Badge>{/each}
+        {:else}
+          <p class="quiet">ключница пуста — залей значения ниже или забери их из .mcp.json</p>
+        {/if}
+      </div>
+      <Button variant="outline" size="xs" disabled={busy}
+        title="в .mcp.json значения лежат открытым текстом — перенесём их в ключницу"
+        onclick={() => keysRun('keys_adopt')}>
+        <Icon name="download" size={13} /> забрать из .mcp.json
+      </Button>
+      <textarea class="k-input" rows="5" bind:value={keysDraft}
+        placeholder={'KEY=значение, по строке на ключ\nможно вставить целый .env'}></textarea>
+      <div class="k-actions">
+        <Button size="xs" disabled={busy || !keysDraft.trim()}
+          onclick={() => keysRun('keys_import', { text: keysDraft })}>
+          <Icon name="key-round" size={13} /> залить в ключницу
+        </Button>
+        {#if keysNote}<span class="hint ok-note">{keysNote}</span>{/if}
+      </div>
+    </div>
+  </Sheet.Content>
+</Sheet.Root>
+
 <Sheet.Root bind:open={termOpen}>
   <Sheet.Content side="bottom" class="term-sheet">
     <Sheet.Header>
@@ -553,6 +620,14 @@
   .u-pct { flex: none; width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
   .hint { font-size: var(--fs-xs); margin: 0 0 var(--sp-2); }
   .ok-note { color: var(--ok); }
+  .keys-body { display: flex; flex-direction: column; gap: var(--sp-4); }
+  .k-names { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+  .k-input {
+    width: 100%; resize: vertical; font-family: var(--mono, monospace);
+    font-size: var(--fs-sm); padding: var(--sp-3); border-radius: var(--r);
+    border: 1px solid var(--border-soft); background: var(--bg-0); color: var(--text-1);
+  }
+  .k-actions { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
   /* идущий аудит отличается от предложения запустить — цветом, не текстом */
   :global(.audit-live) { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, transparent); }
   .runner-list { display: flex; flex-direction: column; gap: var(--sp-2); }
