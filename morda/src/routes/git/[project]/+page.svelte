@@ -123,8 +123,11 @@
   // имя файла ведущее, каталог приглушён и режется (как в VS Code) —
   // RTL-трюк с ellipsis переворачивал точки в «.secrets» и «x.log»
   function split(f) {
-    const i = f.lastIndexOf('/');
-    return i === -1 ? [f, ''] : [f.slice(i + 1), f.slice(0, i)];
+    // неотслеживаемый каталог (вложенный репозиторий) приходит как «mcp/» —
+    // хвостовой слэш не должен превращать имя в пустоту
+    const p = f.endsWith('/') ? f.slice(0, -1) : f;
+    const i = p.lastIndexOf('/');
+    return i === -1 ? [p, ''] : [p.slice(i + 1), p.slice(0, i)];
   }
   const changesTotal = $derived(st ? st.staged.length + st.unstaged.length : 0);
 </script>
