@@ -255,14 +255,27 @@ export function configSync({ id }) {
   return slotSync({ id });
 }
 
-// ---------- «поставить основному»: только MCP из канона ----------
+// ---------- «поставить основному»: MCP и скиллы-с-источником из канона ----------
 
-// Скиллы и плагины пульт основному не ставит: у скилла должен быть источник
-// (каталог), плагин ставится в самом CLI — честная ошибка вместо магии.
+// Скилл ставится копией из git-источника (canon.json → source, путь от
+// MORDA_ROOT) — так канонный скилл живёт в репо, а не «где-то в ~/.claude».
+// Плагин пульт не ставит: он ставится в самом CLI — честная ошибка.
 export function configInstall({ kind, name }) {
-  if (kind !== 'mcp') throw new Error(kind === 'skill'
-    ? 'скилл ставится каталогом в ~/.claude/skills — источник назови в canon.json'
-    : 'плагин ставится в самом CLI: /plugin marketplace add …');
+  if (kind === 'skill') {
+    const c = canonOf('skill', name);
+    if (!c?.source) throw new Error('у скилла нет source в canon.json — источник назовёт CTO');
+    const from = path.resolve(MORDA_ROOT, c.source);
+    if (from !== MORDA_ROOT && !from.startsWith(MORDA_ROOT + path.sep))
+      throw new Error(`source вне morda: ${c.source}`);
+    if (!fs.existsSync(path.join(from, 'SKILL.md')))
+      throw new Error(`в источнике нет SKILL.md: ${from}`);
+    const to = path.join(mainDir(), 'skills', name);
+    fs.rmSync(to, { recursive: true, force: true });
+    fs.cpSync(from, to, { recursive: true });
+    return { installed: name, note: `скопирован из ${c.source}` };
+  }
+  if (kind !== 'mcp')
+    throw new Error('плагин ставится в самом CLI: /plugin marketplace add …');
   const c = canonOf('mcp', name);
   if (!c?.install) throw new Error(`в canon.json нет install для ${name}`);
   const out = execFileSync(CLAUDE_BIN,

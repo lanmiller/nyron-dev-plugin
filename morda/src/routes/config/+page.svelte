@@ -222,9 +222,11 @@
                     <Icon name={sm?.busy ? 'loader-circle' : 'shield-check'} size={13} />
                     {sm?.busy ? 'проверяю…' : 'проверить фактом'}
                   </Button>
-                  {#if i.kind === 'mcp' && i.canon && !i.main.ok}
+                  {#if i.canon && !i.main.ok && (i.install || i.source)}
                     <Button size="xs" disabled={busy}
-                      title="claude mcp add-json --scope user из canon.json — встанет основному и поедет копиям при раздаче"
+                      title={i.kind === 'mcp'
+                        ? 'claude mcp add-json --scope user из canon.json — встанет основному и поедет копиям при раздаче'
+                        : `копия git-источника ${i.source} в skills/ основного`}
                       onclick={() => install(i)}>
                       <Icon name="plus" size={13} /> поставить основному
                     </Button>

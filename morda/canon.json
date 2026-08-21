@@ -23,7 +23,8 @@
       "id": "design-system",
       "kind": "skill",
       "title": "скилл дизайн-системы",
-      "why": "канон CTO: новый кусок UI — сразу в app.css и на витрину /design; самого скилла на машине пока нет — источник назовёт CTO"
+      "why": "канон CTO: новый кусок UI — сразу в дизайн-систему и на её витрину",
+      "source": "canon-skills/design-system"
     },
     { "id": "superpowers", "kind": "plugin", "title": "superpowers — процессные скиллы", "marketplace": "claude-plugins-official" },
     { "id": "nyron-dev", "kind": "plugin", "title": "nyron-dev — операционка команды", "marketplace": "nyron-dev-marketplace-v2" }
