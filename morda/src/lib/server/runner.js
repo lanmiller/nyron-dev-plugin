@@ -19,7 +19,7 @@ import { rootByName, tmuxCandidates, paneProcessTree, MORDA_ROOT,
   CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents, sessionMeta,
   RUNNER_STATE_FILE as STATE_FILE } from './fleet.js';
 import { parseDialog, parsePermission } from './tui.js';
-import { passportQuick } from './passport.js';
+import { passportQuick, passportGate } from './passport.js';
 
 // Префикс всех tmux-сессий раннера: чужие панели (ручной tmux человека)
 // раннер не трогает НИКОГДА — только свои, со своим префиксом.
@@ -289,13 +289,11 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
   const prev = reg.sessions[name];
   if (prev && prev.state !== 'stopped' && prev.state !== 'died_on_start' && tmuxAlive(name))
     throw new Error(`запись ${name} уже в реестре`);
-  // гейт паспорта (гриль 18.08): bypass-сессия — только по зелёным
-  // быстрым проверкам; паспорта нет — гейт молчит (переходный период)
-  if (mode === 'bypass') {
-    const problems = passportQuick(root);
-    if (problems.length)
-      throw new Error(`паспорт проекта красный — bypass закрыт: ${problems.join('; ')} (почини через «проверить готовность» в настройках)`);
-  }
+  // Гейт паспорта (STOVP-61): красный паспорт закрывает запуск в любом
+  // режиме, отсутствие паспорта — только bypass (остальным предупреждение);
+  // решение — passportGate, здесь только исполнение.
+  const pgate = passportGate(passportQuick(root), mode);
+  if (pgate.block) throw new Error(pgate.block);
   const args = (resumeId ? ` --resume ${resumeId}` : '')
     + (model ? ` --model ${model}` : '')
     + (mode === 'bypass'
@@ -313,6 +311,9 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
     effort: effort || null, slot: slot || null,
     startedAt: new Date().toISOString(), state: 'starting',
     stoppedAt: null,
+    // предупреждение гейта («паспорта нет») — в записи, чтобы было видно
+    // по факту запуска, а не потеряно в ответе одного вызова
+    passport_warning: pgate.warning || null,
   };
   saveReg(reg);
   startPoller(name);
