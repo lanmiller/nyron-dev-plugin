@@ -64,6 +64,23 @@
     return parts[parts.length - 1] || n;
   }
 
+  // Что показать в строке вызова: у большинства это его аргументы как есть,
+  // а у формы вопроса — сам вопрос. Сырой JSON «AskUserQuestion {"questions":
+  // [{"question":…» в ленте не читался и дублировал форму (CTO 21.08).
+  function inputOf(it) {
+    if (it.name !== 'AskUserQuestion') return it.input;
+    try {
+      const q = JSON.parse(it.input)?.questions || [];
+      const first = q[0]?.question || '';
+      return q.length > 1 ? `${first} (+ ещё ${q.length - 1})` : first;
+    } catch {
+      // длинный ввод лента отдаёт обрезанным — JSON не собирается; тогда
+      // вынимаем первый вопрос как есть, лишь бы не показывать скобки
+      const m = String(it.input).match(/"question"\s*:\s*"((?:[^"\\]|\\.)*)/);
+      return m ? m[1].replace(/\\"/g, '"').replace(/\\n/g, ' ') : it.input;
+    }
+  }
+
   // Раскрытое показываем целиком: сначала внутри своего скролл-контейнера
   // (пачка), потом страницей — чтобы не уехало под композер. Два кадра:
   // в первом Svelte дорисовывает содержимое, во втором высота настоящая.
@@ -138,7 +155,7 @@
                 <button class="tool tool-row" class:iserr={it.is_error}
                   onclick={() => openTool(it)}>
                   <span class="tname" title={it.name}>{shortTool(it.name)}</span>
-                  <span class="tin">{it.input}</span>
+                  <span class="tin">{inputOf(it)}</span>
                   {#if it.is_error}<span class="terr">ошибка</span>{/if}
                   <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
                 </button>
@@ -147,7 +164,7 @@
                   ontoggle={(e) => e.currentTarget.open && revealPack(e.currentTarget)}>
                   <summary>
                     <span class="tname" title={it.name}>{shortTool(it.name)}</span>
-                    <span class="tin">{it.input}</span>
+                    <span class="tin">{inputOf(it)}</span>
                     {#if it.is_error}<span class="terr">ошибка</span>{/if}
                   </summary>
                   {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
@@ -224,7 +241,7 @@
           <button class="tool tool-row" class:iserr={it.is_error}
             onclick={() => openTool(it)}>
             <span class="tname" title={it.name}>{shortTool(it.name)}</span>
-            <span class="tin">{it.input}</span>
+            <span class="tin">{inputOf(it)}</span>
             {#if it.is_error}<span class="terr">ошибка</span>{/if}
             <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
           </button>
@@ -233,7 +250,7 @@
             ontoggle={(e) => e.currentTarget.open && revealPack(e.currentTarget)}>
             <summary>
               <span class="tname" title={it.name}>{shortTool(it.name)}</span>
-              <span class="tin">{it.input}</span>
+              <span class="tin">{inputOf(it)}</span>
               {#if it.is_error}<span class="terr">ошибка</span>{/if}
             </summary>
             {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
