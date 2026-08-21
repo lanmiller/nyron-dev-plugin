@@ -57,9 +57,15 @@ for (const v of [ti.file_path, ti.notebook_path, ti.path, ti.pattern, ti.command
 }
 
 // --- правка файлов: только внутри корня проекта ---
+// Исключение — собственная память сессии: она лежит в ~/.claude/projects/…/
+// memory/ и формально «вне корня», из-за чего сессии не могли записать урок
+// (две жалобы подряд 21.08: конфигуратор и полировщик). Память — законное
+// место записи, но ровно .md-файлы в самом каталоге памяти, не шире.
+const MEMORY_OK = /\.claude(\/[\w.-]+)*\/projects\/[^/]+\/memory\/[\w.-]+\.md$/;
 if (/^(Write|Edit|NotebookEdit)$/.test(tool)) {
   const p = ti.file_path || ti.notebook_path || '';
-  if (p && !inside(p)) deny(`запись вне корня проекта: ${p}`);
+  if (p && !inside(p) && !MEMORY_OK.test(p))
+    deny(`запись вне корня проекта: ${p}`);
   process.exit(0);
 }
 
