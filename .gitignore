@@ -5,3 +5,6 @@
 # персональное Claude Code этой машины
 .claude/settings.local.json
 .claude/worktrees/
+
+# итог последнего прогона паспорта — живое состояние пульта, не истина в git
+morda/passport-last.json
