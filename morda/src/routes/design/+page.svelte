@@ -391,6 +391,56 @@
 </section>
 
 <section>
+  <h2 class="eyebrow">Git — кирпичи панели /git</h2>
+  <div class="panels">
+    <article class="panel">
+      <header><h3>Изменения</h3><span class="badge mute">3</span>
+        <div class="tools ab"><Icon name="git-branch" size={12} /> <b>main</b></div>
+      </header>
+      <div class="body flush">
+        <div class="row"><span class="gstat m">M</span><span class="grow">src/lib/server/git.js</span>
+          <button class="iconbtn" title="откатить"><Icon name="undo-2" size={14} /></button>
+          <button class="iconbtn" title="подготовить"><Icon name="plus" size={14} /></button></div>
+        <div class="row"><span class="gstat u">U</span><span class="grow">src/routes/git/+page.svelte</span>
+          <button class="iconbtn" title="удалить"><Icon name="undo-2" size={14} /></button>
+          <button class="iconbtn" title="подготовить"><Icon name="plus" size={14} /></button></div>
+        <div class="row"><span class="gstat d">D</span><span class="grow">старый-файл.md</span>
+          <button class="iconbtn" title="откатить"><Icon name="undo-2" size={14} /></button>
+          <button class="iconbtn" title="подготовить"><Icon name="plus" size={14} /></button></div>
+      </div>
+    </article>
+
+    <article class="panel">
+      <header><h3>Диф</h3>
+        <div class="tools"><span class="ab">2↓ <b>1↑</b></span></div>
+      </header>
+      <div class="body">
+        <pre class="diff-view"><span class="ln meta">diff --git a/git.js b/git.js</span><span class="ln hunk">@@ -12,6 +12,8 @@</span><span class="ln"> контекст без изменений</span><span class="ln del">-  const старое = было;</span><span class="ln add">+  const новое = стало;</span><span class="ln add">+  const ещё = добавлено;</span><span class="ln"> контекст ниже</span></pre>
+      </div>
+    </article>
+
+    <article class="panel">
+      <header><h3>Граф — ряд коммита</h3></header>
+      <div class="body flush">
+        <button class="gg-row"><span class="gg-ref">main</span>
+          <span class="subj" style="color:var(--text-1)">мерж wt/plugin: работа сессии</span>
+          <span class="trail">5d632a7</span></button>
+        <button class="gg-row active"><span class="gg-ref remote">origin/main</span>
+          <span class="subj" style="color:var(--text-1)">конфигуратор инструментов</span>
+          <span class="trail">beccdc8</span></button>
+      </div>
+    </article>
+  </div>
+  <p class="note">Буква статуса <b class="mono">.gstat</b> (M изменён · A добавлен ·
+    D удалён · R переименован · U новый · C конфликт), диф <b class="mono">.diff-view</b>
+    (строки add/del/hunk/meta), счётчик впереди/позади <b class="mono">.ab</b>,
+    инлайн-действие <b class="mono">.iconbtn</b>, ряд графа <b class="mono">.gg-row</b>
+    с меткой ветки <b class="mono">.gg-ref</b>. Живая сборка — страница
+    <a href="/git/wt-git" class="mono">/git/[проект]</a>, дорожки рисует
+    <b class="mono">GitGraph.svelte</b>.</p>
+</section>
+
+<section>
   <h2 class="eyebrow">Вкладки</h2>
   <div class="demo">
     <Tabs.Root bind:value={tab}>

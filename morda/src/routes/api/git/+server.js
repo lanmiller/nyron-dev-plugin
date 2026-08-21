@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { rootByName } from '$lib/server/fleet.js';
+import { guarded } from '$lib/server/guard.js';
 import * as g from '$lib/server/git.js';
 
 /** Git-панель: чтение — GET, изменение состояния — POST. Проект резолвится
@@ -28,6 +29,8 @@ export async function GET({ url }) {
 }
 
 export async function POST({ request }) {
+  const bad = guarded(request);
+  if (bad) return json({ error: bad }, { status: 403 });
   const b = await request.json().catch(() => ({}));
   if (!b.project) return json({ error: 'нужен project' }, { status: 400 });
   try {

@@ -701,6 +701,65 @@
   .tw td { color: var(--text-2); }
   .tw tbody tr:hover td { background: var(--bg-3); }
 
+  /* ---------- git-панель ----------
+     Кирпичи визуального git (мандат CTO 22.08 — «видеть ветки, слияния,
+     коммиты»): буква статуса файла, диф со строками +/−, счётчик
+     впереди/позади, ряд коммита в графе. Цвет = смысл, из тех же токенов:
+     добавленное — ok, удалённое — hot, изменённое — warn. */
+  /* кнопка-иконка в строке списка: инлайн-действия файлов git-панели
+     (stage / unstage / discard), закрыть панель. Тихая, оживает на ховере. */
+  .iconbtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; flex: none; border: 0; border-radius: var(--r-sm);
+    background: none; color: var(--text-4); cursor: pointer;
+  }
+  .iconbtn:hover:not(:disabled) { background: var(--bg-3); color: var(--text-1); }
+  .iconbtn:disabled { opacity: 0.4; cursor: default; }
+
+  .gstat {
+    width: 16px; text-align: center; flex: none;
+    font-family: var(--mono); font-size: var(--fs-xs); font-weight: 700;
+  }
+  .gstat.m { color: var(--warn); }              /* изменён */
+  .gstat.a, .gstat.u { color: var(--ok); }      /* добавлен / новый */
+  .gstat.d { color: var(--hot); }               /* удалён */
+  .gstat.r { color: var(--stall); }             /* переименован */
+  .gstat.c { color: var(--hot); }               /* конфликт мержа */
+
+  .diff-view {
+    background: var(--bg-0); border: 1px solid var(--border-soft);
+    border-radius: var(--r-sm); overflow-x: auto;
+    font-family: var(--mono); font-size: var(--fs-xs); line-height: 1.5;
+    padding: var(--sp-4) 0;
+  }
+  .diff-view .ln { display: block; padding: 0 var(--sp-5); white-space: pre; min-width: max-content; }
+  .diff-view .ln.add { background: color-mix(in oklab, var(--ok) 11%, transparent); color: var(--ok); }
+  .diff-view .ln.del { background: color-mix(in oklab, var(--hot) 11%, transparent); color: var(--hot); }
+  .diff-view .ln.hunk { color: var(--accent); padding-top: var(--sp-3); }
+  .diff-view .ln.meta { color: var(--text-4); }
+
+  /* впереди/позади удалённой ветки — как 4↓1↑ в строке статуса VS Code */
+  .ab { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-3); white-space: nowrap; }
+  .ab b { font-weight: 600; color: var(--text-2); }
+
+  /* ряд коммита в графе: высота фиксирована — по ней строится SVG дорожек */
+  .gg-row {
+    display: flex; gap: var(--sp-5); align-items: center; height: 30px;
+    padding: 0 var(--sp-5); border: 0; background: none; text-align: left;
+    font: inherit; font-size: var(--fs-sm); color: var(--text-2);
+    width: 100%; cursor: pointer; white-space: nowrap;
+  }
+  .gg-row:hover { background: var(--bg-3); }
+  .gg-row.active { background: var(--bg-3); color: var(--text-1); }
+  .gg-row .subj { overflow: hidden; text-overflow: ellipsis; }
+  .gg-ref {
+    font-size: var(--fs-micro); font-family: var(--mono); flex: none;
+    border: 1px solid color-mix(in oklab, var(--accent) 45%, transparent);
+    color: var(--accent); border-radius: var(--r-pill); padding: 0 7px;
+    max-width: 16ch; overflow: hidden; text-overflow: ellipsis;
+  }
+  .gg-ref.remote { border-color: var(--border); color: var(--text-3); }
+
   /* скелет загрузки вместо крутилки посреди контента (правило Operate) */
   .skeleton {
     background: linear-gradient(90deg, var(--bg-2), var(--bg-3), var(--bg-2));
@@ -728,6 +787,7 @@
   a.ticket { position: relative; }
   a.ticket::after { content: ''; position: absolute; inset: -12px -6px; }
   .seg button { min-height: 40px; }
+  .iconbtn { width: 40px; height: 40px; }
   .btn { padding: 11px 16px; min-height: var(--tap); }
   .btn.sm { padding: 8px 13px; min-height: 36px; }
   .link { min-height: 32px; display: inline-flex; align-items: center; font-size: var(--fs-sm); }
@@ -767,6 +827,7 @@
     .panel > header .fold { min-width: 0; min-height: 0; margin-left: 0; }
     a.ticket::after { content: none; }
     .seg button { min-height: 0; }
+    .iconbtn { width: 26px; height: 26px; }
     .btn { padding: 7px 14px; min-height: 0; }
     .btn.sm { padding: 5px 11px; min-height: 0; }
     .link { min-height: 0; display: inline; font-size: var(--fs-xs); }

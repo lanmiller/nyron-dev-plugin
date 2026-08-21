@@ -249,6 +249,13 @@
           </button>
           {#if isOpen(p.name)}
             <div class="proj-body">
+              <!-- git-панель проекта: ветки, коммиты, граф (мандат CTO 22.08) -->
+              <a href="/git/{encodeURIComponent(p.name)}"
+                 class:active={page.url.pathname === `/git/${encodeURIComponent(p.name)}`}
+                 title="git: изменения, ветки, граф коммитов">
+                <Icon name="git-branch" size={12} class="text-ink-4" />
+                <span class="t">git</span>
+              </a>
               {#each byEpic(ls) as g (g.epic || 'вне')}
                 {@const ek = `${p.name}|${g.epic || 'вне'}`}
                 <div class="epic">
