@@ -453,12 +453,12 @@ export function sessions(project) {
         // минут — аудитор psylia висел серым «вне надзора», факт 21.08).
         // Вердикт сторожа сильнее: он умеет отличить «ждёт» от «работает».
         state: parked ? 'parked'
-          : watch.get(s.key)?.state
+          : fresh(watch.get(s.key), s.mtime, owned.get(s.key)?.alive)?.state
           || (Date.now() - new Date(s.mtime).getTime() < 5 * 60 * 1000
             ? 'working' : null)
           || (owned.get(s.key)?.alive ? 'working' : null),
         reason: parked ? 'CLI закрыт, транскрипт цел — поднимется от сообщения или кнопкой «резюм»'
-          : watch.get(s.key)?.reason
+          : fresh(watch.get(s.key), s.mtime, owned.get(s.key)?.alive)?.reason
           || (Date.now() - new Date(s.mtime).getTime() < 5 * 60 * 1000
             ? 'пишет прямо сейчас (сторож молчит)' : null)
           || (owned.get(s.key)?.alive ? 'CLI-сессия пульта жива (сторож молчит)' : null),
@@ -681,9 +681,13 @@ export const TMUX_BIN = process.env.TMUX_BIN
 // нет («env: node: No such file or directory», факт 17.08). Каталог node
 // самого сервера — первым; важно и для tmux: его сервер наследует env
 // первого запуска, а из него — все будущие панели с claude.
+// PATH сессий собираем явно: пульт живёт под launchd, а тот даёт голый
+// /usr/bin:/bin. Без /usr/local/bin сессия не находила docker и спотыкалась
+// на проверках стека (факт 21.08, аудитор psylia).
 export const SPAWN_ENV = { ...process.env,
-  PATH: [path.dirname(process.execPath), '/opt/homebrew/bin',
-    path.join(os.homedir(), '.local/bin'), process.env.PATH]
+  PATH: [path.dirname(process.execPath), '/opt/homebrew/bin', '/usr/local/bin',
+    path.join(os.homedir(), '.local/bin'), process.env.PATH,
+    '/usr/bin', '/bin', '/usr/sbin', '/sbin']
     .filter(Boolean).join(':') };
 
 // Реестр раннера — единый файл для fleet и runner.js (runner импортирует
@@ -692,6 +696,20 @@ export const SPAWN_ENV = { ...process.env,
 // (жалоба CTO 17.08 «почему точка зелёная»).
 export const RUNNER_STATE_FILE = process.env.MORDA_RUNNER_STATE
   || path.join(MORDA_ROOT, 'runner.json');
+// «Работает» проверяется тишиной, а не словом сторожа: он переставляет свой
+// вердикт заново и держит зелёное на сессии, которая молчит час — сам же при
+// этом пишет «вывод 62 минуты назад» (CTO 21.08). Живой считаем ту, что писала
+// недавно ИЛИ чей CLI поднят пультом. Прочие вердикты сторожа не трогаем:
+// «ждёт решения», «застряла», «закончилась» от тишины не меняются.
+const WORK_SILENCE = 30 * 60 * 1000;
+function fresh(w, mtime, aliveOwned) {
+  if (!w || w.state !== 'working') return w;
+  const quiet = Date.now() - new Date(mtime).getTime();
+  if (quiet < WORK_SILENCE || aliveOwned) return w;
+  return { ...w, state: 'stalled',
+    reason: `молчит ${Math.round(quiet / 60000)} мин (сторож считал её работающей)` };
+}
+
 export function runnerOwned() {
   const out = new Map(); // sessionId → { name, alive }
   let reg;
