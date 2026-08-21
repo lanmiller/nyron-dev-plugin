@@ -266,7 +266,7 @@ function guardSettingsFile() {
  *  workdir (опция, только с сервера) — родной каталог сессии при резюме;
  *  обязан лежать в корне проекта (fail-closed, как openFileOutside). */
 export function runnerStart({ project, goal, name, resumeId, workdir,
-  model, mode, effort, slot }) {
+  model, mode, effort, slot }, opts = {}) {
   const root = rootByName(project); // бросит на чужом имени — allowlist
   if (!NAME_RE.test(name || '')) throw new Error('имя: строчные латиница/цифры/дефис');
   checkParams({ model, mode, effort });
@@ -291,8 +291,12 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
     throw new Error(`запись ${name} уже в реестре`);
   // Гейт паспорта (STOVP-61): красный паспорт закрывает запуск в любом
   // режиме, отсутствие паспорта — только bypass (остальным предупреждение);
-  // решение — passportGate, здесь только исполнение.
-  const pgate = passportGate(passportQuick(root), mode);
+  // решение — passportGate, здесь только исполнение. skipPassportGate —
+  // СЛУЖЕБНЫЙ второй аргумент (клиент API передаёт только первый): аудитор
+  // запускается ДО паспорта по замыслу — его работа паспорт и собрать.
+  const pgate = opts.skipPassportGate
+    ? { block: null, warning: null }
+    : passportGate(passportQuick(root), mode);
   if (pgate.block) throw new Error(pgate.block);
   const args = (resumeId ? ` --resume ${resumeId}` : '')
     + (model ? ` --model ${model}` : '')
@@ -1028,7 +1032,8 @@ export function auditStart({ project }) {
     project, name,
     goal: `${prompt}\n\nПроект: «${project}», корень: ${root}. Вопросы человеку задавай формами AskUserQuestion (пульт показывает их нативно); каждую закрытую ступень — сообщением в чат.`,
     model: 'fable', mode: 'bypass', effort: 'high',
-  }) };
+    // аудит идёт ДО паспорта: его работа — паспорт собрать (STOVP-61)
+  }, { skipPassportGate: true }) };
 }
 
 /** Код со страницы после входа (только Claude-флоу). */
