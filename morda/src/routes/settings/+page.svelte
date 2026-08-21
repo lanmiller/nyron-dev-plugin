@@ -101,7 +101,10 @@
   // каждый пункт фактом, красный несёт шаг починки. Прогон долгий
   // (докерный MCP), поэтому явный спиннер на кнопке.
   let passport = $state({}); // имя проекта → { busy, items, at, error }
-  let auditNote = $state({}); // имя проекта → строка после запуска аудитора
+  // идёт ли по проекту аудит — читаем из живых сессий раннера, а не из
+  // факта клика: клик забывается перезагрузкой, а сессия остаётся
+  const auditOf = (project) => (data?.sessions || []).find(
+    (r) => r.project === project && r.name.startsWith('audit-') && r.alive);
   let unlinking = $state({});
   let syncNote = $state({}); // id слота → что скопировано с основного // id слота → открыт выбор «отключить / удалить»
   async function verify(name) {
@@ -421,6 +424,7 @@
   <div class="runner-list">
     {#each st.overview?.projects || [] as p (p.name)}
       {@const pv = passport[p.name]}
+      {@const au = auditOf(p.name)}
       <div class="proj-block">
         <div class="run-row">
           <Icon name="folder-tree" size={14} class="text-ink-4" />
@@ -433,14 +437,22 @@
             <Icon name={pv?.busy ? 'loader-circle' : 'shield-check'} size={13} />
             {pv?.busy ? 'проверяю…' : 'проверить готовность'}
           </Button>
-          <Button variant="outline" size="xs" disabled={busy}
-            title="сессия-аудитор: карта проекта → секреты → сборка паспорта и ключницы → предложения по канону → аттестация; вопросы задаёт формами"
-            onclick={async () => {
-              const out = await act({ action: 'audit_start', project: p.name });
-              if (out) auditNote = { ...auditNote, [p.name]: { key: out.name, project: p.name } };
-            }}>
-            <Icon name="search-check" size={13} /> аудит проекта
-          </Button>
+          {#if au}
+            <!-- аудит виден в самой строке проекта: раньше о нём говорила
+                 заметка под списком — чья она, было не понять, и она
+                 пропадала при перезагрузке (замечание CTO 21.08) -->
+            <Button variant="outline" size="xs" class="audit-live"
+              href="/s/{encodeURIComponent(p.name)}/{au.sessionId || au.name}"
+              title="аудитор по этому проекту уже работает — открыть его сессию">
+              <Icon name="search-check" size={13} /> аудит идёт
+            </Button>
+          {:else}
+            <Button variant="outline" size="xs" disabled={busy}
+              title="сессия-аудитор: карта проекта → секреты → сборка паспорта и ключницы → предложения по канону → аттестация; вопросы задаёт формами"
+              onclick={() => act({ action: 'audit_start', project: p.name })}>
+              <Icon name="search-check" size={13} /> аудит проекта
+            </Button>
+          {/if}
           <Button variant="ghost" size="xs" class="text-ink-4" disabled={busy}
             title="уберёт из списка пульта; файлы папки не трогаются"
             onclick={async () => {
@@ -450,12 +462,6 @@
             <Icon name="unlink" size={12} /> убрать
           </Button>
         </div>
-        {#if auditNote[p.name]}
-          <p class="hint ok-note">
-            аудитор запущен —
-            <a href="/s/{auditNote[p.name].project}/{auditNote[p.name].key}">открыть сессию {auditNote[p.name].key}</a>
-          </p>
-        {/if}
         {#if pv?.error}<p class="err">{pv.error}</p>{/if}
         {#if pv?.items}
           <div class="checklist">
@@ -547,7 +553,8 @@
   .u-pct { flex: none; width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
   .hint { font-size: var(--fs-xs); margin: 0 0 var(--sp-2); }
   .ok-note { color: var(--ok); }
-  .ok-note a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+  /* идущий аудит отличается от предложения запустить — цветом, не текстом */
+  :global(.audit-live) { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, transparent); }
   .runner-list { display: flex; flex-direction: column; gap: var(--sp-2); }
   .run-row {
     display: flex; align-items: center; gap: var(--sp-4);
