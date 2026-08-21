@@ -38,13 +38,17 @@
     return out;
   });
 
-  // ветки на коммите: HEAD и локальные — акцентом, удалённые — тише
+  // Ветки на коммите: HEAD и локальные — акцентом, удалённые — тише.
+  // Показываем не больше трёх (main с кучей claude/*-веток разваливал ряд),
+  // остальное — счётчиком, полный список в title ряда.
   function refBadges(c) {
-    return c.refs.map((r) => ({
+    const all = c.refs.map((r) => ({
       name: r.replace(/^HEAD -> /, ''),
       head: r.startsWith('HEAD'),
       remote: /^(origin|upstream)\//.test(r.replace(/^HEAD -> /, '')),
-    })).filter((r, idx, all) => all.findIndex((x) => x.name === r.name) === idx);
+    })).filter((r, idx, a) => a.findIndex((x) => x.name === r.name) === idx)
+      .sort((a, b) => (b.head - a.head) || (a.remote - b.remote));
+    return { shown: all.slice(0, 3), more: Math.max(0, all.length - 3) };
   }
 </script>
 
@@ -62,12 +66,14 @@
       {/each}
     </svg>
     {#each commits as c, i (c.sha)}
+      {@const rb = refBadges(c)}
       <button class="gg-row" class:active={selected === c.sha} onclick={() => onselect(c)}
-        title="{c.sha.slice(0, 8)} · {c.author} · {c.date}">
-        {#each refBadges(c) as r (r.name)}
+        title="{c.sha.slice(0, 8)} · {c.author} · {c.date}{c.refs.length ? '\n' + c.refs.join('\n') : ''}">
+        {#each rb.shown as r (r.name)}
           <span class="gg-ref" class:remote={r.remote} title={r.name}>
             {#if r.head}<Icon name="check" size={10} />{/if}{r.name}</span>
         {/each}
+        {#if rb.more}<span class="gg-ref remote">+{rb.more}</span>{/if}
         <span class="subj">{c.subject}</span>
         <span class="quiet mono sha">{c.sha.slice(0, 7)}</span>
         <span class="trail">{c.author.split(' ')[0]} · {c.date}</span>

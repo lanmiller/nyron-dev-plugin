@@ -374,6 +374,9 @@
   .cols { display: grid; gap: var(--sp-5); align-items: start; min-width: 0; }
   @media (min-width: 901px) {
     .cols { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); }
+    /* сотни изменённых файлов не должны утаскивать граф за экран:
+       каждая колонка скроллится сама, как панели Source Control */
+    .cols > .panel > .body { max-height: calc(100vh - 240px); overflow: auto; }
   }
 
   .commit-box {
@@ -412,7 +415,8 @@
   .new-branch input { flex: 1; min-width: 160px; background: var(--bg-0);
     border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text-1); }
   .bh { margin: var(--sp-5) 0 var(--sp-2); }
-  .brow { width: 100%; background: none; border: 0; font: inherit; }
+  .brow { width: 100%; background: none; border: 0; font: inherit; text-align: left; }
+  .brow .grow { text-align: left; }
   .brow:disabled { cursor: default; }
   .brow .trail { flex: none; }
 

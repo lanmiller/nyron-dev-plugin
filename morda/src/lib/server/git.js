@@ -229,7 +229,8 @@ export async function branches(root, rel) {
       if (!name.endsWith('/HEAD')) remotes.push(b);
     } else locals.push(b);
   }
-  locals.sort((a, b) => b.date - a.date);
+  // текущая — всегда первой, дальше свежие сверху
+  locals.sort((a, b) => (b.current - a.current) || (b.date - a.date));
   remotes.sort((a, b) => b.date - a.date);
   return { locals, remotes };
 }
