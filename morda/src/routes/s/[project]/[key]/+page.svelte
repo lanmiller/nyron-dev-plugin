@@ -412,6 +412,16 @@
   // (CTO 19.08, mobile-first): тап по строке открывает шторку с его лентой.
   let agentSheet = $state(null);   // { agent, items, error } | null
   let agentOpen = $state(false);
+  // Вложенность субагентов — стек: Esc и «назад» снимают ровно один слой
+  // (правило CTO 21.08: Esc никогда не перепрыгивает уровни), а не
+  // сбрасывают к списку через голову родителя.
+  let agentTrail = $state([]);     // родители открытого агента, снизу вверх
+  function agentBack() {
+    if (agentTrail.length) {
+      agentSheet = agentTrail.at(-1);
+      agentTrail = agentTrail.slice(0, -1);
+    } else agentSheet = null;      // к списку агентов; Esc из списка закроет
+  }
   // содержимое действия на телефоне — той же шторкой (в ленте под
   // композером места не остаётся, а шторка всегда открывается во весь кадр)
   let toolSheet = $state(null);    // элемент ленты | null
@@ -419,14 +429,20 @@
   function openTool(it) { toolSheet = it; toolOpen = true; }
   let agentsOpen = $state(false);  // раскрыт ли список агентов у чипа
   async function openAgent(agent) {
+    // переход из ленты одного агента в другого — родитель ложится в стек
+    if (agentOpen && agentSheet) agentTrail = [...agentTrail, agentSheet];
+    else agentTrail = [];
     agentSheet = { agent, items: null, error: null };
     agentOpen = true;
     try {
       const r = await fetch(`/api/agent/${encodeURIComponent(project)}/${key}/${agent.agentId}`);
       const out = await r.json();
+      // человек мог уйти назад, пока грузилось — поздний ответ не перекрывает
+      if (agentSheet?.agent?.agentId !== agent.agentId) return;
       agentSheet = r.ok ? { agent, items: out.items, error: null }
         : { agent, items: null, error: out.error || `HTTP ${r.status}` };
     } catch (e) {
+      if (agentSheet?.agent?.agentId !== agent.agentId) return;
       agentSheet = { agent, items: null, error: String(e.message || e) };
     }
   }
@@ -667,29 +683,6 @@
     </Sheet.Content>
   </Sheet.Root>
 
-  <!-- Что сделало действие: ввод и вывод во весь кадр, закрывается свайпом
-       или крестиком (телефон; на десктопе плашка раскрывается в ленте) -->
-  <Sheet.Root bind:open={toolOpen}>
-    <Sheet.Content side="bottom" class="agent-sheet">
-      <Sheet.Header class="agent-head">
-        <div class="dlg-col">
-          <Sheet.Title>{toolSheet?.name || 'действие'}</Sheet.Title>
-          {#if toolSheet?.is_error}
-            <Sheet.Description class="text-hot">завершилось ошибкой</Sheet.Description>
-          {/if}
-        </div>
-      </Sheet.Header>
-      <div class="agent-body">
-        {#if toolSheet?.input}
-          <p class="tsec">ввод</p>
-          <pre class="cli-screen">{toolSheet.input}</pre>
-        {/if}
-        <p class="tsec">вывод</p>
-        <pre class="cli-screen">{toolSheet?.result || '(пусто)'}</pre>
-      </div>
-    </Sheet.Content>
-  </Sheet.Root>
-
   {#each queued as q (q.id)}
     <!-- ждёт в очереди пульта: уйдёт, когда сессия освободится; крестик снимает -->
     <div class="user queued">
@@ -709,18 +702,21 @@
   <!-- Лента субагента во весь экран: заголовок = кто и зачем, тело — та же
        лента, что у сессии (вложенные субагенты открываются поверх) -->
   <Sheet.Root bind:open={agentOpen}>
-    <!-- Esc идёт по уровням, как стрелка «назад»: из ленты агента — к списку
-         агентов, из списка — закрыть (раньше рушил всю шторку разом) -->
+    <!-- Esc идёт по уровням, как стрелка «назад»: из вложенного субагента —
+         к родителю, из ленты агента — к списку, из списка — закрыть
+         (раньше рушил всю шторку разом) -->
     <Sheet.Content side="bottom" class="agent-sheet"
       onEscapeKeydown={(e) => {
         if (!agentSheet) return;
         e.preventDefault();
-        agentSheet = null;
+        agentBack();
       }}>
       <Sheet.Header class="agent-head">
         {#if agentSheet}
-          <button class="dlg-x" aria-label="к списку агентов"
-            onclick={() => (agentSheet = null)}><Icon name="arrow-left" size={16} /></button>
+          <button class="dlg-x"
+            aria-label={agentTrail.length
+              ? `назад к «${agentTrail.at(-1).agent?.name || 'агенту'}»` : 'к списку агентов'}
+            onclick={agentBack}><Icon name="arrow-left" size={16} /></button>
         {/if}
         <div class="dlg-col">
           <Sheet.Title>
@@ -767,9 +763,38 @@
         {:else if !agentSheet.items}
           <p class="quiet">читаю ленту субагента…</p>
         {:else}
+          <!-- openTool проброшен: действие в ленте агента открывается той же
+               шторкой, что в главной ленте (критика 19.08, п. «единообразие»);
+               этот слой Esc снимает первым, лента агента остаётся -->
           <Transcript items={agentSheet.items} {project} sessionKey={key}
-            tracker={data.tracker} {openAgent} agents={data.agents} />
+            tracker={data.tracker} {openAgent} {openTool} agents={data.agents} />
         {/if}
+      </div>
+    </Sheet.Content>
+  </Sheet.Root>
+
+  <!-- Что сделало действие: ввод и вывод во весь кадр, закрывается свайпом
+       или крестиком (телефон; на десктопе плашка раскрывается в ленте).
+       Стоит в разметке ПОСЛЕ шторки агента: порталы монтируются по порядку
+       разметки, и открытая из ленты агента шторка действия должна лечь
+       ПОВЕРХ неё — Esc снимает её первой, лента агента остаётся. -->
+  <Sheet.Root bind:open={toolOpen}>
+    <Sheet.Content side="bottom" class="agent-sheet">
+      <Sheet.Header class="agent-head">
+        <div class="dlg-col">
+          <Sheet.Title>{toolSheet?.name || 'действие'}</Sheet.Title>
+          {#if toolSheet?.is_error}
+            <Sheet.Description class="text-hot">завершилось ошибкой</Sheet.Description>
+          {/if}
+        </div>
+      </Sheet.Header>
+      <div class="agent-body">
+        {#if toolSheet?.input}
+          <p class="tsec">ввод</p>
+          <pre class="cli-screen">{toolSheet.input}</pre>
+        {/if}
+        <p class="tsec">вывод</p>
+        <pre class="cli-screen">{toolSheet?.result || '(пусто)'}</pre>
       </div>
     </Sheet.Content>
   </Sheet.Root>
