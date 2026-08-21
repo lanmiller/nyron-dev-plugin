@@ -437,7 +437,7 @@
             title="сессия-аудитор: карта проекта → секреты → сборка паспорта и ключницы → предложения по канону → аттестация; вопросы задаёт формами"
             onclick={async () => {
               const out = await act({ action: 'audit_start', project: p.name });
-              if (out) auditNote = { ...auditNote, [p.name]: `аудитор запущен (${out.tmux || ''}) — сессия появится в списке слева и в разделе раннера` };
+              if (out) auditNote = { ...auditNote, [p.name]: { key: out.name, project: p.name } };
             }}>
             <Icon name="search-check" size={13} /> аудит проекта
           </Button>
@@ -450,7 +450,12 @@
             <Icon name="unlink" size={12} /> убрать
           </Button>
         </div>
-        {#if auditNote[p.name]}<p class="hint ok-note">{auditNote[p.name]}</p>{/if}
+        {#if auditNote[p.name]}
+          <p class="hint ok-note">
+            аудитор запущен —
+            <a href="/s/{auditNote[p.name].project}/{auditNote[p.name].key}">открыть сессию {auditNote[p.name].key}</a>
+          </p>
+        {/if}
         {#if pv?.error}<p class="err">{pv.error}</p>{/if}
         {#if pv?.items}
           <div class="checklist">
@@ -542,6 +547,7 @@
   .u-pct { flex: none; width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
   .hint { font-size: var(--fs-xs); margin: 0 0 var(--sp-2); }
   .ok-note { color: var(--ok); }
+  .ok-note a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
   .runner-list { display: flex; flex-direction: column; gap: var(--sp-2); }
   .run-row {
     display: flex; align-items: center; gap: var(--sp-4);

@@ -993,11 +993,12 @@ export function auditStart({ project }) {
   const prompt = m[1].split('\n')
     .map((l) => l.replace(/^>\s?/, '')).join('\n').trim();
   const name = 'audit-' + Date.now().toString(36).slice(-5);
-  return runnerStart({
+  // имя в записи реестра не хранится (оно — ключ), а пульту нужна ссылка на сессию
+  return { name, ...runnerStart({
     project, name,
     goal: `${prompt}\n\nПроект: «${project}», корень: ${root}. Вопросы человеку задавай формами AskUserQuestion (пульт показывает их нативно); каждую закрытую ступень — сообщением в чат.`,
     model: 'fable', mode: 'bypass', effort: 'high',
-  });
+  }) };
 }
 
 /** Код со страницы после входа (только Claude-флоу). */
