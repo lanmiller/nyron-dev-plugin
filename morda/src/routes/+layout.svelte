@@ -298,6 +298,9 @@
       {#if !st.tree.length}<p class="quiet none">читаю проекты…</p>{/if}
     </nav>
 
+    <a class="dslink" href="/config" title="коннекторы, скиллы, плагины: канон флота, матрица расхождений, раздача копиям">
+      <Icon name="plug" size={12} /> инструменты
+    </a>
     <a class="dslink" href="/settings" title="слоты подписок, раннер, проекты машины">
       <Icon name="settings" size={12} /> настройки
     </a>
