@@ -418,6 +418,14 @@
   }
   .send:hover:not(:disabled) { filter: brightness(1.08); }
   .send:disabled { opacity: 0.35; cursor: default; }
+  /* палец (аудит 19.08: send 34px при токене --tap 44): на touch кнопка
+     отправки — полноразмерная цель, «+» и крестики добираются хит-зоной */
+  @media (pointer: coarse) {
+    .send { width: var(--tap); height: var(--tap); }
+    .plus, .att-x { position: relative; }
+    .plus::after { content: ''; position: absolute; inset: -7px; }
+    .att-x::after { content: ''; position: absolute; inset: -9px 0 -9px -4px; }
+  }
 
   /* Полный композер (референс — приложение Claude): рамка колонкой, сверху
      чипы контекста (аккаунт, вложения), снизу ряд параметров со стрелкой.

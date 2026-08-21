@@ -110,6 +110,8 @@
       <!-- пачка технических действий: одна строка вместо стены плашек -->
       <!-- пачку раскрывает и «N действий», и чип типа; состояние держим
            сами: реактивный open перебивал нативный клик по summary -->
+      {@const shown = packFilter[bi]
+        ? b.tools.filter((t) => t.name === packFilter[bi]).length : b.tools.length}
       <details class="toolpack" class:iserr={hasErr(b.tools)} open={!!packOpen[bi]}>
         <summary onclick={(e) => {
           e.preventDefault();
@@ -119,11 +121,16 @@
           // раскрытая пачка не должна остаться под композером
           if (willOpen) revealPack(e.currentTarget.parentElement);
         }}>
-          <span class="tname"><Icon name="layers" size={13} /> {b.tools.length} действ{b.tools.length < 5 ? 'ия' : 'ий'}</span>
+          <!-- при фильтре счёт честный: «3 из 7», а не «7 действий» над тремя
+               строками (критика 19.08) -->
+          <span class="tname"><Icon name="layers" size={13} /> {packFilter[bi]
+            ? `${shown} из ${b.tools.length} действий`
+            : `${b.tools.length} действ${b.tools.length < 5 ? 'ия' : 'ий'}`}</span>
           <!-- типы = фильтры: клик открывает пачку и оставляет этот вид -->
           <span class="kinds">
             {#each groupKinds(b.tools) as k (k.name)}
               <button class="kind" class:on={packFilter[bi] === k.name}
+                aria-pressed={packFilter[bi] === k.name}
                 onclick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -355,6 +362,13 @@
   }
   .kind:hover { color: var(--text-1); border-color: var(--border); }
   .kind.on { color: var(--accent); border-color: var(--accent); }
+  /* палец: фильтр 21px не нажать (аудит 19.08 — заявлен --tap: 44). Пилюля
+     чуть выше, хит-зона добита невидимо по вертикали — соседей по ряду не
+     перекрывает (по горизонтали зона не растёт) */
+  @media (pointer: coarse) {
+    .kind { position: relative; padding: 4px 10px; }
+    .kind::after { content: ''; position: absolute; inset: -8px 0; }
+  }
   .tname { font-family: var(--mono); font-size: 12px; color: var(--text-2); flex: none; }
   .tin {
     color: var(--text-4); font-family: var(--mono); font-size: 12px;

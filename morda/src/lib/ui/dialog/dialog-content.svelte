@@ -33,7 +33,7 @@
 				{#snippet child({ props })}
 					<Button variant="ghost" class="absolute top-2 right-2" size="icon-sm" {...props}>
 						<Icon name="x" />
-						<span class="sr-only">Close</span>
+						<span class="sr-only">Закрыть</span>
 					</Button>
 				{/snippet}
 			</DialogPrimitive.Close>

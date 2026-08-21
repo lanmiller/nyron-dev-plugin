@@ -157,6 +157,13 @@
   .chip:hover:not(:disabled) { color: var(--text-1); border-color: var(--border); }
   .chip:focus-visible { outline: none; border-color: var(--accent); color: var(--text-1); }
   .chip:disabled { opacity: 0.5; cursor: default; }
+  /* палец: чип 28–30px не дотягивал до --tap 44 (аудит 19.08) — пилюля чуть
+     выше, остаток добит невидимой хит-зоной по вертикали (соседей в ряду
+     не перекрывает: по горизонтали зона не растёт) */
+  @media (pointer: coarse) {
+    .chip { position: relative; padding-top: var(--sp-3); padding-bottom: var(--sp-3); }
+    .chip::after { content: ''; position: absolute; inset: -6px 0; }
+  }
 
   /* строка меню на десктопе: две строки текста, галочку рисует RadioItem */
   :global(.pick-item) { align-items: flex-start; padding-top: var(--sp-3); padding-bottom: var(--sp-3); }
