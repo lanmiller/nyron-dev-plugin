@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile, execFileSync } from 'node:child_process';
+import { lastActivityMs, checkinMs, checkinState, stalledCard } from './checkin.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Модуль переезжает между dev (morda/src/lib/server), сборкой
@@ -433,6 +434,7 @@ export function sessions(project) {
   const dayAgo = Date.now() - 48 * 3600 * 1000;
   const roles = rolesFromHub(hub, trackerFor(root)?.keys?.[0] || null);
   const owned = runnerOwned();
+  const thresholdMs = checkinMs(root);
   return listSessionsCached(root)
     .map(({ file, ...s }) => {
       const r = roles.get(normLabel(s.title)) || null;
@@ -442,26 +444,26 @@ export function sessions(project) {
       // mtime (транскрипт дописан секунду назад самой парковкой) и сильнее
       // старого вердикта сторожа
       const parked = owned.get(s.key) && !owned.get(s.key).alive;
+      // Чек-ин по лентам (STOVP-60): свежесть — максимум по транскрипту,
+      // лентам субагентов и выводам фоновых команд, поэтому «думают
+      // субагенты» больше не выглядит тишиной (серый psylia, факт 21.08),
+      // а «CLI жив» больше не прикрывает тишину дольше порога (45-минутный
+      // тупик psylia на фоновых товарищах, факт 21.08).
+      const lastAct = lastActivityMs(file, s.key, s.mtime);
+      const ck = parked ? null : checkinState({
+        w: watch.get(s.key), lastAct,
+        aliveOwned: owned.get(s.key)?.alive, thresholdMs,
+      });
+      if (ck?.state === 'stalled')
+        stalledCard(hub, { key: s.key, title: s.title, reason: ck.reason,
+          quietMs: Date.now() - lastAct, thresholdMs,
+          aliveOwned: owned.get(s.key)?.alive });
       return {
         ...s,
-        // Сторож может стоять (случай 15.08: не отрабатывал четверо суток), и
-        // тогда живые сессии выглядели «вне надзора» — тусклыми, хотя писали
-        // секунду назад. Свежесть транскрипта — независимый признак: пишет
-        // прямо сейчас = работает, вердикт сторожа тут не нужен.
-        // ...а раннерская и живая = работает: свежесть транскрипта её не
-        // ловит, пока думают субагенты (главный файл молчит дольше пяти
-        // минут — аудитор psylia висел серым «вне надзора», факт 21.08).
-        // Вердикт сторожа сильнее: он умеет отличить «ждёт» от «работает».
-        state: parked ? 'parked'
-          : fresh(watch.get(s.key), s.mtime, owned.get(s.key)?.alive)?.state
-          || (Date.now() - new Date(s.mtime).getTime() < 5 * 60 * 1000
-            ? 'working' : null)
-          || (owned.get(s.key)?.alive ? 'working' : null),
-        reason: parked ? 'CLI закрыт, транскрипт цел — поднимется от сообщения или кнопкой «резюм»'
-          : fresh(watch.get(s.key), s.mtime, owned.get(s.key)?.alive)?.reason
-          || (Date.now() - new Date(s.mtime).getTime() < 5 * 60 * 1000
-            ? 'пишет прямо сейчас (сторож молчит)' : null)
-          || (owned.get(s.key)?.alive ? 'CLI-сессия пульта жива (сторож молчит)' : null),
+        state: parked ? 'parked' : ck?.state || null,
+        reason: parked
+          ? 'CLI закрыт, транскрипт цел — поднимется от сообщения или кнопкой «резюм»'
+          : ck?.reason || null,
         open_asks: open.get(s.key) || 0,
         epic: toEpic(r?.epic || named),
         epic_title: epicTitle(toEpic(r?.epic || named)),
@@ -548,6 +550,21 @@ export function session(project, key) {
   const ro = runnerOwned().get(key);
   if (ro && !ro.alive)
     w = { state: 'parked', reason: 'CLI закрыт, транскрипт цел — поднимется от сообщения или кнопкой «резюм»' };
+  else {
+    // Чек-ин по лентам — тот же расчёт, что в списке (STOVP-60): иначе
+    // список говорил «застряла», а открытое окно той же сессии — «работает»
+    // (кросс-ревью Sol r2). parked выше — сильнее всего.
+    let mt = 0;
+    try { mt = fs.statSync(r.file).mtimeMs; } catch { /* файл переехал */ }
+    const thresholdMs = checkinMs(root);
+    const lastAct = lastActivityMs(r.file, key, mt);
+    const ck = checkinState({ w: w || undefined, lastAct,
+      aliveOwned: ro?.alive, thresholdMs });
+    if (ck?.state === 'stalled')
+      stalledCard(hub, { key, title: r.title, reason: ck.reason,
+        quietMs: Date.now() - lastAct, thresholdMs, aliveOwned: ro?.alive });
+    w = ck;
+  }
   const asks = [
     ...hub.asks({ session: key }).asks,
     ...hub.asks({ session: key, status: 'acknowledged' }).asks.slice(-3),
@@ -708,19 +725,11 @@ export const SPAWN_ENV = { ...process.env,
 // (жалоба CTO 17.08 «почему точка зелёная»).
 export const RUNNER_STATE_FILE = process.env.MORDA_RUNNER_STATE
   || path.join(MORDA_ROOT, 'runner.json');
-// «Работает» проверяется тишиной, а не словом сторожа: он переставляет свой
-// вердикт заново и держит зелёное на сессии, которая молчит час — сам же при
-// этом пишет «вывод 62 минуты назад» (CTO 21.08). Живой считаем ту, что писала
-// недавно ИЛИ чей CLI поднят пультом. Прочие вердикты сторожа не трогаем:
-// «ждёт решения», «застряла», «закончилась» от тишины не меняются.
-const WORK_SILENCE = 30 * 60 * 1000;
-function fresh(w, mtime, aliveOwned) {
-  if (!w || w.state !== 'working') return w;
-  const quiet = Date.now() - new Date(mtime).getTime();
-  if (quiet < WORK_SILENCE || aliveOwned) return w;
-  return { ...w, state: 'stalled',
-    reason: `молчит ${Math.round(quiet / 60000)} мин (сторож считал её работающей)` };
-}
+// «Работает» проверяется тишиной ЛЕНТ, а не словом сторожа и не живостью
+// процесса — расчёт вынесен в checkin.js (STOVP-60): сторож держал зелёное
+// на сессии, молчащей час (CTO 21.08), а живой tmux прикрывал 45-минутный
+// тупик psylia. Прочие вердикты сторожа не трогаем: «ждёт решения»,
+// «застряла», «закончилась» от тишины не меняются.
 
 export function runnerOwned() {
   const out = new Map(); // sessionId → { name, alive }
