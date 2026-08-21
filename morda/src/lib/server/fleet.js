@@ -550,6 +550,21 @@ export function session(project, key) {
   const ro = runnerOwned().get(key);
   if (ro && !ro.alive)
     w = { state: 'parked', reason: 'CLI закрыт, транскрипт цел — поднимется от сообщения или кнопкой «резюм»' };
+  else {
+    // Чек-ин по лентам — тот же расчёт, что в списке (STOVP-60): иначе
+    // список говорил «застряла», а открытое окно той же сессии — «работает»
+    // (кросс-ревью Sol r2). parked выше — сильнее всего.
+    let mt = 0;
+    try { mt = fs.statSync(r.file).mtimeMs; } catch { /* файл переехал */ }
+    const thresholdMs = checkinMs(root);
+    const lastAct = lastActivityMs(r.file, key, mt);
+    const ck = checkinState({ w: w || undefined, lastAct,
+      aliveOwned: ro?.alive, thresholdMs });
+    if (ck?.state === 'stalled')
+      stalledCard(hub, { key, title: r.title, reason: ck.reason,
+        quietMs: Date.now() - lastAct, thresholdMs, aliveOwned: ro?.alive });
+    w = ck;
+  }
   const asks = [
     ...hub.asks({ session: key }).asks,
     ...hub.asks({ session: key, status: 'acknowledged' }).asks.slice(-3),
