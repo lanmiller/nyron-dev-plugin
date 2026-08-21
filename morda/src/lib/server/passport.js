@@ -130,7 +130,7 @@ export function passportQuick(root) {
   catch { return []; }
   const problems = [];
   const dir = path.join(root, '.secrets');
-  if (git(root, ['check-ignore', '.secrets']) === null)
+  if (!secretsIgnored(root))
     problems.push('.secrets не в git-игноре');
   for (const [file, vars] of Object.entries(pp.keys || {})) {
     const full = path.join(dir, file);
@@ -186,7 +186,7 @@ export async function passportCheck({ project }) {
     const problems = [];
     let counted = 0, total = 0;
     if (!fs.existsSync(dir)) problems.push('папки .secrets/ нет');
-    const ignored = git(root, ['check-ignore', '.secrets']) !== null;
+    const ignored = secretsIgnored(root);
     if (!ignored) problems.push('.secrets НЕ в .gitignore — добавь строку `.secrets/`');
     for (const [file, vars] of Object.entries(pp.keys || {})) {
       const full = path.join(dir, file);
@@ -282,7 +282,12 @@ export async function passportCheck({ project }) {
   // 6. замок на коммит: pre-commit хук с секрет-детектором установлен
   // (гриль 18.08: ловим значение ДО git-истории, а не ротируем после)
   if (pp.precommit) {
-    const hook = path.join(root, '.git', 'hooks', 'pre-commit');
+    // в рабочей копии (git worktree) .git — файл, а хуки общие: спрашиваем
+    // путь у самого git, иначе замок «пропадал» в каждой копии (факт 21.08)
+    const hooksDir = git(root, ['rev-parse', '--git-path', 'hooks'])
+      || path.join(root, '.git', 'hooks');
+    const hook = path.isAbsolute(hooksDir) ? path.join(hooksDir, 'pre-commit')
+      : path.join(root, hooksDir, 'pre-commit');
     let ok = false;
     try { ok = fs.readFileSync(hook, 'utf8').includes('pre-commit-secrets'); } catch {}
     items.push(item('precommit', 'Замок на коммит (pre-commit)', ok,
@@ -343,6 +348,20 @@ function codexDocLimit() {
     if (m) return Number(m[1]);
   } catch {}
   return 32768;                      // умолчание Codex (codex-rs/core: 32 KiB)
+}
+
+
+/** Закрыта ли ключница от git. Спрашиваем git; если путь за символической
+ *  ссылкой (общая ключница рабочей копии), git отказывается смотреть — тогда
+ *  сверяем само правило в .gitignore. Важно не «git ответил», а «правило есть
+ *  и ничего не закоммичено» (факт 21.08, worktree). */
+function secretsIgnored(root) {
+  if (git(root, ['check-ignore', '.secrets/']) !== null) return true;
+  if (git(root, ['check-ignore', '.secrets']) !== null) return true;
+  try {
+    const gi = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    return /^\/?\.secrets\/?$/m.test(gi);
+  } catch { return false; }
 }
 
 function sizeOf(f) {

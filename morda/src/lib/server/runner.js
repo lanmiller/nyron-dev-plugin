@@ -316,7 +316,9 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
   };
   saveReg(reg);
   startPoller(name);
-  return reg.sessions[name];
+  // имя — ключ реестра, внутри записи его нет; вызывающему оно нужно, чтобы
+  // дать ссылку на сессию (без него ответ выглядел пустым — факт 21.08)
+  return { name, ...reg.sessions[name] };
 }
 
 /** Стоп = парковка, не убийство: транскрипт уже на диске, sessionId в
@@ -1022,12 +1024,11 @@ export function auditStart({ project }) {
   const prompt = m[1].split('\n')
     .map((l) => l.replace(/^>\s?/, '')).join('\n').trim();
   const name = 'audit-' + Date.now().toString(36).slice(-5);
-  // имя в записи реестра не хранится (оно — ключ), а пульту нужна ссылка на сессию
-  return { name, ...runnerStart({
+  return runnerStart({
     project, name,
     goal: `${prompt}\n\nПроект: «${project}», корень: ${root}. Вопросы человеку задавай формами AskUserQuestion (пульт показывает их нативно); каждую закрытую ступень — сообщением в чат.`,
     model: 'fable', mode: 'bypass', effort: 'high',
-  }) };
+  });
 }
 
 /** Код со страницы после входа (только Claude-флоу). */
