@@ -346,6 +346,9 @@
     background: var(--bg-2); white-space: nowrap;
   }
   button.chip:hover:not(:disabled) { border-color: var(--accent); color: var(--text-1); }
+  /* состояние чипа: факт «есть» — зелёным (матрица конфигуратора:
+     инструмент стоит у копии / записан в паспорт проекта) */
+  .chip.on { border-color: color-mix(in oklab, var(--ok) 45%, transparent); color: var(--ok); }
 
   /* ---------- кнопки ---------- */
 
@@ -551,6 +554,18 @@
     padding: var(--sp-5) var(--sp-6);
   }
   .ok-note { color: var(--ok); font-size: var(--fs-xs); }
+
+  /* светофор: строка-баннер в смысловом цвете — главный факт страницы одной
+     строкой (конфигуратор: «основной по канону? раздача открыта/закрыта»).
+     Тот же жанр, что .err, но про любое состояние и с иконкой в строку. */
+  .banner {
+    display: flex; align-items: center; gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border);
+    border-radius: var(--r); font-size: var(--fs-sm);
+  }
+  .banner b { color: inherit; }
+  .banner.ok { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, transparent); }
+  .banner.warn { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 45%, transparent); }
 
   /* ключ тикета в тексте — кликабелен, открывается попапом (см. +layout) */
   a.ticket {

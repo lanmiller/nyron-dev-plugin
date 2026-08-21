@@ -17,6 +17,17 @@ export const EFFORT_OPTS = [
   { value: 'max', label: 'Max', desc: 'самое трудное; дольше всего' },
 ];
 
+// Набор MCP-серверов сессии (разряды, постановщик 21.08). Дефолт CLI тащит
+// ВСЕ серверы машины (факт: 25 серверов, 167+ инструментов); строгий
+// профиль — MCP паспорта проекта + аккаунтные из канона, остальное
+// отсекает --strict-mcp-config (без него --mcp-config только добавляет).
+export const MCP_OPTS = [
+  { value: '', label: 'Все серверы', icon: 'network',
+    desc: 'дефолт CLI: все MCP машины (сейчас ~25 серверов)' },
+  { value: 'strict', label: 'Строгий', icon: 'funnel',
+    desc: 'только MCP паспорта проекта + аккаунтные из канона' },
+];
+
 export const MODE_OPTS = [
   { value: 'auto', label: 'Auto', icon: 'zap',
     desc: 'Клод сам решает вопросы разрешений' },

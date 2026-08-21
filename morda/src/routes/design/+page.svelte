@@ -245,6 +245,39 @@
     <b class="mono">destructive</b>) существуют, чтобы состояние сессии не
     красили заново в каждом файле «на глаз».
   </p>
+
+  <h3 class="sub">Чип состояния <b class="mono">.chip.on</b> — факт «есть/нет»</h3>
+  <div class="demo">
+    <span class="chip on">Мариха</span>
+    <span class="chip">stovpe3tt</span>
+    <button class="chip on">stovp</button>
+    <button class="chip">nyron</button>
+  </div>
+  <p class="quiet note">
+    Матрица конфигуратора (/config): зелёный чип — инструмент стоит у копии
+    или записан в паспорт проекта, обычный — нет. Кнопкой — тот же чип
+    становится переключателем «нужен проекту».
+  </p>
+</section>
+
+<section>
+  <h2 class="eyebrow">Светофор</h2>
+  <div class="demo demo-col">
+    <div class="banner ok">
+      <Icon name="circle-check" size={16} />
+      <span><b>Основной по канону</b> — раздача копиям открыта.</span>
+    </div>
+    <div class="banner warn">
+      <Icon name="circle-alert" size={16} />
+      <span><b>Основной не по канону:</b> Playwright · Memory MCP — раздача закрыта.</span>
+    </div>
+  </div>
+  <p class="quiet note">
+    Баннер <b class="mono">.banner</b> (<b class="mono">ok</b> /
+    <b class="mono">warn</b>) — главный факт страницы одной строкой; жанр тот
+    же, что у <b class="mono">.err</b>, но про любое состояние. Живёт в
+    конфигураторе /config.
+  </p>
 </section>
 
 <section>
