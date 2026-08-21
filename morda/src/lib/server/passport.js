@@ -160,6 +160,24 @@ export async function passportCheck({ project }) {
   items.push(item('passport', 'Паспорт проекта', !!pp,
     pp ? `.claude/passport.json v${pp.version}` : 'файла .claude/passport.json нет или он не читается',
     'создай .claude/passport.json по макету docs/specs/2026-08-17-passport-v1.md (пример — nyron-dev-plugin)'));
+  // Канон влезает в лимит Codex: он молча срезает хвост AGENTS.md/CLAUDE.md
+  //     на project_doc_max_bytes (умолчание 32 КиБ). Канон ai-evolve перерос
+  //     лимит и терял правила релиза и отката — никто не знал (факт 21.08).
+  {
+    const limit = codexDocLimit();
+    const big = ['CLAUDE.md', 'AGENTS.md']
+      .map((f) => ({ f, size: sizeOf(path.join(root, f)) }))
+      .filter((x) => x.size > 0);
+    const over = big.filter((x) => x.size > limit);
+    if (big.length) {
+      items.push(item('canon-size', 'Канон влезает в лимит Codex', !over.length,
+        over.length
+          ? over.map((x) => `${x.f} ${x.size} Б > лимита ${limit} Б — Codex срежет хвост молча`).join('; ')
+          : big.map((x) => `${x.f} ${x.size} Б`).join(', ') + ` (лимит ${limit} Б)`,
+        `ужми канон или подними project_doc_max_bytes в ~/.codex/config.toml (сейчас ${limit})`));
+    }
+  }
+
   if (!pp) return { project, at, items };
 
   // 2. ключница: папка, git-игнор, файлы, переменные — по именам
@@ -296,4 +314,18 @@ export async function passportCheck({ project }) {
   }
 
   return { project, at, items };
+}
+
+/** Сколько байт инструкций Codex реально читает: из его конфига, иначе умолчание. */
+function codexDocLimit() {
+  try {
+    const cfg = fs.readFileSync(path.join(os.homedir(), '.codex', 'config.toml'), 'utf8');
+    const m = cfg.match(/^\s*project_doc_max_bytes\s*=\s*(\d+)/m);
+    if (m) return Number(m[1]);
+  } catch {}
+  return 32768;                      // умолчание Codex (codex-rs/core: 32 KiB)
+}
+
+function sizeOf(f) {
+  try { return fs.statSync(f).size; } catch { return 0; }
 }
