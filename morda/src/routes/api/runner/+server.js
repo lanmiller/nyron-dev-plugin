@@ -8,6 +8,7 @@ import { runnerList, runnerStart, runnerStop, runnerResume, runnerApprove,
 import { projectAdd, projectRemove } from '$lib/server/fleet.js';
 import { keysStatus, keysImport, keysAdopt } from '$lib/server/keys.js';
 import { passportLast } from '$lib/server/passport.js';
+import { judgeStuck } from '$lib/server/judge.js';
 import { guarded } from '$lib/server/guard.js';
 
 // Раннер (этап 1 STOVP-58): пульт владеет CLI-сессиями. Одна ручка,
@@ -48,6 +49,7 @@ const ACTIONS = {
   slot_connect: slotConnect,
   slot_code: slotCode,
   slot_usage: slotUsage,
+  judge: judgeStuck,
   keys_status: keysStatus,
   keys_import: keysImport,
   keys_adopt: keysAdopt,
@@ -62,7 +64,7 @@ export async function POST({ request }) {
     const body = await request.json();
     const fn = ACTIONS[body?.action];
     if (!fn) return json({ error: `действие: ${Object.keys(ACTIONS).join('|')}` }, { status: 400 });
-    return json(fn(body));
+    return json(await fn(body));   // judge — асинхронный, остальным await безвреден
   } catch (e) {
     return json({ error: String(e.message || e) }, { status: 400 });
   }

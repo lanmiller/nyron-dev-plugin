@@ -67,6 +67,20 @@
   const NEED_RU = { hitl: 'ждёт ответа на форму', permission: 'просит разрешения',
     needs_auth: 'нужен вход' };
   const href = (s) => `/s/${encodeURIComponent(s.project)}/${s.sessionId || 'n-' + s.name}`;
+  // вердикт судьи по застрявшей: пульт собирает улики кодом, модель судит
+  let judging = $state({});
+  let verdicts = $state({});
+  async function judge(s) {
+    judging = { ...judging, [s.name]: true };
+    try {
+      const r = await fetch('/api/runner', { method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-morda': '1' },
+        body: JSON.stringify({ action: 'judge', name: s.name, project: s.project, sessionId: s.sessionId }) });
+      const out = await r.json();
+      verdicts = { ...verdicts, [s.name]: out.verdict || out.error || 'судья промолчал' };
+    } catch (e) { verdicts = { ...verdicts, [s.name]: String(e.message || e) }; }
+    judging = { ...judging, [s.name]: false };
+  }
   // вложения: файл уезжает в проект, сессии — путь (CLI прочитает Read-ом,
   // картинки тоже — факт этапа 0)
   let attachments = $state([]); // { path, name }
@@ -232,14 +246,24 @@
     <section>
       <h2 class="eyebrow sect">Флот <Badge>{working.length + idle.length + stuck.length}</Badge></h2>
       {#each stuck as s (s.name)}
-        <a class="fleet-row need" href={href(s)}>
-          <Icon name="alert-triangle" size={14} class="text-hot flex-none" />
-          <b>{s.name}</b><span class="quiet">{s.project}</span>
-          <span class="fleet-what">
-            похоже, встала: счётчик идёт, а лента молчит {mins(s.quiet_ms)} мин
-          </span>
-          <Icon name="chevron-right" size={15} class="text-ink-4 flex-none" />
-        </a>
+        <div class="fleet-row need fleet-stuck">
+          <a class="fleet-core" href={href(s)}>
+            <Icon name="alert-triangle" size={14} class="text-hot flex-none" />
+            <b>{s.name}</b><span class="quiet">{s.project}</span>
+            <span class="fleet-what">
+              похоже, встала: счётчик идёт, а лента молчит {mins(s.quiet_ms)} мин
+            </span>
+          </a>
+          <!-- судья — прямой HTTP к внешней модели, НЕ Claude CLI: судья не
+               живёт в том же стеке, что подсудимые (вердикт CTO 22.08) -->
+          <Button variant="outline" size="xs" disabled={judging[s.name]}
+            onclick={() => judge(s)}>
+            {judging[s.name] ? 'сужу…' : 'разобраться'}
+          </Button>
+          {#if verdicts[s.name]}
+            <p class="verdict">{verdicts[s.name]}</p>
+          {/if}
+        </div>
       {/each}
       {#each working as s (s.name)}
         <a class="fleet-row" href={href(s)}>
@@ -326,6 +350,9 @@
   .fleet-row:hover { border-color: var(--accent, var(--primary)); }
   .fleet-row.need { border-color: color-mix(in oklab, var(--warn) 55%, transparent); }
   .fleet-row.quiet-row { opacity: .72; }
+  .fleet-stuck { flex-wrap: wrap; }
+  .fleet-core { display: flex; align-items: center; gap: var(--sp-3); flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+  .verdict { flex-basis: 100%; margin: var(--sp-2) 0 0; font-size: var(--fs-sm); color: var(--text-2); white-space: pre-line; }
   .fleet-what {
     flex: 1; min-width: 0; color: var(--text-3);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
