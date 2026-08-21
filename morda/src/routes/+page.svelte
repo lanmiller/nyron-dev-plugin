@@ -36,14 +36,33 @@
   let launchEffort = $state('high');
   let launchSlot = $state('claude-main');
   let claudeSlots = $state([]);
-  onMount(async () => {
+  // Сводка флота на главной: пока её не было, «кто ждёт меня» и «кто работает»
+  // я собирал руками через терминал (CTO 21.08 — голова должна видеть флот
+  // одним экраном). Отдельного списка не заводим: место для ожидающих уже
+  // есть — секция «Ждут вас», туда же идут и сессии.
+  let fleet = $state([]);
+  async function pullFleet() {
     try {
       const r = await (await fetch('/api/runner')).json();
       claudeSlots = (r.slots || []).filter((s) => s.provider === 'claude');
       if (!claudeSlots.some((s) => s.id === launchSlot) && claudeSlots[0])
         launchSlot = claudeSlots[0].id;
+      fleet = (r.sessions || []).filter((x) => x.alive);
     } catch {}
+  }
+  onMount(() => {
+    pullFleet();
+    const t = setInterval(pullFleet, 5000);
+    return () => clearInterval(t);
   });
+  // ждут человека: форма или запрос разрешения на экране CLI
+  let needsMe = $derived(fleet.filter((s) =>
+    ['hitl', 'permission', 'needs_auth'].includes(s.screen)));
+  let working = $derived(fleet.filter((s) => s.busy && !needsMe.includes(s)));
+  let idle = $derived(fleet.filter((s) => !s.busy && !needsMe.includes(s)));
+  const NEED_RU = { hitl: 'ждёт ответа на форму', permission: 'просит разрешения',
+    needs_auth: 'нужен вход' };
+  const href = (s) => `/s/${encodeURIComponent(s.project)}/${s.sessionId || 'n-' + s.name}`;
   // вложения: файл уезжает в проект, сессии — путь (CLI прочитает Read-ом,
   // картинки тоже — факт этапа 0)
   let attachments = $state([]); // { path, name }
@@ -185,13 +204,46 @@
 
   <section>
     <h2 class="eyebrow sect">Ждут вас {#if openAsks.length}<Badge>{openAsks.length}</Badge>{/if}</h2>
-    {#if !openAsks.length}
+    {#if !openAsks.length && !needsMe.length}
       <p class="quiet">Открытых решений нет.</p>
     {/if}
+    {#each needsMe as s (s.name)}
+      <a class="fleet-row need" href={href(s)}>
+        <Icon name="hand" size={14} class="text-warn flex-none" />
+        <b>{s.name}</b><span class="quiet">{s.project}</span>
+        <span class="fleet-what">{NEED_RU[s.screen] || 'ждёт вас'}</span>
+        <Icon name="chevron-right" size={15} class="text-ink-4 flex-none" />
+      </a>
+    {/each}
     {#each openAsks as a (a.id)}
       <AskCard ask={a} project={project.name} />
     {/each}
   </section>
+
+  {#if working.length || idle.length}
+    <section>
+      <h2 class="eyebrow sect">Флот <Badge>{working.length + idle.length}</Badge></h2>
+      {#each working as s (s.name)}
+        <a class="fleet-row" href={href(s)}>
+          <Icon name="sparkles" size={14} class="text-primary flex-none" />
+          <b>{s.name}</b><span class="quiet">{s.project}</span>
+          <span class="fleet-what">
+            {s.pulse?.what || 'работает'}{s.pulse?.elapsed ? ` · ${s.pulse.elapsed}` : ''}{s.pulse?.tokens ? ` · ↓${s.pulse.tokens}` : ''}
+          </span>
+          {#if s.queue?.length}<Badge variant="outline">в очереди {s.queue.length}</Badge>{/if}
+          <Icon name="chevron-right" size={15} class="text-ink-4 flex-none" />
+        </a>
+      {/each}
+      {#each idle as s (s.name)}
+        <a class="fleet-row quiet-row" href={href(s)}>
+          <Icon name="circle-pause" size={14} class="text-ink-4 flex-none" />
+          <b>{s.name}</b><span class="quiet">{s.project}</span>
+          <span class="fleet-what">не занята — доложила или ждёт задачи</span>
+          <Icon name="chevron-right" size={15} class="text-ink-4 flex-none" />
+        </a>
+      {/each}
+    </section>
+  {/if}
 
   <!-- Ответы человеку: сессия отвечает постом (на встречный вопрос по ask),
        и без этой ленты ответ терялся в будке (найдено CTO 11.08) -->
@@ -245,6 +297,22 @@
 {/if}
 
 <style>
+  /* строка флота: одна сессия — одна строка, палец попадает (44px) */
+  .fleet-row {
+    display: flex; align-items: center; gap: var(--sp-3);
+    min-height: 44px; padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--border-soft); border-radius: var(--r);
+    margin-bottom: var(--sp-2); color: var(--text-2);
+    text-decoration: none; font-size: var(--fs-sm); min-width: 0;
+  }
+  .fleet-row:hover { border-color: var(--accent, var(--primary)); }
+  .fleet-row.need { border-color: color-mix(in oklab, var(--warn) 55%, transparent); }
+  .fleet-row.quiet-row { opacity: .72; }
+  .fleet-what {
+    flex: 1; min-width: 0; color: var(--text-3);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
   /* надзаголовок секции: класс .eyebrow даёт вид, здесь — только ритм */
   .sect { margin: var(--sp-8) 0 var(--sp-5); display: flex; align-items: center; gap: var(--sp-4); }
   /* Заголовок-переключатель проекта: тот же вес, что h1, стрелка рядом —
