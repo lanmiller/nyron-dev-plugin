@@ -145,6 +145,22 @@ function isBusy(text) {
   return /esc to interrupt|↓ \d+[\d.,]*k? tokens|\(\d+s\s*·/.test(text);
 }
 
+/** Пульс работы — та самая строка CLI «Собираю карту… (1m 19s · ↓ 4.6k tokens
+ *  · thinking with high effort)». Пульт показывал вместо неё кусок JSON
+ *  последнего тула — непонятно (CTO 21.08). Разбираем экран, а не выдумываем. */
+function parsePulse(text) {
+  const lines = String(text || '').split('\n');
+  const line = [...lines].reverse().find((l) => /↓\s*[\d.,]+k?\s*tokens|\(\d+m?\s*\d*s\s*·/.test(l));
+  if (!line) return null;
+  const inside = line.match(/\(([^)]*)\)\s*$/)?.[1] || line;
+  const what = line.replace(/^[^\wА-Яа-я]+/, '').split('…')[0].trim() || null;
+  const elapsed = inside.match(/(\d+m\s*\d+s|\d+s)/)?.[1] || null;
+  const tokens = inside.match(/↓\s*([\d.,]+k?)\s*tokens/)?.[1] || null;
+  const note = inside.match(/(thinking[^·)]*|thought for [^·)]*)/)?.[1]?.trim() || null;
+  if (!elapsed && !tokens) return null;
+  return { what, elapsed, tokens, note };
+}
+
 function step(name) {
   const reg = loadReg();
   const s = reg.sessions[name];
@@ -382,7 +398,8 @@ export function runnerList(project) {
     if (alive && (s.state === 'stopped' || s.state === 'died_on_start')) {
       s.state = 'running'; s.stoppedAt = null; saveReg(reg);
     }
-    out.push({ name, ...s, tmux: TMUX_PREFIX + name, alive, screen, busy });
+    out.push({ name, ...s, tmux: TMUX_PREFIX + name, alive, screen, busy,
+      pulse: busy ? parsePulse(visible(name)) : null });
   }
   return out.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
 }
@@ -411,6 +428,7 @@ export function runnerBySessionId(key) {
         ? parsePermission(screen_text) : null;
       const slot = loadSlots().slots.find((x) => x.id === (s.slot || 'claude-main'));
       return { name, ...s, queue: s.queue || [], tmux: TMUX_PREFIX + name, alive, screen, busy,
+        pulse: busy ? parsePulse(vis) : null,
         screen_text, dialog, permission, slot_label: slot?.label || 'основной' };
     }
   return null;

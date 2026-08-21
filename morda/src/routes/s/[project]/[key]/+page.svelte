@@ -858,7 +858,16 @@
            остановку даёт сама кнопка композера (стрелка → квадрат) -->
       <div class="working">
         <Icon name="sparkles" size={13} class="text-primary" />
-        <span class="work-what">работает · {lastAction}</span>
+        <!-- та же строка, что показывает сам CLI: чем занята, сколько идёт,
+             сколько токенов. Кусок JSON последнего тула тут не читался -->
+        {#if data.runner?.pulse}
+          {@const p = data.runner.pulse}
+          <span class="work-what">
+            {p.what || 'работает'}{p.elapsed ? ` · ${p.elapsed}` : ''}{p.tokens ? ` · ↓${p.tokens}` : ''}{p.note ? ` · ${p.note}` : ''}
+          </span>
+        {:else}
+          <span class="work-what">работает · {lastAction}</span>
+        {/if}
       </div>
     {/if}
 
