@@ -60,6 +60,26 @@
     }
     return [...byId.values()];
   });
+  // Фоновые команды: сессия запускает долгое (скан секретов по шести репо —
+  // двадцать минут) и молчит, а в пульте выглядело зависанием (факт 21.08).
+  // Признак запуска — в ответе тула, признак конца — в уведомлении рантайма.
+  let bgRunning = $derived.by(() => {
+    const items = data?.items || [];
+    const out = [];
+    items.forEach((it, idx) => {
+      if (it.kind !== 'tool' || it.name !== 'Bash') return;
+      const id = String(it.result || '').match(/running in background with ID: (\w+)/)?.[1];
+      if (!id) return;
+      const done = items.slice(idx + 1).some((n) =>
+        String(n.text || '').includes(id) && /<status>\s*(completed|failed|killed)/.test(String(n.text || '')));
+      if (done) return;
+      let inp = {};
+      try { inp = typeof it.input === 'string' ? JSON.parse(it.input) : (it.input || {}); } catch {}
+      out.push({ id, ts: it.ts, what: inp.description || String(inp.command || '').slice(0, 60) || 'фоновая команда' });
+    });
+    return out;
+  });
+
   let planNow = $derived(plan.find((t) => t.status === 'in_progress') || null);
   let planDone = $derived(plan.filter((t) => t.status === 'completed').length);
   let planOpen = $state(false);
@@ -647,6 +667,9 @@
           <Icon name="x" size={13} />
         </button>
       </div>
+      <!-- почему тишина: сообщение не потерялось, а ждёт конца текущего шага
+           (CTO 21.08: «отправил два сообщения и тишина») -->
+      <span class="q-note">ждёт — сессия занята, уйдёт как освободится</span>
     </div>
   {/each}
 
@@ -838,6 +861,13 @@
         <span class="work-what">работает · {lastAction}</span>
       </div>
     {/if}
+
+    {#each bgRunning as b (b.id)}
+      <div class="working bg-run">
+        <Icon name="loader-circle" size={13} class="text-ink-4" />
+        <span class="work-what">в фоне · {b.what} · {age(b.ts)}</span>
+      </div>
+    {/each}
 
     {#if cliDialog}
       <!-- Форма CLI (AskUserQuestion и пикеры) — единый слайдер над
@@ -1199,6 +1229,11 @@
     padding: 0 var(--sp-2) var(--sp-2); font-size: var(--fs-xs);
     animation: breathe 1.8s ease-in-out infinite;
   }
+  /* сообщение в очереди: приглушено и подписано, почему оно ещё не ушло */
+  .queued { opacity: .72; }
+  .q-note { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--text-4); text-align: right; }
+  /* фоновая команда дышать не должна — она идёт сама, это фон, не пульс */
+  .working.bg-run { animation: none; color: var(--text-4); }
   .work-what {
     flex: 1; min-width: 0; color: var(--text-2);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
