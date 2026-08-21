@@ -313,8 +313,27 @@ export async function passportCheck({ project }) {
       'почини morda/guard/pretooluse-guard.mjs — пока забор не отвечает deny, bypass-режим закрыт'));
   }
 
+  const ok = items.filter((i) => i.ok).length;
+  saveLast(project, { at, ok, total: items.length });
   return { project, at, items };
 }
+
+// Итог последнего прогона — живое состояние (дом «пульт»), не истина в git.
+// Нужен, чтобы в строке проекта было видно «готов», а не только кнопка:
+// человек не должен догадываться, прошёл проект или нет (CTO 21.08).
+const LAST_FILE = path.join(MORDA_ROOT, 'passport-last.json');
+function loadAll() {
+  try { return JSON.parse(fs.readFileSync(LAST_FILE, 'utf8')); } catch { return {}; }
+}
+function saveLast(project, v) {
+  const all = loadAll();
+  all[project] = v;
+  try {
+    fs.writeFileSync(LAST_FILE + '.tmp', JSON.stringify(all, null, 2));
+    fs.renameSync(LAST_FILE + '.tmp', LAST_FILE);
+  } catch { /* не смогли записать — не повод валить прогон */ }
+}
+export function passportLast() { return loadAll(); }
 
 /** Сколько байт инструкций Codex реально читает: из его конфига, иначе умолчание. */
 function codexDocLimit() {

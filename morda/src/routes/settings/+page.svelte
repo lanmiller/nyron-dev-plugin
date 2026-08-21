@@ -105,6 +105,10 @@
   // факта клика: клик забывается перезагрузкой, а сессия остаётся
   const auditOf = (project) => (data?.sessions || []).find(
     (r) => r.project === project && r.name.startsWith('audit-') && r.alive);
+  // итог последней проверки: свежий прогон этой вкладки, иначе — что помнит пульт
+  const lastCheck = (name, pv) => pv?.items
+    ? { at: pv.at, ok: pv.items.filter((i) => i.ok).length, total: pv.items.length }
+    : (data?.passport?.[name] || null);
   let unlinking = $state({});
   // Ключница проекта: значения ключей вводит ЧЕЛОВЕК и только здесь — сессиям
   // забор их не отдаёт. Наружу пульт возвращает имена, значения — никогда.
@@ -120,12 +124,18 @@
   async function keysRun(action, extra = {}) {
     const r = await act({ action, project: keysFor, ...extra });
     if (!r) return;
+    // человеку нужен итог, а не перечень: «обновлено: ENABLED_TOOLS» читалось
+    // как ошибка, хотя значило «всё уже было, одно значение освежили» (CTO 21.08)
+    const a = r.added?.length || 0, u = r.updated?.length || 0;
     const parts = [];
-    if (r.added?.length) parts.push(`добавлено: ${r.added.join(', ')}`);
-    if (r.updated?.length) parts.push(`обновлено: ${r.updated.join(', ')}`);
-    if (r.skipped?.length) parts.push(`пропущено непонятных строк: ${r.skipped.length}`);
-    if (r.ignoreFixed) parts.push('.secrets добавлена в .gitignore');
-    keysNote = parts.length ? parts.join('; ') : 'ничего не изменилось';
+    if (a && u) parts.push(`добавлено ${a}, обновлено ${u}`);
+    else if (a) parts.push(`добавлено ${a}: ${r.added.join(', ')}`);
+    else if (u) parts.push(`всё уже было в ключнице, освежил ${u}: ${r.updated.join(', ')}`);
+    else parts.push('в ключнице уже всё это есть — менять нечего');
+    if (r.total) parts.push(`всего ключей ${r.total}`);
+    if (r.skipped?.length) parts.push(`не понял строк: ${r.skipped.length}`);
+    if (r.ignoreFixed) parts.push('.secrets закрыта от git');
+    keysNote = parts.join(' · ');
     keysDraft = '';
     const st = await act({ action: 'keys_status', project: keysFor });
     if (st) keysNames = st.names || [];
@@ -454,6 +464,20 @@
           <Icon name="folder-tree" size={14} class="text-ink-4" />
           <b class="rname">{p.name}</b>
           <span class="quiet mono">{p.root}</span>
+          <!-- отметка «в порядке» держится между заходами: кнопка говорит,
+               что можно проверить, а бейдж — что проверка показала и когда
+               (CTO 21.08: «надо чтоб понятно было, что всё ок») -->
+          {#if lastCheck(p.name, pv)}
+            {@const last = lastCheck(p.name, pv)}
+            {@const good = last.ok === last.total}
+            <Badge variant="outline" class={good ? 'audit-live' : 'text-hot'}
+              title={good ? `все проверки прошли ${new Date(last.at).toLocaleString('ru')}`
+                : `${last.total - last.ok} пунктов красные — нажми «проверить готовность»`}>
+              {good ? 'готов' : `${last.ok} из ${last.total}`} · {age(last.at)}
+            </Badge>
+          {:else}
+            <Badge variant="outline" class="text-ink-4" title="проверка ни разу не запускалась">не проверен</Badge>
+          {/if}
           <span class="spacer"></span>
           <Button variant="outline" size="xs" disabled={pv?.busy}
             title="паспорт проекта фактом: MCP отвечают, ключи в ключнице, плагин и скиллы стоят, забор режет"
@@ -465,10 +489,12 @@
             <!-- аудит виден в самой строке проекта: раньше о нём говорила
                  заметка под списком — чья она, было не понять, и она
                  пропадала при перезагрузке (замечание CTO 21.08) -->
-            <Button variant="outline" size="xs" class="audit-live"
+            <Button variant="outline" size="xs" class={au.busy ? "audit-live" : ""}
               href="/s/{encodeURIComponent(p.name)}/{au.sessionId || au.name}"
-              title="аудитор по этому проекту уже работает — открыть его сессию">
-              <Icon name="search-check" size={13} /> аудит идёт
+              title={au.busy ? 'аудитор работает — открыть его сессию'
+                : 'аудитор ничего не делает: доложил и ждёт вас'}>
+              <Icon name={au.busy ? 'loader-circle' : 'message-square'} size={13} />
+              {au.busy ? 'аудит идёт' : 'аудит ждёт вас'}
             </Button>
           {:else}
             <Button variant="outline" size="xs" disabled={busy}

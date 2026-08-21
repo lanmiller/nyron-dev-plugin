@@ -7,6 +7,7 @@ import { runnerList, runnerStart, runnerStop, runnerResume, runnerApprove,
   providerList } from '$lib/server/runner.js';
 import { projectAdd, projectRemove } from '$lib/server/fleet.js';
 import { keysStatus, keysImport, keysAdopt } from '$lib/server/keys.js';
+import { passportLast } from '$lib/server/passport.js';
 import { guarded } from '$lib/server/guard.js';
 
 // Раннер (этап 1 STOVP-58): пульт владеет CLI-сессиями. Одна ручка,
@@ -18,6 +19,7 @@ export async function GET({ url }) {
       // слоты без probe: GET поллится и не должен плодить tmux-сессии
       slots: slotList({ probe: false }),
       providers: providerList(),
+      passport: passportLast(),
     });
   } catch (e) {
     return json({ error: String(e.message || e) }, { status: 400 });
