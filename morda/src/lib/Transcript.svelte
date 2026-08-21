@@ -129,13 +129,15 @@
                   e.stopPropagation();
                   const off = packFilter[bi] === k.name;
                   packFilter = { ...packFilter, [bi]: off ? null : k.name };
-                  packOpen = { ...packOpen, [bi]: !off };
+                  // снятие фильтра возвращает ВСЕ строки, а не схлопывает
+                  // пачку: закрывает её только «N действий» (критика 19.08)
+                  packOpen = { ...packOpen, [bi]: true };
                   // как и «N действий»: раскрытое подкручиваем к глазам
                   if (!off) revealPack(e.currentTarget.closest('.toolpack'));
                 }} title={k.name}>{shortTool(k.name)}{k.count > 1 ? ` ×${k.count}` : ''}</button>
             {/each}
           </span>
-          {#if hasErr(b.tools)}<span class="terr">есть ошибка</span>{/if}
+          {#if hasErr(b.tools)}<span class="terr"><Icon name="triangle-alert" size={12} />есть ошибка</span>{/if}
           <Icon name={packOpen[bi] ? 'chevron-up' : 'chevron-down'} size={14}
             class="text-ink-4 flex-none" />
         </summary>
@@ -156,7 +158,7 @@
                   onclick={() => openTool(it)}>
                   <span class="tname" title={it.name}>{shortTool(it.name)}</span>
                   <span class="tin">{inputOf(it)}</span>
-                  {#if it.is_error}<span class="terr">ошибка</span>{/if}
+                  {#if it.is_error}<span class="terr"><Icon name="triangle-alert" size={12} />ошибка</span>{/if}
                   <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
                 </button>
               {:else}
@@ -165,7 +167,7 @@
                   <summary>
                     <span class="tname" title={it.name}>{shortTool(it.name)}</span>
                     <span class="tin">{inputOf(it)}</span>
-                    {#if it.is_error}<span class="terr">ошибка</span>{/if}
+                    {#if it.is_error}<span class="terr"><Icon name="triangle-alert" size={12} />ошибка</span>{/if}
                   </summary>
                   {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
                   <div class="tout"><b>вывод</b><pre>{it.result || '(пусто)'}</pre></div>
@@ -214,7 +216,7 @@
         <button class="tool agent agent-row" onclick={() => openAgent(it.agent)}>
           <span class="tname"><Icon name="bot" size={13} /> субагент</span>
           <span class="tin">{it.agent.name || it.agent.agentId}{it.agent.agentType ? ` · ${it.agent.agentType}` : ''}{it.agent.description ? ` — ${it.agent.description}` : ''}</span>
-          {#if it.is_error}<span class="terr">ошибка</span>{/if}
+          {#if it.is_error}<span class="terr"><Icon name="triangle-alert" size={12} />ошибка</span>{/if}
           <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
         </button>
       {:else if it.agent}
@@ -223,7 +225,7 @@
           <summary>
             <span class="tname"><Icon name="bot" size={13} /> субагент</span>
             <span class="tin">{it.agent.name || it.agent.agentId}{it.agent.agentType ? ` · ${it.agent.agentType}` : ''}{it.agent.description ? ` — ${it.agent.description}` : ''}</span>
-            {#if it.is_error}<span class="terr">ошибка</span>{/if}
+            {#if it.is_error}<span class="terr"><Icon name="triangle-alert" size={12} />ошибка</span>{/if}
           </summary>
           {#if agents[it.agent.agentId] === 'loading'}
             <p class="quiet pad">читаю транскрипт субагента…</p>
@@ -242,7 +244,7 @@
             onclick={() => openTool(it)}>
             <span class="tname" title={it.name}>{shortTool(it.name)}</span>
             <span class="tin">{inputOf(it)}</span>
-            {#if it.is_error}<span class="terr">ошибка</span>{/if}
+            {#if it.is_error}<span class="terr"><Icon name="triangle-alert" size={12} />ошибка</span>{/if}
             <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
           </button>
         {:else}
@@ -251,7 +253,7 @@
             <summary>
               <span class="tname" title={it.name}>{shortTool(it.name)}</span>
               <span class="tin">{inputOf(it)}</span>
-              {#if it.is_error}<span class="terr">ошибка</span>{/if}
+              {#if it.is_error}<span class="terr"><Icon name="triangle-alert" size={12} />ошибка</span>{/if}
             </summary>
             {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
             <div class="tout"><b>вывод</b><pre>{it.result || '(пусто)'}</pre></div>
@@ -311,7 +313,13 @@
   }
   /* различие несёт цвет всей рамки: толстая полоса сбоку — узнаваемый
      признак ИИ-вёрстки (детектор impeccable, 11.08) */
-  .tool.iserr { border-color: var(--hot); }
+  /* --hot и --accent почти неотличимы (критика 19.08), поэтому у ошибки
+     своя ФОРМА, не только оттенок: треугольник у подписи и лёгкая заливка
+     всей плашки; субагент остаётся контурным с иконкой бота */
+  .tool.iserr {
+    border-color: var(--hot);
+    background: color-mix(in oklab, var(--hot) 8%, var(--bg-2));
+  }
   .tool.agent { border-color: var(--accent); }
   .tool.agent > summary .tname { color: var(--accent); }
   /* строка действия — кнопка: тап открывает шторку с вводом и выводом
@@ -352,7 +360,10 @@
     color: var(--text-4); font-family: var(--mono); font-size: 12px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
   }
-  .terr { color: var(--hot); font-size: 12px; flex: none; }
+  .terr {
+    color: var(--hot); font-size: 12px; flex: none;
+    display: inline-flex; align-items: center; gap: 3px;
+  }
   .tout { padding: 4px 10px 8px; }
   .tout b { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-4); font-weight: 600; }
   .pad { padding: 8px 10px; }

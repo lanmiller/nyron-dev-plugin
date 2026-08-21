@@ -17,6 +17,7 @@
   import Icon from '$lib/Icon.svelte';
   import PickChip from '$lib/PickChip.svelte';
   import * as Sheet from '$lib/ui/sheet/index.js';
+  import * as Dialog from '$lib/ui/dialog/index.js';
   import TmuxPanel from '$lib/TmuxPanel.svelte';
   import { MODEL_OPTS, EFFORT_OPTS, MODE_OPTS } from '$lib/composer-options.js';
   import { Button } from '$lib/ui/button/index.js';
@@ -285,6 +286,7 @@
   // прямо из карточки. Стоп = парковка: транскрипт на диске, --resume
   // поднимет с контекстом.
   let runnerBusy = $state(false);
+  let stopAsk = $state(false);   // подтверждение «остановить» — стоп рушит CLI
   async function runnerAct(action, extra = {}) {
     runnerBusy = true;
     try {
@@ -305,16 +307,18 @@
     // interrupt»); иначе обычное состояние сторожа
     ...(data.runner?.busy ? [{ label: 'думает…', dot: 'var(--ok)', note: true }]
       : stateInfo ? [{ label: stateInfo[0], dot: stateInfo[1], note: true }] : []),
+    ...(data.runner?.alive ? [{ label: 'консоль', icon: 'terminal',
+      run: () => (consoleOpen = true),
+      title: 'настоящий экран терминала сессии — как tmux attach, только здесь' }] : []),
+    // разрушительное — НЕ первым пунктом и только через подтверждение
+    // (критика 19.08: «остановить» убивал CLI одним тапом)
     ...(data.runner ? [data.runner.alive
       ? { label: 'остановить', icon: 'pause', disabled: runnerBusy,
-        run: () => runnerAct('stop'),
+        run: () => (stopAsk = true),
         title: 'CLI-процесс закроется физически; транскрипт цел — сессия поднимется от сообщения или кнопкой «поднять резюмом»' }
       : { label: 'поднять резюмом', icon: 'play', disabled: runnerBusy,
         run: () => runnerAct('resume'),
         title: 'claude --resume — тот же разговор с полным контекстом' }] : []),
-    ...(data.runner?.alive ? [{ label: 'консоль', icon: 'terminal',
-      run: () => (consoleOpen = true),
-      title: 'настоящий экран терминала сессии — как tmux attach, только здесь' }] : []),
     { label: 'копия в Claude', icon: 'external-link', disabled: opening, run: openInClaude,
       title: 'claude://resume — приложение откроет копию этого разговора' },
     ...(data.cwd ? [{ label: files ? 'скрыть файлы' : 'файлы проекта', icon: 'folder-tree',
@@ -485,6 +489,9 @@
     ArrowRight: 'Tab', Tab: 'Tab', Enter: 'Enter', Escape: 'Escape' };
   function dialogKeydown(e) {
     if (!cliDialog) return;
+    // поверх открыта шторка или диалог — клавиши принадлежат им, а не
+    // терминалу: Esc в ленте агента отменял ещё и форму CLI (два уровня)
+    if (agentOpen || toolOpen || consoleOpen || stopAsk) return;
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName)) return;
     const k = KEYMAP[e.key] || (/^[1-9]$/.test(e.key) ? e.key : null);
     if (!k) return;
@@ -617,6 +624,29 @@
     <!-- ЗАКРЫТИЕ .chat — после нижней панели: ввод принадлежит чату, а не
          странице (CTO 21.08). Правая колонка вставлена ниже. -->
 
+  <!-- Остановка — единственное разрушительное действие в меню: без
+       подтверждения она случалась одним тапом (критика 19.08). Текст
+       говорит, что именно произойдёт и как вернуться. -->
+  <Dialog.Root bind:open={stopAsk}>
+    <Dialog.Content>
+      <Dialog.Header>
+        <Dialog.Title>Остановить сессию?</Dialog.Title>
+        <Dialog.Description>
+          CLI-процесс закроется, текущий шаг оборвётся. Транскрипт цел и
+          остаётся на диске: сессия поднимется с тем же контекстом — кнопкой
+          «поднять резюмом» или первым же сообщением ей.
+        </Dialog.Description>
+      </Dialog.Header>
+      <Dialog.Footer>
+        <Button variant="outline" onclick={() => (stopAsk = false)}>отмена</Button>
+        <Button variant="destructive" disabled={runnerBusy}
+          onclick={() => { stopAsk = false; runnerAct('stop'); }}>
+          <Icon name="pause" size={14} />остановить
+        </Button>
+      </Dialog.Footer>
+    </Dialog.Content>
+  </Dialog.Root>
+
   <!-- Живая консоль: реальный экран tmux, обновляется сам -->
   <Sheet.Root bind:open={consoleOpen}>
     <Sheet.Content side="bottom" class="agent-sheet">
@@ -679,7 +709,14 @@
   <!-- Лента субагента во весь экран: заголовок = кто и зачем, тело — та же
        лента, что у сессии (вложенные субагенты открываются поверх) -->
   <Sheet.Root bind:open={agentOpen}>
-    <Sheet.Content side="bottom" class="agent-sheet">
+    <!-- Esc идёт по уровням, как стрелка «назад»: из ленты агента — к списку
+         агентов, из списка — закрыть (раньше рушил всю шторку разом) -->
+    <Sheet.Content side="bottom" class="agent-sheet"
+      onEscapeKeydown={(e) => {
+        if (!agentSheet) return;
+        e.preventDefault();
+        agentSheet = null;
+      }}>
       <Sheet.Header class="agent-head">
         {#if agentSheet}
           <button class="dlg-x" aria-label="к списку агентов"
@@ -719,7 +756,7 @@
                 <!-- молчание агента само по себе ничего не говорило: «уже
                      отработал» и «не пойми что» выглядели одинаково (CTO 21.08) -->
                 {#if a.busy}<span class="ag-state">работает</span>
-                {:else if a.failed}<span class="ag-state bad">ошибка</span>
+                {:else if a.failed}<span class="ag-state bad"><Icon name="triangle-alert" size={12} />ошибка</span>
                 {:else}<span class="ag-state done">отработал</span>{/if}
                 <Icon name="chevron-right" size={16} class="text-ink-4 flex-none" />
               </button>
@@ -1379,7 +1416,10 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .ag-state { flex: none; color: var(--ok); font-size: var(--fs-xs); }
-  .ag-state.bad { color: var(--hot); }
+  .ag-state.bad {
+    color: var(--hot);
+    display: inline-flex; align-items: center; gap: 3px;
+  }
   .ag-state.done { color: var(--text-4); }
   /* подписи «ввод» / «вывод» в шторке действия */
   .tsec {
