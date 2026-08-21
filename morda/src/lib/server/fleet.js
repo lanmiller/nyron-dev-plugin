@@ -456,7 +456,8 @@ export function sessions(project) {
       });
       if (ck?.state === 'stalled')
         stalledCard(hub, { key: s.key, title: s.title, reason: ck.reason,
-          quietMs: Date.now() - lastAct, thresholdMs });
+          quietMs: Date.now() - lastAct, thresholdMs,
+          aliveOwned: owned.get(s.key)?.alive });
       return {
         ...s,
         state: parked ? 'parked' : ck?.state || null,

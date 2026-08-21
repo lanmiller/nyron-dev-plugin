@@ -108,6 +108,18 @@ test('checkinMs: ключ конфига читается, дефолт без �
   delete process.env.MORDA_CHECKIN_MIN;
 });
 
+test('checkinMs: правка ключа действует без рестарта (кэш по mtime)', () => {
+  const root = tmp();
+  delete process.env.MORDA_CHECKIN_MIN;
+  const f = path.join(root, '.claude', 'nyron-dev.md');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, 'checkin_min: 7\n');
+  assert.equal(checkinMs(root), 7 * MIN);
+  fs.writeFileSync(f, 'checkin_min: 3\n');
+  fs.utimesSync(f, new Date(), new Date(Date.now() + 1000)); // mtime вперёд
+  assert.equal(checkinMs(root), 3 * MIN);
+});
+
 test('stalledCard: одна карточка на эпизод, древняя тишина не плодит', async () => {
   const HERE = path.dirname(fileURLToPath(import.meta.url));
   const { HubDb } = await import(path.resolve(HERE, '../../nyron-dev/hub/hub-db.mjs'));
@@ -119,7 +131,12 @@ test('stalledCard: одна карточка на эпизод, древняя �
   const second = stalledCard(hub, args);
   assert.equal(second.deduped, true);                      // тот же эпизод
   assert.equal(hub.asks({ status: 'open' }).asks.length, 1);
-  // тишина в 5 порогов — история, не событие: карточки нет
+  // тишина в 5 порогов у НЕ-живой — история, не событие: карточки нет
   assert.equal(stalledCard(hub, { ...args, key: 'sess-y', quietMs: 75 * MIN }), null);
   assert.equal(hub.asks({ status: 'open' }).asks.length, 1);
+  // ...но живой CLI получает карточку при любой длине тупика: пульт могли
+  // открыть сильно позже перехода (кросс-ревью Sol, блокер 1)
+  const late = stalledCard(hub, { ...args, key: 'sess-z', quietMs: 75 * MIN, aliveOwned: true });
+  assert.equal(late.deduped, false);
+  assert.equal(hub.asks({ status: 'open' }).asks.length, 2);
 });

@@ -44,21 +44,27 @@ export function lastActivityMs(file, key, mtime, { tmpBase } = {}) {
 }
 
 /** Порог чек-ина проекта в ms: env MORDA_CHECKIN_MIN сильнее ключа
- *  checkin_min в <root>/.claude/nyron-dev.md; дефолт 15 минут. */
-const cfgCache = new Map(); // root → минуты
+ *  checkin_min в <root>/.claude/nyron-dev.md; дефолт 15 минут.
+ *  Кэш — по mtime конфига, не вечный: правка ключа действует со
+ *  следующего опроса, без рестарта пульта (кросс-ревью Sol, блокер 2). */
+const cfgCache = new Map(); // root → { mtime, min }
 export function checkinMs(root) {
   const env = Number(process.env.MORDA_CHECKIN_MIN);
   if (env >= 1) return env * 60_000;
-  if (!cfgCache.has(root)) {
-    let min = CHECKIN_MIN_DEFAULT;
+  const file = path.join(root, '.claude', 'nyron-dev.md');
+  let mtime = 0;
+  try { mtime = fs.statSync(file).mtimeMs; } catch { /* конфига нет */ }
+  const c = cfgCache.get(root);
+  if (c && c.mtime === mtime) return c.min * 60_000;
+  let min = CHECKIN_MIN_DEFAULT;
+  if (mtime) {
     try {
-      const cfg = fs.readFileSync(path.join(root, '.claude', 'nyron-dev.md'), 'utf8');
-      const m = cfg.match(/^\s*checkin_min:\s*(\d+)/m);
+      const m = fs.readFileSync(file, 'utf8').match(/^\s*checkin_min:\s*(\d+)/m);
       if (m && Number(m[1]) >= 1) min = Number(m[1]);
-    } catch { /* конфига нет — дефолт */ }
-    cfgCache.set(root, min);
+    } catch { /* не читается — дефолт */ }
   }
-  return cfgCache.get(root) * 60_000;
+  cfgCache.set(root, { mtime, min });
+  return min * 60_000;
 }
 
 /** Состояние сессии по чек-ину: {state, reason} либо null («вне надзора»).
@@ -91,11 +97,13 @@ export function checkinState({ w, lastAct, aliveOwned, thresholdMs, now = Date.n
 
 /** Карточка «застряла» в ленту «ждут человека» — существующим ask будки:
  *  текст вопроса стабильный, дедуп по (session, question) держит одну
- *  карточку на эпизод (hub-db.mjs:281). Свежая тишина — признак перехода;
- *  древние застрявшие (квиет больше 4 порогов) карточку не плодят: это
- *  уже история, а не событие. */
-export function stalledCard(hub, { key, title, reason, quietMs, thresholdMs }) {
-  if (quietMs > thresholdMs * 4) return null;
+ *  карточку на эпизод (hub-db.mjs:281). Отсечка «тишина больше 4 порогов —
+ *  история, не событие» действует только для НЕ-живых сессий (застрявший
+ *  вердикт сторожа на давно закрытом разговоре): живой CLI получает
+ *  карточку при любой длине тупика — там есть что спасать, и пульт могли
+ *  открыть сильно позже перехода (кросс-ревью Sol, блокер 1). */
+export function stalledCard(hub, { key, title, reason, quietMs, thresholdMs, aliveOwned }) {
+  if (!aliveOwned && quietMs > thresholdMs * 4) return null;
   try {
     return hub.ask({
       session: key,
