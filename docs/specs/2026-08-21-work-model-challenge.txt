@@ -1,0 +1,51 @@
+plan-challenge: модель gpt-5.6-sol недоступна — фолбэк на дефолт codex
+ПЛАН: РИСКИ.
+
+1. Категория 1 — гейт паспорта описан как запрет старта волны, но код проверяет его только для `mode === 'bypass'`, а отсутствующий паспорт считается зелёным — `morda/src/lib/server/runner.js:292`, `morda/src/lib/server/runner.js:294`, `morda/src/lib/server/passport.js:121`, `morda/src/lib/server/passport.js:127` — волны в `auto/acceptEdits/plan` стартуют мимо красного/неаттестованного проекта — вынести `wave`-launch в отдельный тип запуска и проверять паспорт независимо от permission-mode.
+
+2. Категория 1 — гейт «волна = одна подзадача» сейчас не на чем проверять: `runnerStart` не принимает `subtask_id`, а реестр сохраняет только `project/root/goal/model/mode/slot` — `morda/src/lib/server/runner.js:268`, `morda/src/lib/server/runner.js:309`; UI тоже шлёт только свободный `goal` — `morda/src/routes/+page.svelte:82` — пульт не сможет запретить вторую живую подзадачу и считать SLA шага — добавить launch/queue-запись `{role, epic_id, task_id, subtask_id, plan_id, estimate}` и запретить raw-start для волн.
+
+3. Категория 1 — дерево пульта не строится из иерархии трекера: `/api/tree` отдаёт только `project → sessions` — `morda/src/routes/api/tree/+server.js:4`, `morda/src/routes/api/tree/+server.js:11`; группировка угадывает эпик из будки/заголовков и `epics.json` — `morda/src/lib/server/fleet.js:336`, `morda/src/lib/server/fleet.js:345`; UI группирует `эпик → диспетчер → волны`, без задач/подзадач — `morda/src/routes/+layout.svelte:50`, `morda/src/routes/+layout.svelte:252` — гейты по зависимостям/второму грилю будут висеть на несуществующем источнике — сначала ввести tracker-adapter/cache для `task/subtask/dependencies/status/DoD`.
+
+4. Категория 3 — текущая логика тишины всё ещё может маскироваться живым tmux: `fresh()` оставляет `working`, если `aliveOwned` true — `morda/src/lib/server/fleet.js:704`, `morda/src/lib/server/fleet.js:708`; список сессий также ставит `working` по живому CLI — `morda/src/lib/server/fleet.js:455`, `morda/src/lib/server/fleet.js:459`; субагенты читаются отдельно и не участвуют в статусе — `morda/src/lib/server/fleet.js:611` — кейс psylia повторится как «CLI жив, значит работает» — разделить `alive/busy/waiting/stalled`, считать last-activity по main transcript + subagents + bg-командам и после порога создавать ask/card.
+
+5. Категория 1 — «запрет фоновых товарищей по роли» не механика: в коде есть только промт аудитора «не поднимай teammates» — `docs/specs/2026-08-18-project-audit-prompt.md:178`; guard перечисляет только снос/force-push/запись/серверы/секреты — `morda/guard/pretooluse-guard.mjs:8`; в runner-регистре роли нет — `morda/src/lib/server/runner.js:309` — нарушение политики не будет отбито машиной — добавить роль в launch-profile и enforcement в guard/настройки CLI, плюс поле конфига ролей.
+
+6. Категория 1 — предпосылка про workflow-журнал не подтверждается кодом: UI пока содержит только комментарий «Воркфлоу пойдут этим же списком» — `morda/src/routes/s/[project]/[key]/+page.svelte:706`; `sessionAgents` реально читает только `subagents/*.meta.json` и `agent-*.jsonl` — `morda/src/lib/server/fleet.js:620`, `morda/src/lib/server/fleet.js:631`; пример workflow пишет `.nyron-hub/metrics.jsonl`, а не `journal.jsonl` — `nyron-dev/skills/nyron-waves/examples/ticket-conveyor-workflow.md:26` — реализация пойдёт искать несуществующий контракт — первым шагом сделать факт-спайк реального workflow-артефакта и зафиксировать схему.
+
+7. Категория 1 — гейт длины `/goal` 4000 отсутствует: главная страница отправляет textarea как есть — `morda/src/routes/+page.svelte:74`, `morda/src/routes/+page.svelte:82`; runner досылает `goal` без проверки длины — `morda/src/lib/server/runner.js:197`, `morda/src/lib/server/runner.js:199` — известный silent-fail останется — серверно валидировать launch payload и требовать короткий goal со ссылкой на бриф.
+
+8. Категория 3 — «перезапуск с контрольной точки» сильнее текущего состояния: реестр хранит sessionId/workdir/model/mode/slot, но не branch/worktree/head SHA/dirty/phase — `morda/src/lib/server/runner.js:309`; resume поднимает только `--resume` с прежним workdir — `morda/src/lib/server/runner.js:345` — кнопка рестарта может восстановить разговор, но не доказанную рабочую точку — добавить checkpoint-паспорт подзадачи и показывать рестарт только при наличии валидного checkpoint.
+
+НЕБЛОКИРУЮЩЕЕ:
+
+Корневых `AGENTS.md`/`CLAUDE.md` в рабочем каталоге нет; сверял каноны по `docs/SYSTEM-DESIGN.md`, `docs/SYSTEM.md`, `wave-protocol.md`, `wave-rules-template.md`.
+
+Тип `Subtask` в конфиге действительно объявлен: `nyron-dev/skills/project-config/assets/config-template.md:22`.
+
+`hub_merge_join/leave` реально существуют и атомарно хранят очередь в SQLite, но это пока advisory queue, не hard gate мержа: `nyron-dev/hub/hub-db.mjs:548`.
+ПЛАН: РИСКИ.
+
+1. Категория 1 — гейт паспорта описан как запрет старта волны, но код проверяет его только для `mode === 'bypass'`, а отсутствующий паспорт считается зелёным — `morda/src/lib/server/runner.js:292`, `morda/src/lib/server/runner.js:294`, `morda/src/lib/server/passport.js:121`, `morda/src/lib/server/passport.js:127` — волны в `auto/acceptEdits/plan` стартуют мимо красного/неаттестованного проекта — вынести `wave`-launch в отдельный тип запуска и проверять паспорт независимо от permission-mode.
+
+2. Категория 1 — гейт «волна = одна подзадача» сейчас не на чем проверять: `runnerStart` не принимает `subtask_id`, а реестр сохраняет только `project/root/goal/model/mode/slot` — `morda/src/lib/server/runner.js:268`, `morda/src/lib/server/runner.js:309`; UI тоже шлёт только свободный `goal` — `morda/src/routes/+page.svelte:82` — пульт не сможет запретить вторую живую подзадачу и считать SLA шага — добавить launch/queue-запись `{role, epic_id, task_id, subtask_id, plan_id, estimate}` и запретить raw-start для волн.
+
+3. Категория 1 — дерево пульта не строится из иерархии трекера: `/api/tree` отдаёт только `project → sessions` — `morda/src/routes/api/tree/+server.js:4`, `morda/src/routes/api/tree/+server.js:11`; группировка угадывает эпик из будки/заголовков и `epics.json` — `morda/src/lib/server/fleet.js:336`, `morda/src/lib/server/fleet.js:345`; UI группирует `эпик → диспетчер → волны`, без задач/подзадач — `morda/src/routes/+layout.svelte:50`, `morda/src/routes/+layout.svelte:252` — гейты по зависимостям/второму грилю будут висеть на несуществующем источнике — сначала ввести tracker-adapter/cache для `task/subtask/dependencies/status/DoD`.
+
+4. Категория 3 — текущая логика тишины всё ещё может маскироваться живым tmux: `fresh()` оставляет `working`, если `aliveOwned` true — `morda/src/lib/server/fleet.js:704`, `morda/src/lib/server/fleet.js:708`; список сессий также ставит `working` по живому CLI — `morda/src/lib/server/fleet.js:455`, `morda/src/lib/server/fleet.js:459`; субагенты читаются отдельно и не участвуют в статусе — `morda/src/lib/server/fleet.js:611` — кейс psylia повторится как «CLI жив, значит работает» — разделить `alive/busy/waiting/stalled`, считать last-activity по main transcript + subagents + bg-командам и после порога создавать ask/card.
+
+5. Категория 1 — «запрет фоновых товарищей по роли» не механика: в коде есть только промт аудитора «не поднимай teammates» — `docs/specs/2026-08-18-project-audit-prompt.md:178`; guard перечисляет только снос/force-push/запись/серверы/секреты — `morda/guard/pretooluse-guard.mjs:8`; в runner-регистре роли нет — `morda/src/lib/server/runner.js:309` — нарушение политики не будет отбито машиной — добавить роль в launch-profile и enforcement в guard/настройки CLI, плюс поле конфига ролей.
+
+6. Категория 1 — предпосылка про workflow-журнал не подтверждается кодом: UI пока содержит только комментарий «Воркфлоу пойдут этим же списком» — `morda/src/routes/s/[project]/[key]/+page.svelte:706`; `sessionAgents` реально читает только `subagents/*.meta.json` и `agent-*.jsonl` — `morda/src/lib/server/fleet.js:620`, `morda/src/lib/server/fleet.js:631`; пример workflow пишет `.nyron-hub/metrics.jsonl`, а не `journal.jsonl` — `nyron-dev/skills/nyron-waves/examples/ticket-conveyor-workflow.md:26` — реализация пойдёт искать несуществующий контракт — первым шагом сделать факт-спайк реального workflow-артефакта и зафиксировать схему.
+
+7. Категория 1 — гейт длины `/goal` 4000 отсутствует: главная страница отправляет textarea как есть — `morda/src/routes/+page.svelte:74`, `morda/src/routes/+page.svelte:82`; runner досылает `goal` без проверки длины — `morda/src/lib/server/runner.js:197`, `morda/src/lib/server/runner.js:199` — известный silent-fail останется — серверно валидировать launch payload и требовать короткий goal со ссылкой на бриф.
+
+8. Категория 3 — «перезапуск с контрольной точки» сильнее текущего состояния: реестр хранит sessionId/workdir/model/mode/slot, но не branch/worktree/head SHA/dirty/phase — `morda/src/lib/server/runner.js:309`; resume поднимает только `--resume` с прежним workdir — `morda/src/lib/server/runner.js:345` — кнопка рестарта может восстановить разговор, но не доказанную рабочую точку — добавить checkpoint-паспорт подзадачи и показывать рестарт только при наличии валидного checkpoint.
+
+НЕБЛОКИРУЮЩЕЕ:
+
+Корневых `AGENTS.md`/`CLAUDE.md` в рабочем каталоге нет; сверял каноны по `docs/SYSTEM-DESIGN.md`, `docs/SYSTEM.md`, `wave-protocol.md`, `wave-rules-template.md`.
+
+Тип `Subtask` в конфиге действительно объявлен: `nyron-dev/skills/project-config/assets/config-template.md:22`.
+
+`hub_merge_join/leave` реально существуют и атомарно хранят очередь в SQLite, но это пока advisory queue, не hard gate мержа: `nyron-dev/hub/hub-db.mjs:548`.
