@@ -6,7 +6,7 @@ import { runnerList, runnerStart, runnerStop, runnerResume, runnerApprove,
   slotList, slotAdd, slotRemove, slotConnect, slotCode, slotUsage,
   providerList } from '$lib/server/runner.js';
 import { projectAdd, projectRemove } from '$lib/server/fleet.js';
-import { keysStatus, keysImport, keysAdopt } from '$lib/server/keys.js';
+import { keysStatus, keysImport, keysAdopt, keysReveal, keysRemove } from '$lib/server/keys.js';
 import { passportLast } from '$lib/server/passport.js';
 import { judgeStuck } from '$lib/server/judge.js';
 import { guarded } from '$lib/server/guard.js';
@@ -51,6 +51,8 @@ const ACTIONS = {
   slot_usage: slotUsage,
   judge: judgeStuck,
   keys_status: keysStatus,
+  keys_reveal: keysReveal,
+  keys_remove: keysRemove,
   keys_import: keysImport,
   keys_adopt: keysAdopt,
   project_add: projectAdd,

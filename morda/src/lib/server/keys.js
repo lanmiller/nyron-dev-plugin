@@ -71,6 +71,26 @@ export function keysStatus({ project }) {
   return { project, exists: fs.existsSync(fileOf(root)), names };
 }
 
+/** Показать значение ОДНОГО ключа — хозяину в пульт, по клику. Сессиям путь
+ *  закрыт забором; это ручка человека: «не вижу значение — не могу поправить»
+ *  (CTO 22.08). Наружу пульт торчит только с паролем ключницы. */
+export function keysReveal({ project, name }) {
+  if (!NAME_RE.test(String(name || ''))) throw new Error('имя ключа: A-Z и подчёркивания');
+  const root = rootByName(project);
+  const v = readExisting(root).get(name);
+  if (v === undefined) throw new Error(`ключа ${name} в ключнице нет`);
+  return { name, value: v };
+}
+
+/** Удалить один ключ из ключницы. */
+export function keysRemove({ project, name }) {
+  const root = rootByName(project);
+  const merged = readExisting(root);
+  if (!merged.delete(String(name || ''))) throw new Error(`ключа ${name} нет`);
+  write(root, merged);
+  return { removed: name, total: merged.size };
+}
+
 /** Залить строки KEY=VALUE. Существующие имена перетираются новыми значениями. */
 export function keysImport({ project, text }) {
   const root = rootByName(project);

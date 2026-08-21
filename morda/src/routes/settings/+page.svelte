@@ -557,7 +557,19 @@
     <div class="agent-body keys-body">
       <div class="k-names">
         {#if keysNames.length}
-          {#each keysNames as n (n)}<Badge variant="outline" class="mono">{n}</Badge>{/each}
+          <!-- клик по имени = поправить: подставляет «ИМЯ=» в поле ниже.
+               Клик показывает значение В ПОЛЕ и даёт поправить (решение CTO
+               22.08: хозяину в пульте значения видны; сессиям — закрыты забором) -->
+          {#each keysNames as n (n)}
+            <button class="k-chip mono" title="показать значение {n} и поправить"
+              onclick={async () => {
+                const r = await act({ action: 'keys_reveal', project: keysFor, name: n });
+                if (!r) return;
+                keysDraft = (keysDraft.trim() ? keysDraft.replace(/\n?$/, '\n') : '') + `${r.name}=${r.value}`;
+              }}>
+              {n}
+            </button>
+          {/each}
         {:else}
           <p class="quiet">ключница пуста — залей значения ниже или забери их из .mcp.json</p>
         {/if}
@@ -648,6 +660,12 @@
   .ok-note { color: var(--ok); }
   .keys-body { display: flex; flex-direction: column; gap: var(--sp-4); }
   .k-names { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+  .k-chip {
+    font-size: var(--fs-xs); padding: 3px var(--sp-3); min-height: 28px;
+    background: none; color: var(--text-2); cursor: pointer;
+    border: 1px solid var(--border-soft); border-radius: 999px;
+  }
+  .k-chip:hover { border-color: var(--accent, var(--primary)); color: var(--text-1); }
   .k-input {
     width: 100%; resize: vertical; font-family: var(--mono, monospace);
     font-size: var(--fs-sm); padding: var(--sp-3); border-radius: var(--r);

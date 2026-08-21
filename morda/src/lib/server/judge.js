@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { MORDA_ROOT, TMUX_BIN, SPAWN_ENV, rootByName, transcriptQuietMs } from './fleet.js';
+import { MORDA_ROOT, TMUX_BIN, SPAWN_ENV, transcriptQuietMs, session as readSession } from './fleet.js';
 
 function keysEnv() {
   const out = {};
@@ -41,7 +41,7 @@ function evidence({ name, project, sessionId }) {
   try {
     screen = execFileSync(TMUX_BIN, ['capture-pane', '-t', `stovp-${name}:0.0`, '-p'],
       { timeout: 3000, env: SPAWN_ENV }).toString().split('\n')
-      .filter((l) => l.trim()).slice(-12).join('\n');
+      .filter((l) => l.trim()).slice(-14).join('\n');
   } catch {}
   const quiet = sessionId ? transcriptQuietMs(project, sessionId) : null;
   let hooks = '';
@@ -49,7 +49,26 @@ function evidence({ name, project, sessionId }) {
     hooks = execFileSync('pgrep', ['-fl', 'hub-rearm.sh hook'], { timeout: 2000 })
       .toString().trim();
   } catch {}
-  return { screen, quietMin: quiet != null ? Math.round(quiet / 60000) : null, hooks };
+  // цель и очередь — из реестра раннера; хвост ленты — последние ходы сессии
+  // (совет CTO 22.08: судье больше вводных — суждение точнее)
+  let goal = null, queue = 0;
+  try {
+    const reg = JSON.parse(fs.readFileSync(path.join(MORDA_ROOT, 'runner.json'), 'utf8'));
+    const rec = reg.sessions?.[name];
+    goal = String(rec?.goal || '').slice(0, 300) || null;
+    queue = (rec?.queue || []).length;
+  } catch {}
+  let tail = '';
+  try {
+    const sess = readSession(project, sessionId);
+    tail = (sess?.items || []).slice(-6).map((it) => {
+      const what = it.kind === 'tool' ? `→ ${it.name}: ${String(it.input || '').slice(0, 100)}`
+        : String(it.text || '').slice(0, 160);
+      return `[${it.kind}] ${what.replace(/\s+/g, ' ')}`;
+    }).join('\n');
+  } catch {}
+  return { screen, quietMin: quiet != null ? Math.round(quiet / 60000) : null,
+    hooks, goal, queue, tail };
 }
 
 /** Вердикт тремя строками. Бросает понятную ошибку, если судья не настроен. */
@@ -62,17 +81,19 @@ export async function judgeStuck({ name, project, sessionId }) {
     model: k.JUDGE_MODEL,
     temperature: 0.2,
     max_tokens: 2000, // думающим моделям нужен запас на размышление (факт 22.08)
-    messages: [{ role: 'user', content:
-`Ты — дежурный судья флота CLI-сессий. Отвечай ПО-РУССКИ, ровно три строки:
-1) состояние (работает / встала / ждёт человека) и на основании какого факта;
-2) причина;
-3) конкретное действие для оператора пульта.
-
-Факты о сессии «${name}» (проект ${project}):
-— низ экрана tmux:
-${ev.screen || '(экран пуст)'}
-— лента сессии молчит: ${ev.quietMin != null ? ev.quietMin + ' мин' : 'нет данных'};
-— висящие процессы Stop-хуков: ${ev.hooks || 'нет'}.` }],
+    messages: [
+      { role: 'system', content:
+`Ты — дежурный судья флота CLI-сессий на маке оператора. Сессии — Claude Code в tmux; известные болезни: зависший Stop-хук (строка «running stop hook» с большим временем), фоновые агенты-товарищи без возврата результата, обрыв по лимиту подписки, ожидание ответа человека на форму. «Лента» — транскрипт сессии: живая дописывает его каждые пару минут; спиннер на экране при молчащей ленте — признак зависания, не работы. Отвечай ПО-РУССКИ строго JSON-объектом без обёрток: {"state":"working|stuck|waiting_human","fact":"главная улика одной фразой","cause":"причина одной фразой","action":"конкретный шаг оператора одной фразой","confidence":0..1}` },
+      { role: 'user', content:
+`Сессия «${name}», проект ${project}.
+Цель (начало): ${ev.goal || 'неизвестна'}
+Сообщений в очереди пульта: ${ev.queue}
+Лента молчит: ${ev.quietMin != null ? ev.quietMin + ' мин' : 'нет данных'}
+Висящие Stop-хуки: ${ev.hooks || 'нет'}
+Последние ходы ленты:
+${ev.tail || '(нет)'}
+Низ экрана tmux:
+${ev.screen || '(экран пуст)'}` }],
   };
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 90_000);
@@ -85,8 +106,16 @@ ${ev.screen || '(экран пуст)'}
     if (!r.ok) throw new Error(`судья ответил HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
     const d = await r.json();
     const raw = d.choices?.[0]?.message?.content || '';
-    const verdict = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-    if (!verdict) throw new Error('судья вернул пустой ответ (всё ушло в размышление?)');
-    return { verdict, model: k.JUDGE_MODEL, evidence: ev };
+    const clean = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    if (!clean) throw new Error('судья вернул пустой ответ (всё ушло в размышление?)');
+    // структура — чтобы карточка красилась по полю; не разобралось — текст как есть
+    let parsed = null;
+    try { parsed = JSON.parse(clean.match(/\{[\s\S]*\}/)?.[0] || ''); } catch {}
+    const RU = { working: 'работает', stuck: 'встала', waiting_human: 'ждёт человека' };
+    const verdict = parsed
+      ? `${RU[parsed.state] || parsed.state}: ${parsed.fact}\nПричина: ${parsed.cause}\nДействие: ${parsed.action}`
+      : clean;
+    return { verdict, state: parsed?.state || null, confidence: parsed?.confidence ?? null,
+      model: k.JUDGE_MODEL, evidence: ev };
   } finally { clearTimeout(t); }
 }
