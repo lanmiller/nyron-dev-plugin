@@ -133,13 +133,14 @@ function guardAnswers(input) {
 // ---------- быстрый гейт волн (гриль 18.08: «волна не стартует по красному») ----------
 //
 // Дешёвые проверки без MCP-смоуков — зовётся раннером ПЕРЕД стартом
-// bypass-сессии. Паспорта нет — гейт молчит (переходный период: запрет
-// «неаттестованный проект — волны не запускаются» включится после
-// аттестации ai-evolve). Возвращает список проблем; пустой = зелёный.
+// сессии (с STOVP-61 — в любом режиме, не только bypass).
+// Возвращает: null — паспорта нет; [] — зелёный; [строки] — проблемы.
+// Отличие «нет» от «зелёный» ввёл челлендж Sol по STOVP-57: отсутствующий
+// паспорт числился зелёным, и bypass-волны шли мимо гейта.
 export function passportQuick(root) {
   let pp = null;
   try { pp = JSON.parse(fs.readFileSync(path.join(root, '.claude', 'passport.json'), 'utf8')); }
-  catch { return []; }
+  catch { return null; }
   const problems = [];
   const dir = path.join(root, '.secrets');
   if (!secretsIgnored(root))
@@ -156,6 +157,23 @@ export function passportQuick(root) {
   if (pp.guard && !fs.existsSync(path.join(MORDA_ROOT, 'guard', 'pretooluse-guard.mjs')))
     problems.push('файла забора нет');
   return problems;
+}
+
+/** Решение гейта по паспорту (STOVP-61, решение постановщика 22.08):
+ *  красный паспорт закрывает запуск в ЛЮБОМ режиме; отсутствие паспорта
+ *  закрывает только bypass (решение №7 гриля 16.08: запрет «нет паспорта —
+ *  не стартуем» не должен остановить единственный живой проект до его
+ *  аттестации), остальным режимам — предупреждение в ответе.
+ *  problems — выход passportQuick (null | [] | [строки]). */
+export function passportGate(problems, mode) {
+  if (problems === null) {
+    if (mode === 'bypass')
+      return { block: 'паспорта проекта нет — bypass закрыт: собери паспорт кнопкой «проверить готовность» в настройках', warning: null };
+    return { block: null, warning: 'паспорта проекта нет — собери его кнопкой «проверить готовность» в настройках' };
+  }
+  if (problems.length)
+    return { block: `паспорт проекта красный — запуск закрыт: ${problems.join('; ')} (почини через «проверить готовность» в настройках)`, warning: null };
+  return { block: null, warning: null };
 }
 
 // ---------- сам прогон ----------

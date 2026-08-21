@@ -19,7 +19,7 @@ import { rootByName, tmuxCandidates, paneProcessTree, MORDA_ROOT,
   CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents, sessionMeta,
   RUNNER_STATE_FILE as STATE_FILE, transcriptQuietMs } from './fleet.js';
 import { parseDialog, parsePermission } from './tui.js';
-import { passportQuick, strictMcpProfile } from './passport.js';
+import { passportQuick, passportGate, strictMcpProfile } from './passport.js';
 
 // Префикс всех tmux-сессий раннера: чужие панели (ручной tmux человека)
 // раннер не трогает НИКОГДА — только свои, со своим префиксом.
@@ -286,7 +286,7 @@ function guardSettingsFile() {
  *  workdir (опция, только с сервера) — родной каталог сессии при резюме;
  *  обязан лежать в корне проекта (fail-closed, как openFileOutside). */
 export function runnerStart({ project, goal, name, resumeId, workdir,
-  model, mode, effort, slot, mcp }) {
+  model, mode, effort, slot, mcp }, opts = {}) {
   const root = rootByName(project); // бросит на чужом имени — allowlist
   if (!NAME_RE.test(name || '')) throw new Error('имя: строчные латиница/цифры/дефис');
   checkParams({ model, mode, effort, mcp });
@@ -309,13 +309,18 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
   const prev = reg.sessions[name];
   if (prev && prev.state !== 'stopped' && prev.state !== 'died_on_start' && tmuxAlive(name))
     throw new Error(`запись ${name} уже в реестре`);
-  // гейт паспорта (гриль 18.08): bypass-сессия — только по зелёным
-  // быстрым проверкам; паспорта нет — гейт молчит (переходный период)
-  if (mode === 'bypass') {
-    const problems = passportQuick(root);
-    if (problems.length)
-      throw new Error(`паспорт проекта красный — bypass закрыт: ${problems.join('; ')} (почини через «проверить готовность» в настройках)`);
-  }
+  // Гейт паспорта (STOVP-61): красный паспорт закрывает запуск в любом
+  // режиме, отсутствие паспорта — только bypass (остальным предупреждение);
+  // решение — passportGate, здесь только исполнение. passportlessOk —
+  // СЛУЖЕБНЫЙ второй аргумент (клиент API передаёт только первый): аудитор
+  // запускается ДО паспорта, его работа паспорт и собрать — но пропускается
+  // только ОТСУТСТВИЕ паспорта; красный режет и аудит (кросс-ревью Sol:
+  // краснота чинится кнопкой «проверить готовность», не bypass-сессией).
+  const problems = passportQuick(root);
+  const pgate = (problems === null && opts.passportlessOk)
+    ? { block: null, warning: null }
+    : passportGate(problems, mode);
+  if (pgate.block) throw new Error(pgate.block);
   const args = (resumeId ? ` --resume ${resumeId}` : '')
     + (model ? ` --model ${model}` : '')
     + (mode === 'bypass'
@@ -338,6 +343,9 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
     effort: effort || null, slot: slot || null, mcp: mcp || null,
     startedAt: new Date().toISOString(), state: 'starting',
     stoppedAt: null,
+    // предупреждение гейта («паспорта нет») — в записи, чтобы было видно
+    // по факту запуска, а не потеряно в ответе одного вызова
+    passport_warning: pgate.warning || null,
   };
   saveReg(reg);
   startPoller(name);
@@ -1069,7 +1077,9 @@ export function auditStart({ project }) {
     project, name,
     goal: `${prompt}\n\nПроект: «${project}», корень: ${root}. Вопросы человеку задавай формами AskUserQuestion (пульт показывает их нативно); каждую закрытую ступень — сообщением в чат.`,
     model: 'fable', mode: 'bypass', effort: 'high',
-  });
+    // аудит идёт ДО паспорта: его работа — паспорт собрать (STOVP-61);
+    // пропускается только отсутствие паспорта, красный режет и аудит
+  }, { passportlessOk: true });
 }
 
 /** Код со страницы после входа (только Claude-флоу). */
