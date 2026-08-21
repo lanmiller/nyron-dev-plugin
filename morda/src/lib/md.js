@@ -81,7 +81,19 @@ export function md(src, tracker = null) {
         if (list !== want) { flushList(); out.push(`<${want}>`); list = want; }
         out.push(`<li>${inline((li || oli)[1], tracker)}</li>`);
       } else if (q) { flushPara(); flushList(); out.push(`<blockquote>${inline(q[1], tracker)}</blockquote>`); }
-      else if (!line.trim()) { flushPara(); flushList(); }
+      else if (!line.trim()) {
+        // Пустая строка между пунктами НЕ закрывает список: в разлапистом
+        // списке каждый пункт становился отдельным <ol> и нумерация
+        // начиналась с единицы заново (CTO 21.08 — «список криво отобразился»).
+        // Закрываем, только если дальше список не продолжается.
+        flushPara();
+        if (list) {
+          const nxt = lines.slice(li2 + 1).find((l) => l.trim());
+          const same = nxt && (list === 'ul'
+            ? /^\s*[-*]\s+/.test(nxt) : /^\s*\d+[.)]\s+/.test(nxt));
+          if (!same) flushList();
+        }
+      }
       else para.push(line);
     }
     flushPara(); flushList();
