@@ -128,6 +128,9 @@ test('stalledCard: одна карточка на эпизод, древняя �
     quietMs: 16 * MIN, thresholdMs: 15 * MIN };
   const first = stalledCard(hub, args);
   assert.equal(first.deduped, false);
+  // формат опций — {n, label}: карточка решается кнопкой AskCard (send(o.n))
+  assert.equal(first.ask.options[0].n, 1);
+  assert.ok(first.ask.options[0].label);
   const second = stalledCard(hub, args);
   assert.equal(second.deduped, true);                      // тот же эпизод
   assert.equal(hub.asks({ status: 'open' }).asks.length, 1);

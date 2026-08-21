@@ -109,7 +109,9 @@ export function stalledCard(hub, { key, title, reason, quietMs, thresholdMs, ali
       session: key,
       type: 'choice',
       question: 'Сессия молчит: все ленты без записей дольше порога. Посмотреть или перезапустить?',
-      options: ['вижу, разбираюсь'],
+      // формат опции — {n, label}: AskCard шлёт o.n и рисует o.label
+      // (AskCard.svelte:129; кросс-ревью Sol r3)
+      options: [{ n: 1, label: 'вижу, разбираюсь' }],
       context: `${title || key}: ${reason}`,
       urgency: 'active',
     });
