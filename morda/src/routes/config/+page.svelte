@@ -72,6 +72,7 @@
     }
   }
 
+  const REALM_RU = { account: 'аккаунтный', session: 'сессионный' };
   const TABS = [
     ['mcp', 'Коннекторы', 'MCP-серверы: user-scope раздаётся копиям, project-scope остаётся в проекте'],
     ['skill', 'Скиллы', 'каталоги в skills/ конфиг-каталога аккаунта'],
@@ -176,8 +177,16 @@
                 <Card.Title>{i.title || i.id}</Card.Title>
                 {#if i.why}<Card.Description>{i.why}</Card.Description>{/if}
                 <Card.Action>
-                  <Badge variant="outline">
-                    {i.tag ? `${i.tag} · ` : ''}{i.canon ? 'канон' : 'вне канона'}
+                  <!-- разряд (постановщик 21.08): аккаунтный — личное, нужно
+                       везде; сессионный — под задачу, режется strict-набором -->
+                  <Badge variant="outline"
+                    title={i.realm === 'account'
+                      ? 'аккаунтный: живёт при аккаунте, нужен везде — раздаётся как есть'
+                      : i.realm === 'session'
+                        ? 'сессионный: под задачу; набор сессии режется через --strict-mcp-config'
+                        : 'разряд не назначен — задай в canon.json (realm / realms)'}>
+                    {i.tag ? `${i.tag} · ` : ''}{REALM_RU[i.realm] || 'разряд?'}
+                    · {i.canon ? 'канон' : 'вне канона'}
                   </Badge>
                 </Card.Action>
               </Card.Header>

@@ -35,6 +35,11 @@ function canonItems() {
 function canonTags() {
   return readJson(CANON_FILE)?.tags || {};
 }
+// разряды внеканонных (canon.json → realms): account | session;
+// у канонных разряд лежит прямо в item.realm
+function canonRealms() {
+  return readJson(CANON_FILE)?.realms || {};
+}
 const canonOf = (kind, id) =>
   canonItems().find((c) => c.kind === kind && c.id === id) || null;
 
@@ -109,6 +114,7 @@ export function configMatrix() {
   const pps = projs.map((p) => ({ name: p.name, pp: passportOf(p.root) }));
 
   const tags = canonTags();
+  const realms = canonRealms();
   const row = (item, isCanon) => {
     const copies = {};
     for (const s of slots)
@@ -116,6 +122,7 @@ export function configMatrix() {
     const inProjects = {};
     for (const { name, pp } of pps) inProjects[name] = needIn(item, pp);
     return { ...item, canon: isCanon, tag: tags[item.id] || null,
+      realm: item.realm || realms[item.id] || null,
       main: detect(item, md, mainAcc, true), copies, projects: inProjects };
   };
 
