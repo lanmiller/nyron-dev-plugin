@@ -68,6 +68,22 @@
   // а у формы вопроса — сам вопрос. Сырой JSON «AskUserQuestion {"questions":
   // [{"question":…» в ленте не читался и дублировал форму (CTO 21.08).
   function inputOf(it) {
+    // Воркфлоу — это конвейер стадий, а в ленте он выглядел простынёй
+    // «Workflow {"script":"export const meta = …"» (CTO 21.08: «непонятно,
+    // как с воркфлоу, чтобы видно было»). Показываем имя, суть и стадии.
+    if (it.name === 'Workflow') {
+      const src = String(it.input || '');
+      const name = src.match(/name:\s*'([^']+)'/)?.[1]
+        || src.match(/"name"\s*:\s*"([^"]+)"/)?.[1];
+      const desc = src.match(/description:\s*'([^']+)'/)?.[1]
+        || src.match(/"description"\s*:\s*"([^"]+)"/)?.[1];
+      const phases = [...src.matchAll(/title:\s*'([^']+)'/g)].map((m) => m[1]);
+      // повторный запуск ссылается на сохранённый скрипт — имя берём из пути
+      const fromPath = src.match(/workflows\/scripts\/([\w.-]+)/)?.[1];
+      if (!name && !desc) return fromPath ? `${fromPath} (повторный запуск)` : it.input;
+      return [name, desc, phases.length ? `стадии: ${phases.join(' → ')}` : null]
+        .filter(Boolean).join(' · ');
+    }
     if (it.name !== 'AskUserQuestion') return it.input;
     try {
       const q = JSON.parse(it.input)?.questions || [];
