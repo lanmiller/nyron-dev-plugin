@@ -176,7 +176,9 @@
                 <Card.Title>{i.title || i.id}</Card.Title>
                 {#if i.why}<Card.Description>{i.why}</Card.Description>{/if}
                 <Card.Action>
-                  <Badge variant="outline">{i.canon ? 'канон' : 'вне канона'}</Badge>
+                  <Badge variant="outline">
+                    {i.tag ? `${i.tag} · ` : ''}{i.canon ? 'канон' : 'вне канона'}
+                  </Badge>
                 </Card.Action>
               </Card.Header>
               <Card.Content class="card-facts">

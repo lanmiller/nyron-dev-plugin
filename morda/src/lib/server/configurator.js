@@ -31,6 +31,10 @@ function canonItems() {
   if (!d?.items?.length) throw new Error(`канон не читается: ${CANON_FILE}`);
   return d.items;
 }
+// ярлыки внеканонных инструментов (canon.json → tags): «тестовый» и т.п.
+function canonTags() {
+  return readJson(CANON_FILE)?.tags || {};
+}
 const canonOf = (kind, id) =>
   canonItems().find((c) => c.kind === kind && c.id === id) || null;
 
@@ -104,13 +108,14 @@ export function configMatrix() {
   const projs = projects();
   const pps = projs.map((p) => ({ name: p.name, pp: passportOf(p.root) }));
 
+  const tags = canonTags();
   const row = (item, isCanon) => {
     const copies = {};
     for (const s of slots)
       copies[s.id] = detect(item, s.home, readJson(path.join(s.home, '.claude.json')) || {}, false);
     const inProjects = {};
     for (const { name, pp } of pps) inProjects[name] = needIn(item, pp);
-    return { ...item, canon: isCanon,
+    return { ...item, canon: isCanon, tag: tags[item.id] || null,
       main: detect(item, md, mainAcc, true), copies, projects: inProjects };
   };
 
