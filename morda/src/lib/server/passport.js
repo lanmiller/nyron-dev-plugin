@@ -341,3 +341,31 @@ function codexDocLimit() {
 function sizeOf(f) {
   try { return fs.statSync(f).size; } catch { return 0; }
 }
+
+// ---------- строгий MCP-профиль сессии (разряды, решение постановщика 21.08) ----------
+//
+// Сессия под задачу не тащит все серверы машины (факт 21.08: дефолт CLI —
+// 25 серверов, 167+ инструментов). Профиль = MCP из паспорта проекта
+// (команды — из его .mcp.json, cwd сессии = корень, относительные пути
+// работают) + аккаунтные по канону (realm=account, user-scope основного).
+// Режет набор ТОЛЬКО связка --strict-mcp-config + --mcp-config: проверено
+// фактом — без strict флаг --mcp-config лишь добавляет к дефолту.
+export function strictMcpProfile(root) {
+  const j = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
+  const canon = j(path.join(MORDA_ROOT, 'canon.json')) || {};
+  const acc = j(path.join(os.homedir(), '.claude.json'))?.mcpServers || {};
+  const accountIds = [
+    ...(canon.items || []).filter((c) => c.kind === 'mcp' && c.realm === 'account').map((c) => c.id),
+    ...Object.entries(canon.realms || {}).filter(([, r]) => r === 'account').map(([id]) => id),
+  ];
+  const servers = {}, from = [], missing = [];
+  for (const id of accountIds)
+    if (acc[id]) { servers[id] = acc[id]; from.push(`${id} (аккаунтный)`); }
+  const pp = j(path.join(root, '.claude', 'passport.json'));
+  const proj = j(path.join(root, '.mcp.json'))?.mcpServers || {};
+  for (const name of Object.keys(pp?.mcp || {})) {
+    if (proj[name]) { servers[name] = proj[name]; from.push(`${name} (паспорт)`); }
+    else missing.push(name);
+  }
+  return { servers, from, missing };
+}

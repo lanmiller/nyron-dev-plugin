@@ -19,7 +19,7 @@ import { rootByName, tmuxCandidates, paneProcessTree, MORDA_ROOT,
   CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents, sessionMeta,
   RUNNER_STATE_FILE as STATE_FILE } from './fleet.js';
 import { parseDialog, parsePermission } from './tui.js';
-import { passportQuick } from './passport.js';
+import { passportQuick, strictMcpProfile } from './passport.js';
 
 // Префикс всех tmux-сессий раннера: чужие панели (ручной tmux человека)
 // раннер не трогает НИКОГДА — только свои, со своим префиксом.
@@ -236,10 +236,25 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
 const MODELS = new Set(['fable', 'opus', 'sonnet', 'haiku']);
 const MODES = new Set(['auto', 'acceptEdits', 'plan', 'bypass']);
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
-function checkParams({ model, mode, effort }) {
+function checkParams({ model, mode, effort, mcp }) {
   if (model && !MODELS.has(model)) throw new Error(`модель: ${[...MODELS].join('|')}`);
   if (mode && !MODES.has(mode)) throw new Error(`режим: ${[...MODES].join('|')} (без диалогов — только после забора-хука)`);
   if (effort && !EFFORTS.has(effort)) throw new Error(`effort: ${[...EFFORTS].join('|')}`);
+  if (mcp && mcp !== 'strict') throw new Error('mcp: strict|пусто (пусто = все серверы машины)');
+}
+
+// Строгий MCP-профиль сессии (разряды, 21.08): файл генерится на КАЖДЫЙ
+// старт заново — паспорт и канон могли смениться, а реестр переносим.
+// Файл per-имя: параллельные сессии разных проектов не толкаются.
+function strictMcpFile(name, root) {
+  const { servers, missing } = strictMcpProfile(root);
+  if (missing.length)
+    throw new Error(`строгий профиль: серверы паспорта не описаны в .mcp.json проекта: ${missing.join(', ')}`);
+  if (!Object.keys(servers).length)
+    throw new Error('строгий профиль пуст: ни паспорта с mcp, ни аккаунтных в каноне — запусти без строгого набора');
+  const file = path.join(MORDA_ROOT, `runner-mcp-${name}.json`);
+  fs.writeFileSync(file, JSON.stringify({ mcpServers: servers }, null, 2));
+  return file;
 }
 
 // Bypass — ТОЛЬКО за забором (канон «забор до свободы», порядок незыблем):
@@ -266,10 +281,10 @@ function guardSettingsFile() {
  *  workdir (опция, только с сервера) — родной каталог сессии при резюме;
  *  обязан лежать в корне проекта (fail-closed, как openFileOutside). */
 export function runnerStart({ project, goal, name, resumeId, workdir,
-  model, mode, effort, slot }) {
+  model, mode, effort, slot, mcp }) {
   const root = rootByName(project); // бросит на чужом имени — allowlist
   if (!NAME_RE.test(name || '')) throw new Error('имя: строчные латиница/цифры/дефис');
-  checkParams({ model, mode, effort });
+  checkParams({ model, mode, effort, mcp });
   let slotDef = null;
   if (slot) {
     slotDef = loadSlots().slots.find((x) => x.id === slot);
@@ -301,7 +316,12 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
     + (mode === 'bypass'
       ? ` --permission-mode bypassPermissions --settings ${guardSettingsFile()}`
       : mode ? ` --permission-mode ${mode}` : '')
-    + (effort ? ` --effort ${effort}` : '');
+    + (effort ? ` --effort ${effort}` : '')
+    // строгий набор: паспорт + аккаунтные из канона, остальное отсечено.
+    // Профиль — от каталога сессии (dir): его .mcp.json и паспорт, и
+    // относительные пути команд резолвятся от того же cwd, что у CLI
+    + (mcp === 'strict'
+      ? ` --strict-mcp-config --mcp-config ${strictMcpFile(name, dir)}` : '');
   const targs = ['new-session', '-d', '-s', TMUX_PREFIX + name];
   for (const [k, v] of Object.entries(slotEnv(slotDef || {}))) targs.push('-e', `${k}=${v}`);
   targs.push('-c', dir, CLAUDE_BIN + args);
@@ -310,7 +330,7 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
     project, root: dir, goal: goal || null, goalSent: false,
     sessionId: resumeId || null,
     model: model || null, mode: mode || null,
-    effort: effort || null, slot: slot || null,
+    effort: effort || null, slot: slot || null, mcp: mcp || null,
     startedAt: new Date().toISOString(), state: 'starting',
     stoppedAt: null,
   };
@@ -348,7 +368,7 @@ export function runnerResume({ name, goal }) {
     resumeId: s.sessionId,
     workdir: s.root,              // родной каталог записи, не корень проекта
     model: s.model || null, mode: s.mode || null,
-    effort: s.effort || null, slot: s.slot || null,
+    effort: s.effort || null, slot: s.slot || null, mcp: s.mcp || null,
   });
 }
 
@@ -614,14 +634,15 @@ export function runnerType({ name, digit, text, enter = true }) {
  *  старте — запрос CTO 17.08). Живую перезапускаем резюмом с новыми
  *  аргументами (контекст цел — факт этапа 0), запаркованной параметры
  *  просто записываются до следующего подъёма. */
-export function runnerRetune({ name, model, mode, effort }) {
+export function runnerRetune({ name, model, mode, effort, mcp }) {
   const reg = loadReg();
   const s = reg.sessions[name];
   if (!s) throw new Error(`нет записи ${name}`);
-  checkParams({ model, mode, effort });
+  checkParams({ model, mode, effort, mcp });
   if (model !== undefined) s.model = model || null;
   if (mode !== undefined) s.mode = mode || null;
   if (effort !== undefined) s.effort = effort || null;
+  if (mcp !== undefined) s.mcp = mcp || null;
   saveReg(reg);
   if (!tmuxAlive(name)) return { ...s, restarted: false };
   runnerStop({ name });

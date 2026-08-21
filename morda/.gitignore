@@ -6,3 +6,4 @@ epics.json
 runner.json
 slots.json
 runner-guard-settings.json
+runner-mcp-*.json

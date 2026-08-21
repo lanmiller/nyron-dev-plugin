@@ -18,7 +18,7 @@
   import PickChip from '$lib/PickChip.svelte';
   import * as Sheet from '$lib/ui/sheet/index.js';
   import TmuxPanel from '$lib/TmuxPanel.svelte';
-  import { MODEL_OPTS, EFFORT_OPTS, MODE_OPTS } from '$lib/composer-options.js';
+  import { MODEL_OPTS, EFFORT_OPTS, MODE_OPTS, MCP_OPTS } from '$lib/composer-options.js';
   import { Button } from '$lib/ui/button/index.js';
   import { Badge } from '$lib/ui/badge/index.js';
   import { Skeleton } from '$lib/ui/skeleton/index.js';
@@ -355,6 +355,7 @@
   let tuneModel = $state('fable');
   let tuneEffort = $state('high');
   let tuneMode = $state('auto');
+  let tuneMcp = $state('');
   let tuneName = null;   // за какую запись раннера отвечают чипы
   let prevTune = null;   // отпечаток значений: сид ≠ смена человеком
   $effect(() => {
@@ -364,15 +365,16 @@
     tuneModel = r.model || 'fable';
     tuneEffort = r.effort || 'high';
     tuneMode = r.mode || '';
+    tuneMcp = r.mcp || '';
     prevTune = null;
   });
   $effect(() => {
-    const cur = [tuneModel, tuneMode, tuneEffort].join('|');
+    const cur = [tuneModel, tuneMode, tuneEffort, tuneMcp].join('|');
     if (!data?.runner) return;
     if (prevTune === null) { prevTune = cur; return; }
     if (cur === prevTune) return;
     prevTune = cur;
-    runnerAct('retune', { model: tuneModel, mode: tuneMode, effort: tuneEffort });
+    runnerAct('retune', { model: tuneModel, mode: tuneMode, effort: tuneEffort, mcp: tuneMcp });
   });
 
   // Живой TUI-диалог CLI (HITL-пикер, /usage, /model): транскрипт его не
@@ -1044,6 +1046,8 @@
             subOptions={EFFORT_OPTS} />
           <PickChip bind:value={tuneMode} disabled={runnerBusy}
             title="Разрешения — смена перезапустит сессию резюмом" options={MODE_OPTS} />
+          <PickChip bind:value={tuneMcp} disabled={runnerBusy}
+            title="MCP-набор — смена перезапустит сессию резюмом" options={MCP_OPTS} />
         {/if}
         <span class="grow"></span>
         {#if data.runner?.busy && !draft.trim() && !attachments.length}

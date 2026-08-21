@@ -6,7 +6,7 @@
   import FileBrowser from '$lib/FileBrowser.svelte';
   import Icon from '$lib/Icon.svelte';
   import PickChip from '$lib/PickChip.svelte';
-  import { MODEL_OPTS, EFFORT_OPTS, MODE_OPTS } from '$lib/composer-options.js';
+  import { MODEL_OPTS, EFFORT_OPTS, MODE_OPTS, MCP_OPTS } from '$lib/composer-options.js';
   import { Button } from '$lib/ui/button/index.js';
   import { Badge } from '$lib/ui/badge/index.js';
   import * as Card from '$lib/ui/card/index.js';
@@ -32,6 +32,7 @@
   let launchError = $state(null);
   // дефолты запуска — канон CTO: основной слот + Fable 5, Auto, high
   let launchMode = $state('auto');
+  let launchMcp = $state('');   // '' = все серверы; strict = профиль под задачу
   let launchModel = $state('fable');
   let launchEffort = $state('high');
   let launchSlot = $state('claude-main');
@@ -83,6 +84,7 @@
           action: 'start', project: target, name, goal: text,
           model: launchModel, effort: launchEffort,
           mode: launchMode || undefined,
+          mcp: launchMcp || undefined,
           slot: launchSlot || undefined,
         }),
       });
@@ -171,6 +173,9 @@
           subOptions={EFFORT_OPTS} />
         <PickChip bind:value={launchMode} disabled={launching}
           title="Как сессия спрашивает разрешения" options={MODE_OPTS} />
+        <PickChip bind:value={launchMcp} disabled={launching}
+          title="MCP-набор сессии: все серверы машины или строгий профиль под задачу"
+          options={MCP_OPTS} />
         <span class="grow"></span>
         <button class="send" disabled={launching || !goal.trim()} onclick={launch}
           aria-label="запустить новую сессию (Enter)"
