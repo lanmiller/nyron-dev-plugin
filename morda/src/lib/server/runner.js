@@ -734,6 +734,12 @@ export function slotEnv(slot) {
 }
 const authName = (id) => `auth-${id}`;    // tmux: stovp-auth-<id>
 
+/** Копии подписки Claude (свой home) — адресаты раздачи и колонки матрицы
+ *  конфигуратора; основной (home: null) копией не считается. */
+export function claudeSlots() {
+  return loadSlots().slots.filter((s) => s.provider === 'claude' && s.home);
+}
+
 // Служебные auth-сессии не живут вечно: постояв без дела полчаса, глушатся
 // (поднимутся сами при следующей проверке/подключении). Иначе на машине
 // копятся «висящие терминалы» с клодом — жалоба CTO 19.08: сессии от 17.08

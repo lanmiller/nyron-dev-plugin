@@ -1,0 +1,31 @@
+{
+  "_": "Канон флота (конфигуратор, docs/specs/2026-08-20-configurator.md): что обязано стоять у ОСНОВНОГО аккаунта и приезжать всем копиям. Правится руками здесь, едет в git. install у MCP — готовый user-scope конфиг для кнопки «поставить основному».",
+  "items": [
+    {
+      "id": "playwright",
+      "kind": "mcp",
+      "title": "Playwright — браузер фактом",
+      "why": "скриншоты и e2e-проверки из сессий; сейчас прописан только в проекте ai-evolve — копиям не раздаётся",
+      "install": { "type": "stdio", "command": "npx", "args": ["@playwright/mcp@latest"], "env": {} }
+    },
+    {
+      "id": "memory",
+      "kind": "mcp",
+      "title": "Memory MCP — память между сессиями",
+      "why": "персистентный граф знаний аккаунта",
+      "install": { "type": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"], "env": {} }
+    },
+    { "id": "find-docs", "kind": "skill", "title": "find-docs — свежие доки библиотек" },
+    { "id": "impeccable", "kind": "skill", "title": "impeccable — дизайн интерфейсов" },
+    { "id": "shadcn-svelte", "kind": "skill", "title": "shadcn-svelte — UI-компоненты" },
+    { "id": "langfuse", "kind": "skill", "title": "langfuse — трейсы и промпты" },
+    {
+      "id": "design-system",
+      "kind": "skill",
+      "title": "скилл дизайн-системы",
+      "why": "канон CTO: новый кусок UI — сразу в app.css и на витрину /design; самого скилла на машине пока нет — источник назовёт CTO"
+    },
+    { "id": "superpowers", "kind": "plugin", "title": "superpowers — процессные скиллы", "marketplace": "claude-plugins-official" },
+    { "id": "nyron-dev", "kind": "plugin", "title": "nyron-dev — операционка команды", "marketplace": "nyron-dev-marketplace-v2" }
+  ]
+}

@@ -49,7 +49,10 @@ const SECRET_RE = /ATATT[\w=.-]{20,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|
 
 // Мини-клиент MCP поверх stdio (протокол — JSON-RPC по строкам): запустить
 // команду из .mcp.json, initialize → tools/call смоук-инструмента.
-function mcpSmoke({ cfg, tool, args, timeoutMs = 45_000 }) {
+// Без tool (null) — initialize → tools/list: сервер всё равно реально
+// запускается и отвечает; так смоукаются записи паспорта без смоука и
+// account-scope серверы конфигуратора.
+export function mcpSmoke({ cfg, tool, args, timeoutMs = 45_000 }) {
   return new Promise((resolve) => {
     let child;
     try {
@@ -86,10 +89,19 @@ function mcpSmoke({ cfg, tool, args, timeoutMs = 45_000 }) {
         try { msg = JSON.parse(line); } catch { continue; }
         if (msg.id === 1) {
           send({ jsonrpc: '2.0', method: 'notifications/initialized' });
-          send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: tool, arguments: args } });
+          send(tool
+            ? { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: tool, arguments: args } }
+            : { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
         }
         if (msg.id === 2) {
           clearTimeout(timer);
+          if (!tool) {
+            const n = msg.result?.tools?.length;
+            finish(n >= 0
+              ? { ok: true, fact: `отвечает: инструментов ${n}` }
+              : { ok: false, fact: msg.error ? JSON.stringify(msg.error).slice(0, 260) : 'tools/list без ответа' });
+            continue;
+          }
           const text = msg.result?.content?.find((c) => c.type === 'text')?.text
             || (msg.error ? JSON.stringify(msg.error) : '');
           finish(msg.result && !msg.result.isError
@@ -252,8 +264,8 @@ export async function passportCheck({ project }) {
       }
       const args = JSON.parse(JSON.stringify(req.smoke?.args || {}),
         (k, v) => (typeof v === 'string' && v.startsWith('$') ? (vars[v.slice(1)] ?? v) : v));
-      const r = await mcpSmoke({ cfg: { ...cfg, cwd: root }, tool: req.smoke?.tool, args });
-      items.push(item(`mcp:${name}`, `MCP ${name} — ${req.smoke?.tool}`, r.ok, r.fact,
+      const r = await mcpSmoke({ cfg: { ...cfg, cwd: root }, tool: req.smoke?.tool || null, args });
+      items.push(item(`mcp:${name}`, `MCP ${name} — ${req.smoke?.tool || 'tools/list'}`, r.ok, r.fact,
         `сервер не ответил: проверь Docker (если сервер докерный), ключи в .secrets/ и команду в .mcp.json; ручной смоук: node morda/keys/with-keys.mjs …`));
     }
   }
