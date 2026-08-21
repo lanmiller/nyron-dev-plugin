@@ -9,6 +9,40 @@
   let { screen = '', tmux = null, onKey = null, onType = null, busy = false,
     error = null, extra = null } = $props();
 
+  // Экран приходит с ANSI-кодами (capture-pane -e). Красить весь терминал
+  // палитрой пульта нечестно, но одно различие обязано выжить: серые
+  // подсказки CLI (fg 38;5;232-253, 90, dim) против набранного человеком
+  // (дефолтный цвет) — подсказку дважды принимали за неотправленное
+  // сообщение и жали Enter впустую (CTO 21.08). Прочие коды снимаются.
+  const OSC_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g;
+  const ESC_RE = /\x1b\[([0-9;]*)m|\x1b\[[0-9;?]*[A-Za-z]|\x1b./g;
+  const isGrey = (n) => n === 8 || (n >= 232 && n <= 253);
+  function segments(raw) {
+    const txt = String(raw || '').replace(OSC_RE, '');
+    const out = [];
+    let ghost = false, buf = '', i = 0, m;
+    const push = () => { if (buf) out.push({ t: buf, ghost }); buf = ''; };
+    while ((m = ESC_RE.exec(txt))) {
+      buf += txt.slice(i, m.index);
+      i = ESC_RE.lastIndex;
+      if (m[1] === undefined) continue;              // не-SGR код — выкинуть
+      const c = m[1] === '' ? [0] : m[1].split(';').map(Number);
+      let g = ghost;
+      for (let k = 0; k < c.length; k++) {
+        if (c[k] === 0 || c[k] === 22 || c[k] === 39) g = false;
+        else if (c[k] === 2 || c[k] === 90) g = true;
+        else if ((c[k] >= 30 && c[k] <= 37) || (c[k] >= 91 && c[k] <= 97)) g = false;
+        else if (c[k] === 38 && c[k + 1] === 5) { g = isGrey(c[k + 2]); k += 2; }
+        else if (c[k] === 38 && c[k + 1] === 2) { g = false; k += 4; }
+      }
+      if (g !== ghost) { push(); ghost = g; }
+    }
+    buf += txt.slice(i);
+    push();
+    return out;
+  }
+  let segs = $derived(segments(screen));
+
   // ввод текста прямо в терминал: клавиш мало, когда нужно набрать команду
   // или ответ (CTO 20.08 — «ввод не пашет»)
   let line = $state('');
@@ -77,7 +111,7 @@
       onfocus={() => (live = !!onKey)}
       onblur={() => { flush(); live = false; }}
       role="textbox" aria-label="экран терминала — кликни, чтобы печатать прямо в сессию"
-    >{screen || 'читаю экран…'}</pre>
+    >{#if !screen}читаю экран…{:else}{#each segs as s}{#if s.ghost}<span class="ghost">{s.t}</span>{:else}{s.t}{/if}{/each}{/if}</pre>
     {#if onKey}
       <button class="live-hint" onclick={() => screenEl?.focus()}>
         {live ? 'печатаешь прямо в сессию · Esc-ом не выйти, кликни мимо'
@@ -111,6 +145,9 @@
      нажатия уходят в сессию, а не в браузер. */
   .screen-wrap { position: relative; }
   .cli-screen:focus { outline: none; }
+  /* серое CLI (подсказки, рамки, хвост статуса) остаётся приглушённым —
+     как в настоящем терминале; набранное человеком — обычным цветом */
+  .ghost { color: var(--text-4); }
   .cli-screen.live { box-shadow: inset 0 0 0 2px var(--accent, var(--primary)); }
   .live-hint {
     display: block; width: 100%; margin-top: var(--sp-2); padding: 0;

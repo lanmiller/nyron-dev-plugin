@@ -494,7 +494,9 @@ export function slotScreen({ id, lines = 60 }) {
   const name = authName(s.id);
   if (!tmuxAlive(name)) throw new Error('служебной сессии нет — нажми «проверить фактом»');
   const n = Math.min(Math.max(Number(lines) || 60, 10), 200);
-  return { screen: capture(name, n).replace(/\s+$/, ''), tmux: TMUX_PREFIX + name };
+  // с ANSI: панель приглушает серые подсказки CLI, чтобы они не читались
+  // как набранный текст (CTO 21.08 — дважды жал Enter на подсказку)
+  return { screen: captureEsc(name, n).replace(/\s+$/, ''), tmux: TMUX_PREFIX + name };
 }
 
 /** Раздать копии конфиг основного аккаунта (CTO 20.08: «нужно подкидывать
@@ -563,7 +565,8 @@ export function slotKey({ id, key }) {
 export function runnerScreen({ name, lines = 60 }) {
   if (!tmuxAlive(name)) throw new Error(`нет живой tmux-сессии ${name}`);
   const n = Math.min(Math.max(Number(lines) || 60, 10), 200);
-  return { screen: capture(name, n).replace(/\s+$/, ''), at: new Date().toISOString() };
+  // с ANSI — см. slotScreen: серое на экране CLI должно остаться серым
+  return { screen: captureEsc(name, n).replace(/\s+$/, ''), at: new Date().toISOString() };
 }
 
 /** Клавиша в живой диалог CLI (пикер HITL, /usage, /model). Семантика
