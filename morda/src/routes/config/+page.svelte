@@ -100,7 +100,7 @@
 
 {#if data}
   <!-- светофор потока: главный факт страницы — можно ли уже раздавать -->
-  <section class="flow" class:green={data.main_green}>
+  <section class="banner mb" class:ok={data.main_green} class:warn={!data.main_green}>
     <Icon name={data.main_green ? 'circle-check' : 'circle-alert'} size={16} />
     {#if data.main_green}
       <b>Основной по канону</b> — раздача копиям открыта.
@@ -159,7 +159,7 @@
       {#each TABS as [k, title] (k)}
         <Tabs.Trigger value={k}>{title}
           {#if ofKind(k).some((i) => i.canon && !i.main.ok)}
-            <i class="dot hot"></i>
+            <i class="dot" style="background: var(--hot)"></i>
           {/if}
         </Tabs.Trigger>
       {/each}
@@ -241,7 +241,7 @@
                   <div class="need-row">
                     {#each data.projects as p (p)}
                       {@const on = i.projects[p]?.required}
-                      <button class="chip pick" class:on disabled={busy}
+                      <button class="chip" class:on disabled={busy}
                         title={on ? 'убрать из паспорта' : 'записать в паспорт'}
                         onclick={() => requireIn(i, p, !on)}>{p}</button>
                     {/each}
@@ -262,14 +262,8 @@
   .head { margin-bottom: var(--sp-6); }
   .head h1 { font-size: var(--fs-xl); margin: 0 0 var(--sp-2); }
   .head p { margin: 0; font-size: var(--fs-sm); }
-  .flow {
-    display: flex; align-items: center; gap: var(--sp-3);
-    padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-4);
-    border: 1px solid color-mix(in oklab, var(--warn) 45%, transparent);
-    border-radius: var(--r); font-size: var(--fs-sm); color: var(--warn);
-  }
-  .flow.green { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, transparent); }
-  .flow b { color: inherit; }
+  /* .banner (светофор) и .chip.on — из дизайн-системы (app.css, витрина /design) */
+  .mb { margin-bottom: var(--sp-4); }
   .copies-row { display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-bottom: var(--sp-4); }
   .copy-chip {
     display: flex; align-items: center; gap: var(--sp-3);
@@ -299,13 +293,7 @@
   }
   .fact > span { min-width: 0; }
   .chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
-  .chip {
-    font-style: normal; font-size: var(--fs-micro); line-height: 1;
-    padding: 3px 7px; border-radius: 999px;
-    border: 1px solid var(--border-soft); color: var(--text-3);
-  }
-  .chip.on { border-color: color-mix(in oklab, var(--ok) 45%, transparent); color: var(--ok); }
-  .chip.pick { background: var(--bg-1); cursor: pointer; font: inherit; font-size: var(--fs-micro); }
+  .chips :global(.chip) { font-style: normal; }
   .smoke { margin: 0; font-size: var(--fs-xs); color: var(--text-3); }
   .smoke.ok { color: var(--ok); }
   .smoke.bad { color: var(--hot); }
@@ -314,5 +302,6 @@
     display: flex; flex-wrap: wrap; gap: var(--sp-2);
     padding-top: var(--sp-3); border-top: 1px solid var(--border-soft);
   }
-  .dot.hot { width: 6px; height: 6px; border-radius: 50%; background: var(--hot); display: inline-block; margin-left: 4px; }
+  /* .dot — атом системы; здесь только отступ от текста таба */
+  .dot { margin-left: 4px; width: 6px; height: 6px; }
 </style>
