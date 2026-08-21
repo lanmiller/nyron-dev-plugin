@@ -265,9 +265,15 @@
 <style>
   /* Раскладка: на телефоне дерево над просмотром, на широком — колонками.
      Обе колонки катаются сами, поверхность держит заданную высоту. */
-  .cols { display: grid; grid-template-rows: minmax(0, 1fr) auto; flex: 1; min-height: 0; }
+  /* колонками — по ширине САМОГО браузера, а не экрана: в боковой панели
+     сессии он широкий по монитору, но узкий по себе, и просмотр файла
+     сплющивался в вертикальную полоску букв (факт 21.08) */
+  .cols {
+    display: grid; grid-template-rows: minmax(0, 1fr) auto; flex: 1; min-height: 0;
+    container-type: inline-size;
+  }
   .cols.picked { grid-template-rows: minmax(0, 2fr) minmax(0, 3fr); }
-  @media (min-width: 901px) {
+  @container (min-width: 720px) {
     .cols, .cols.picked {
       grid-template-rows: none; grid-template-columns: minmax(200px, 300px) minmax(0, 1fr);
     }

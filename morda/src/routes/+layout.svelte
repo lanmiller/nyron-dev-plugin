@@ -100,6 +100,11 @@
 
   // выдвижная навигация на узком экране; закрывается при переходе
   let navOpen = $state(false);
+  // свёрнутость сайдбара переживает перезагрузку: иначе каждый заход
+  // возвращал бы колонку, которую человек только что убрал
+  let sideFolded = $state(false);
+  onMount(() => { sideFolded = localStorage.getItem('stovp:side') === 'folded'; });
+  $effect(() => { try { localStorage.setItem('stovp:side', sideFolded ? 'folded' : 'open'); } catch {} });
   afterNavigate(() => { navOpen = false; });  // эффект по page.url гасил открытие сразу
   // в шапке — имя открытой сессии: своя шапка сессии на телефоне съедала
   // экран, а при прокрутке уезжала (CTO 11.08)
@@ -368,7 +373,15 @@
 </header>
 
 <div class="shell">
-  <aside>{@render sidebar()}</aside>
+  <aside class:folded={sideFolded}>
+    <!-- сворачивается, как в приложении Клода: на широком экране лента
+         часто важнее списка сессий (просьба CTO 21.08) -->
+    <button class="fold" onclick={() => (sideFolded = !sideFolded)}
+      title={sideFolded ? 'развернуть список сессий' : 'свернуть список сессий'}>
+      <Icon name={sideFolded ? 'panel-left-open' : 'panel-left-close'} size={16} />
+    </button>
+    {#if !sideFolded}{@render sidebar()}{/if}
+  </aside>
 
   <main>
     {#if st.overview?.error}<p class="err">{st.overview.error}</p>{/if}
@@ -493,7 +506,15 @@
       width: 264px; height: 100vh;
       background: var(--bg-0); border-right: 1px solid var(--border-soft);
     }
-    .side { padding: var(--sp-6) var(--sp-5) var(--sp-5); }
+    aside.folded { width: 48px; }
+    .fold {
+      display: flex; align-items: center; justify-content: flex-start;
+      width: 100%; min-height: 44px; padding: 0 var(--sp-5);
+      background: none; border: 0; color: var(--text-4); cursor: pointer;
+    }
+    aside.folded .fold { justify-content: center; padding: 0; }
+    .fold:hover { color: var(--text-2); }
+    .side { padding: 0 var(--sp-5) var(--sp-5); }
     main { padding: 18px 32px 60px; }
   }
 </style>

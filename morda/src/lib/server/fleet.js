@@ -448,14 +448,20 @@ export function sessions(project) {
         // тогда живые сессии выглядели «вне надзора» — тусклыми, хотя писали
         // секунду назад. Свежесть транскрипта — независимый признак: пишет
         // прямо сейчас = работает, вердикт сторожа тут не нужен.
+        // ...а раннерская и живая = работает: свежесть транскрипта её не
+        // ловит, пока думают субагенты (главный файл молчит дольше пяти
+        // минут — аудитор psylia висел серым «вне надзора», факт 21.08).
+        // Вердикт сторожа сильнее: он умеет отличить «ждёт» от «работает».
         state: parked ? 'parked'
           : watch.get(s.key)?.state
           || (Date.now() - new Date(s.mtime).getTime() < 5 * 60 * 1000
-            ? 'working' : null),
+            ? 'working' : null)
+          || (owned.get(s.key)?.alive ? 'working' : null),
         reason: parked ? 'CLI закрыт, транскрипт цел — поднимется от сообщения или кнопкой «резюм»'
           : watch.get(s.key)?.reason
           || (Date.now() - new Date(s.mtime).getTime() < 5 * 60 * 1000
-            ? 'пишет прямо сейчас (сторож молчит)' : null),
+            ? 'пишет прямо сейчас (сторож молчит)' : null)
+          || (owned.get(s.key)?.alive ? 'CLI-сессия пульта жива (сторож молчит)' : null),
         open_asks: open.get(s.key) || 0,
         epic: toEpic(r?.epic || named),
         epic_title: epicTitle(toEpic(r?.epic || named)),
@@ -547,6 +553,13 @@ export function session(project, key) {
     ...hub.asks({ session: key, status: 'acknowledged' }).asks.slice(-3),
   ];
   const { file, ...rest } = r; // абсолютный путь клиенту не нужен
+  // имя сессии знает список (он его выводит из первой реплики), а чтение
+  // одной сессии — нет: окно писало «(без названия)» там, где сайдбар в той
+  // же секунде показывал имя (факт 21.08). Берём из того же списка.
+  if (!rest.title) {
+    const inList = listSessionsCached(root).find((s) => s.key === key);
+    if (inList) { rest.title = inList.title; rest.short = rest.short || inList.short; }
+  }
   const tracker = trackerFor(root);
   // незакрытый родной HITL (AskUserQuestion без tool_result) — форма ждёт
   // человека; гаснет, если ПОСЛЕ формы уже была реплика человека (ответ

@@ -37,6 +37,54 @@
   let project = $derived(page.params.project);
   let key = $derived(page.params.key);
 
+  // План сессии: свой список задач она ведёт тулами TaskCreate/TaskUpdate, и
+  // он был виден только в терминале — в чате человек не понимал, на каком
+  // шаге работа (жалоба CTO 21.08 на аудиторе psylia). Данные уже в ленте,
+  // отдельной ручки не нужно: собираем проекцией.
+  const TASK_RU = { in_progress: 'идёт', completed: 'готово', cancelled: 'снята' };
+  let plan = $derived.by(() => {
+    const byId = new Map();
+    for (const it of data?.items || []) {
+      if (it.kind !== 'tool') continue;
+      let inp = {};
+      try { inp = typeof it.input === 'string' ? JSON.parse(it.input) : (it.input || {}); } catch {}
+      if (it.name === 'TaskCreate') {
+        // номер задачи живёт в ответе тула: «Task #3 created successfully»
+        const id = String(it.result || '').match(/#(\d+)/)?.[1];
+        if (id) byId.set(id, { id, subject: inp.subject || '', active: inp.activeForm || '', status: 'pending' });
+      } else if (it.name === 'TaskUpdate' && byId.has(String(inp.taskId))) {
+        const t = byId.get(String(inp.taskId));
+        if (inp.status) t.status = inp.status;
+        if (inp.subject) t.subject = inp.subject;
+      }
+    }
+    return [...byId.values()];
+  });
+  let planNow = $derived(plan.find((t) => t.status === 'in_progress') || null);
+  let planDone = $derived(plan.filter((t) => t.status === 'completed').length);
+  let planOpen = $state(false);
+
+  // Ширину колонки файлов человек тянет сам и она запоминается: единственного
+  // «правильного» деления нет — читаешь документ, нужен файл шире; пишешь в
+  // чат, шире нужен чат (просьба CTO 21.08).
+  let bodyEl = $state(null);
+  let paneW = $state(460);
+  let dragging = $state(false);
+  onMount(() => {
+    const v = Number(localStorage.getItem('stovp:pane'));
+    if (v >= 300) paneW = v;
+  });
+  function gripMove(e) {
+    if (!dragging || !bodyEl) return;
+    const r = bodyEl.getBoundingClientRect();
+    paneW = Math.min(Math.max(r.right - e.clientX, 300), Math.max(320, r.width - 380));
+  }
+  function gripUp() {
+    if (!dragging) return;
+    dragging = false;
+    try { localStorage.setItem('stovp:pane', String(Math.round(paneW))); } catch {}
+  }
+
   // Окно открывается СРАЗУ после запуска, ещё до привязки транскрипта
   // (CTO 19.08: ждать молча на главной было непонятно). Ключ вида «n-<имя>»
   // — это запись раннера: показываем стадию старта и подменяем адрес на
@@ -467,7 +515,7 @@
 </script>
 
 <svelte:head><title>{data?.title || key?.slice(0, 8)} — STOVP</title></svelte:head>
-<svelte:window onkeydown={dialogKeydown} />
+<svelte:window onkeydown={dialogKeydown} onpointermove={gripMove} onpointerup={gripUp} />
 
 {#if starting}
   <!-- сессия рождается: человек видит стадию, а не пустой экран -->
@@ -538,15 +586,16 @@
     {#if data.reason}<p class="reason quiet">{data.reason}</p>{/if}
   </header>
 
-  {#if files}
-    <div class="mb-3.5">
-      <FileBrowser {project} tracker={data.tracker} onClose={() => (files = false)} />
-    </div>
-  {/if}
-
-
-  <Transcript items={data.items} {project} sessionKey={key} tracker={data.tracker}
-    {openAgent} {openTool} agents={data.agents} />
+  <!-- На широком экране файлы стоят колонкой справа, как в Клоде: раньше
+       браузер файлов вставал НАД лентой и до него надо было листать вверх
+       (жалоба CTO 21.08). На узком — та же разметка одной колонкой. -->
+  <div class="body" class:with-files={files} class:dragging bind:this={bodyEl}
+    style="--pane: {paneW}px">
+    <div class="chat">
+      <Transcript items={data.items} {project} sessionKey={key} tracker={data.tracker}
+        {openAgent} {openTool} agents={data.agents} />
+    <!-- ЗАКРЫТИЕ .chat — после нижней панели: ввод принадлежит чату, а не
+         странице (CTO 21.08). Правая колонка вставлена ниже. -->
 
   <!-- Живая консоль: реальный экран tmux, обновляется сам -->
   <Sheet.Root bind:open={consoleOpen}>
@@ -641,8 +690,11 @@
                   <b>{a.name || a.agentId}</b>
                   {#if a.description}<span class="ag-desc">{a.description}</span>{/if}
                 </span>
+                <!-- молчание агента само по себе ничего не говорило: «уже
+                     отработал» и «не пойми что» выглядели одинаково (CTO 21.08) -->
                 {#if a.busy}<span class="ag-state">работает</span>
-                {:else if a.failed}<span class="ag-state bad">ошибка</span>{/if}
+                {:else if a.failed}<span class="ag-state bad">ошибка</span>
+                {:else}<span class="ag-state done">отработал</span>{/if}
                 <Icon name="chevron-right" size={16} class="text-ink-4 flex-none" />
               </button>
             {/each}
@@ -659,7 +711,7 @@
     </Sheet.Content>
   </Sheet.Root>
 
-  <div class="dock" bind:this={dockEl}>
+  <div class="dock" bind:this={dockEl} style="--pane: {paneW}px">
     <!-- Узкий экран: сводка-кнопка вместо стопки карточек -->
     <!-- Кнопка живёт, пока в шторке есть что показывать: раньше она
          исчезала вместе с отвеченным вопросом и свернуть было нечем
@@ -750,6 +802,33 @@
         <AskCard ask={a} project={project} linkToSession={false} onSent={refresh} />
       {/each}
     </div>
+
+    {#if plan.length}
+      <!-- Ход работы: свой список ступеней сессия ведёт тулами задач, и он
+           был виден только в терминале. Стоит внизу у ввода — там же, где
+           его рисует сам CLI (CTO 21.08: «почему таск-трекер сверху?»).
+           Свёрнут в строку «N из M», разворачивается списком. -->
+      <div class="plan" class:open={planOpen}>
+        <button class="plan-head" onclick={() => (planOpen = !planOpen)}>
+          <Icon name={planOpen ? 'chevron-down' : 'chevron-right'} size={14} class="text-ink-4 flex-none" />
+          <b>{planDone} из {plan.length}</b>
+          <span class="plan-now">{planNow ? (planNow.active || planNow.subject) : 'ждёт следующего шага'}</span>
+        </button>
+        {#if planOpen}
+          <ol class="plan-list">
+            {#each plan as t (t.id)}
+              <li class={t.status}>
+                <Icon size={14} class="flex-none {t.status === 'completed' ? 'text-ok'
+                  : t.status === 'in_progress' ? 'text-primary' : 'text-ink-4'}"
+                  name={t.status === 'completed' ? 'check' : t.status === 'in_progress' ? 'loader-circle' : 'circle'} />
+                <span>{t.subject}</span>
+                {#if TASK_RU[t.status]}<em>{TASK_RU[t.status]}</em>{/if}
+              </li>
+            {/each}
+          </ol>
+        {/if}
+      </div>
+    {/if}
 
     {#if data.runner?.busy}
       <!-- как в приложении Claude: строка «работает · чем занята», а
@@ -965,6 +1044,23 @@
     {#if sent}<p class="hint ok-note">{sent}</p>{/if}
     {#if sayError}<p class="err">Не отправлено: {sayError}</p>{/if}
   </div>
+    </div>
+    {#if files}
+      <div class="grip" role="separator" aria-label="ширина колонки файлов"
+        aria-orientation="vertical" tabindex="0"
+        onpointerdown={(e) => { dragging = true; e.preventDefault(); }}
+        onkeydown={(e) => {
+          if (e.key === 'ArrowLeft') paneW = Math.min(paneW + 40, 900);
+          else if (e.key === 'ArrowRight') paneW = Math.max(paneW - 40, 300);
+          else return;
+          e.preventDefault();
+          try { localStorage.setItem('stovp:pane', String(Math.round(paneW))); } catch {}
+        }}></div>
+      <aside class="files-pane">
+        <FileBrowser {project} tracker={data.tracker} onClose={() => (files = false)} />
+      </aside>
+    {/if}
+  </div>
 {/if}
 
 <style>
@@ -979,6 +1075,60 @@
     border-bottom: 1px solid var(--border-soft);
     display: flex; flex-direction: column; gap: var(--sp-4);
   }
+  /* Ход работы — одна строка, разворачивается списком ступеней */
+  .plan { border: 1px solid var(--border-soft); border-radius: var(--r); margin-bottom: var(--sp-4); }
+  .plan-head {
+    display: flex; align-items: center; gap: var(--sp-3); width: 100%;
+    padding: var(--sp-3) var(--sp-4); background: none; border: 0; cursor: pointer;
+    color: var(--text-2); font-size: var(--fs-sm); text-align: left; min-height: 44px;
+  }
+  .plan-now { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .plan-list {
+    list-style: none; margin: 0; padding: 0 var(--sp-4) var(--sp-3);
+    display: flex; flex-direction: column; gap: var(--sp-2);
+  }
+  .plan-list li {
+    display: flex; align-items: center; gap: var(--sp-3);
+    font-size: var(--fs-sm); color: var(--text-2);
+  }
+  .plan-list li.completed { color: var(--text-3); }
+  .plan-list em { margin-left: auto; font-style: normal; color: var(--text-4); font-size: var(--fs-xs); }
+
+  /* Лента и файлы — две колонки на широком экране */
+  .body { display: block; }
+  .files-pane { min-width: 0; }
+  .grip { display: none; }
+  @media (min-width: 1100px) {
+    .body.with-files {
+      display: grid; grid-template-columns: minmax(380px, 1fr) 9px var(--pane);
+      align-items: stretch;
+    }
+    .body.with-files .chat { min-width: 0; }
+    /* ручка перетаскивания: широкая зона захвата, тонкая линия внутри —
+       иначе целиться в неё невозможно, а выглядит она случайной чертой */
+    .body.with-files .grip {
+      display: flex; align-items: center; justify-content: center;
+      align-self: stretch; cursor: col-resize; background: none;
+    }
+    .body.with-files .grip::after {
+      content: ''; width: 1px; height: 100%;
+      background: var(--border-soft); border-radius: 999px;
+    }
+    .grip:hover::after, .grip:focus-visible::after, .body.dragging .grip::after {
+      width: 3px; background: var(--primary);
+    }
+    .grip:focus-visible { outline: none; }
+    .body.dragging { user-select: none; }
+    /* файлы — отдельный блок во всю высоту окна, а не карточка в потоке
+       ленты: он живёт своей жизнью и не должен листаться вместе с чатом */
+    .body.with-files .files-pane {
+      position: sticky; top: calc(var(--bar-h, 0px) + 12px);
+      height: calc(100vh - var(--bar-h, 0px) - 24px);
+      display: flex; flex-direction: column; min-height: 0;
+    }
+    .body.with-files .files-pane :global(> *) { flex: 1; min-height: 0; height: auto; }
+  }
+
   .back, .s-title { display: none; }
   .back { color: var(--text-3); text-decoration: none; font-size: var(--fs-sm); }
   .back:hover { color: var(--text-1); }
@@ -1180,6 +1330,7 @@
   }
   .ag-state { flex: none; color: var(--ok); font-size: var(--fs-xs); }
   .ag-state.bad { color: var(--hot); }
+  .ag-state.done { color: var(--text-4); }
   /* подписи «ввод» / «вывод» в шторке действия */
   .tsec {
     margin: var(--sp-4) 0 var(--sp-2); color: var(--text-4);
