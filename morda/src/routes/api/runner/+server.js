@@ -8,7 +8,7 @@ import { runnerList, runnerStart, runnerStop, runnerResume, runnerApprove,
 import { projectAdd, projectRemove } from '$lib/server/fleet.js';
 import { keysStatus, keysImport, keysAdopt, keysReveal, keysRemove } from '$lib/server/keys.js';
 import { passportLast } from '$lib/server/passport.js';
-import { judgeStuck } from '$lib/server/judge.js';
+import { judgeStuck, judgeTriage } from '$lib/server/judge.js';
 import { guarded } from '$lib/server/guard.js';
 
 // Раннер (этап 1 STOVP-58): пульт владеет CLI-сессиями. Одна ручка,
@@ -50,6 +50,7 @@ const ACTIONS = {
   slot_code: slotCode,
   slot_usage: slotUsage,
   judge: judgeStuck,
+  judge_triage: judgeTriage,
   keys_status: keysStatus,
   keys_reveal: keysReveal,
   keys_remove: keysRemove,

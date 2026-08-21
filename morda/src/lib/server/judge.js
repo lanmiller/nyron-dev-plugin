@@ -119,3 +119,33 @@ ${ev.screen || '(экран пуст)'}` }],
       model: k.JUDGE_MODEL, evidence: ev };
   } finally { clearTimeout(t); }
 }
+
+/** Триаж висящих карточек: протухшие ответы мёртвым адресатам закрываются.
+ *  Правило кодом, без модели: карточка answered/delivered/acknowledged, ей
+ *  больше недели, адресат-сессия давно не пишет → подтверждения не будет
+ *  никогда, ack от имени судьи. Спорные (моложе недели) не трогаем.
+ *  (CTO 22.08: «висит 11 напоминаний — почему судья не поймёт, что актуально») */
+export function judgeTriage({ project, days = 7 }) {
+  const { hubFor, rootByName: rbn, listSessions } = fleetInternals();
+  const hub = hubFor(rbn(project));
+  const now = Date.now();
+  const horizon = days * 86_400_000;
+  const closed = [], kept = [];
+  const pool = [
+    ...hub.asks({ status: 'answered' }).asks,
+    ...hub.asks({ status: 'delivered' }).asks,
+  ];
+  for (const a of pool) {
+    const age = now - new Date(a.ts).getTime();
+    if (age < horizon) { kept.push({ id: a.id, why: 'моложе недели' }); continue; }
+    hub.ack({ ask_id: a.id, by: 'judge-triage@morda' });
+    closed.push({ id: a.id, q: String(a.question || '').slice(0, 60), days: Math.round(age / 86_400_000) });
+  }
+  return { project, closed, kept: kept.length };
+}
+
+// доступ к будке — через fleet, чтобы не открывать вторую базу
+import * as fleet from './fleet.js';
+function fleetInternals() {
+  return { hubFor: fleet.hubForJudge, rootByName: fleet.rootByName, listSessions: null };
+}

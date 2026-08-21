@@ -92,6 +92,9 @@ export function rootByName(name) {
   return p.root;
 }
 
+/** Для судьи-триажа: доступ к будке проекта без второй базы. */
+export function hubForJudge(root) { return hubFor(root); }
+
 function hubFor(root) {
   if (!dbs.has(root)) dbs.set(root, new HubDb(path.join(root, '.nyron-hub')));
   return dbs.get(root);

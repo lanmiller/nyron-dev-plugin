@@ -66,3 +66,21 @@ export async function handle({ event, resolve }) {
     },
   });
 }
+
+// Триаж хвостов — сам, раз в опрос: ответы мёртвым адресатам закрываются
+// без человека (CTO 22.08: «висит 11 напоминаний — почему судья не поймёт»).
+// Правило кодом, модели не нужно; ошибка одного проекта не роняет остальные.
+import { projects } from '$lib/server/fleet.js';
+import { judgeTriage } from '$lib/server/judge.js';
+const TRIAGE_EVERY = 6 * 3600 * 1000;
+if (!globalThis.__mordaTriage) {
+  globalThis.__mordaTriage = setInterval(() => {
+    for (const p of projects() || []) {
+      try {
+        const r = judgeTriage({ project: p.name });
+        if (r.closed.length) console.log(`[triage] ${p.name}: закрыто ${r.closed.length}`);
+      } catch { /* проект без будки — пропускаем */ }
+    }
+  }, TRIAGE_EVERY);
+  globalThis.__mordaTriage.unref?.();
+}
