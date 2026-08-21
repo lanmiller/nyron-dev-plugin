@@ -58,7 +58,10 @@
   // ждут человека: форма или запрос разрешения на экране CLI
   let needsMe = $derived(fleet.filter((s) =>
     ['hitl', 'permission', 'needs_auth'].includes(s.screen)));
-  let working = $derived(fleet.filter((s) => s.busy && !needsMe.includes(s)));
+  // застрявшие — впереди работающих: спиннер у них бодрый, а лента молчит
+  let stuck = $derived(fleet.filter((s) => s.stuck && !needsMe.includes(s)));
+  let working = $derived(fleet.filter((s) => s.busy && !s.stuck && !needsMe.includes(s)));
+  const mins = (ms) => Math.round((ms || 0) / 60000);
   let idle = $derived(fleet.filter((s) => !s.busy && !needsMe.includes(s)));
   const NEED_RU = { hitl: 'ждёт ответа на форму', permission: 'просит разрешения',
     needs_auth: 'нужен вход' };
@@ -220,9 +223,19 @@
     {/each}
   </section>
 
-  {#if working.length || idle.length}
+  {#if working.length || idle.length || stuck.length}
     <section>
-      <h2 class="eyebrow sect">Флот <Badge>{working.length + idle.length}</Badge></h2>
+      <h2 class="eyebrow sect">Флот <Badge>{working.length + idle.length + stuck.length}</Badge></h2>
+      {#each stuck as s (s.name)}
+        <a class="fleet-row need" href={href(s)}>
+          <Icon name="alert-triangle" size={14} class="text-hot flex-none" />
+          <b>{s.name}</b><span class="quiet">{s.project}</span>
+          <span class="fleet-what">
+            похоже, встала: счётчик идёт, а лента молчит {mins(s.quiet_ms)} мин
+          </span>
+          <Icon name="chevron-right" size={15} class="text-ink-4 flex-none" />
+        </a>
+      {/each}
       {#each working as s (s.name)}
         <a class="fleet-row" href={href(s)}>
           <Icon name="sparkles" size={14} class="text-primary flex-none" />

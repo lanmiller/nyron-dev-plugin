@@ -658,6 +658,18 @@ export function sessionAgents(project, key) {
  *  Резюм обязан идти в нём: проекты-надмножества видят сессии подпапок
  *  (nyron видит stovp), и резюм в корне «их» проекта убивал сессию на
  *  старте — claude --resume ищет разговор по cwd (факт 17.08). */
+/** Давно ли сессия дописывала свою ленту. Экран терминала врёт: зависший CLI
+ *  продолжает крутить спиннер и счётчик, и пульт показывал бодрое «работает»
+ *  на сессии, которая молчала 75 минут (факт 21.08, дважды за день). Рост
+ *  транскрипта — независимый признак: живая сессия пишет при каждом шаге. */
+export function transcriptQuietMs(project, key) {
+  try {
+    const rec = listSessionsCached(rootByName(project)).find((s) => s.key === key);
+    if (!rec?.mtime) return null;
+    return Date.now() - new Date(rec.mtime).getTime();
+  } catch { return null; }
+}
+
 export function sessionMeta(project, key) {
   const r = withSlotDir(key, () => T.readSession(rootByName(project), key, { maxBytes: 64 * 1024 }));
   return r ? { cwd: r.cwd, cwd_alive: r.cwd_alive, entrypoint: r.entrypoint } : null;

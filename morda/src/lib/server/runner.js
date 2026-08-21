@@ -17,7 +17,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { rootByName, tmuxCandidates, paneProcessTree, MORDA_ROOT,
   CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents, sessionMeta,
-  RUNNER_STATE_FILE as STATE_FILE } from './fleet.js';
+  RUNNER_STATE_FILE as STATE_FILE, transcriptQuietMs } from './fleet.js';
 import { parseDialog, parsePermission } from './tui.js';
 import { passportQuick } from './passport.js';
 
@@ -141,6 +141,11 @@ function classify(text) {
 // работает»): CLI во время ответа держит в футере «esc to interrupt» и
 // крутит спиннер со счётчиком токенов. Признак железный — сам CLI его
 // печатает, пока идёт запрос.
+// Сколько молчания ленты при бодром спиннере считаем застреванием. Порог из
+// фактов: живой долгий ход дописывает ленту каждые несколько минут, а оба
+// зависания 21.08 молчали 45 и 75 минут.
+const STUCK_MS = 10 * 60 * 1000;
+
 function isBusy(text) {
   return /esc to interrupt|↓ \d+[\d.,]*k? tokens|\(\d+s\s*·/.test(text);
 }
@@ -400,7 +405,11 @@ export function runnerList(project) {
     if (alive && (s.state === 'stopped' || s.state === 'died_on_start')) {
       s.state = 'running'; s.stoppedAt = null; saveReg(reg);
     }
+    // «занята» подтверждаем ростом ленты: спиннер зависшего CLI крутится
+    // вечно и держал сессию бодрой (факт 21.08 — 75 минут мнимой работы)
+    const quiet = busy && s.sessionId ? transcriptQuietMs(s.project, s.sessionId) : null;
     out.push({ name, ...s, tmux: TMUX_PREFIX + name, alive, screen, busy,
+      quiet_ms: quiet, stuck: quiet != null && quiet > STUCK_MS,
       pulse: busy ? parsePulse(visible(name)) : null });
   }
   return out.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
@@ -429,7 +438,9 @@ export function runnerBySessionId(key) {
       const permission = screen === 'permission' && screen_text
         ? parsePermission(screen_text) : null;
       const slot = loadSlots().slots.find((x) => x.id === (s.slot || 'claude-main'));
+      const quiet = busy && s.sessionId ? transcriptQuietMs(s.project, s.sessionId) : null;
       return { name, ...s, queue: s.queue || [], tmux: TMUX_PREFIX + name, alive, screen, busy,
+        quiet_ms: quiet, stuck: quiet != null && quiet > STUCK_MS,
         pulse: busy ? parsePulse(vis) : null,
         screen_text, dialog, permission, slot_label: slot?.label || 'основной' };
     }

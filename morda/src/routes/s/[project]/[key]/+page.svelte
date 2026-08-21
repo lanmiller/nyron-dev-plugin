@@ -859,7 +859,17 @@
       </div>
     {/if}
 
-    {#if data.runner?.busy}
+    {#if data.runner?.stuck}
+      <!-- спиннер CLI крутится и на зависшей сессии: пока пульт верил ему
+           на слово, две сессии «работали» 45 и 75 минут вхолостую (21.08) -->
+      <div class="working stuck-row">
+        <Icon name="alert-triangle" size={13} class="text-hot" />
+        <span class="work-what">
+          похоже, встала — счётчик идёт, а лента молчит
+          {Math.round((data.runner.quiet_ms || 0) / 60000)} мин. Прервать шаг — квадратом справа
+        </span>
+      </div>
+    {:else if data.runner?.busy}
       <!-- как в приложении Claude: строка «работает · чем занята», а
            остановку даёт сама кнопка композера (стрелка → квадрат) -->
       <div class="working">
@@ -1249,6 +1259,7 @@
   .q-note { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--text-4); text-align: right; }
   /* фоновая команда дышать не должна — она идёт сама, это фон, не пульс */
   .working.bg-run { animation: none; color: var(--text-4); }
+  .working.stuck-row { animation: none; color: var(--hot); }
   .work-what {
     flex: 1; min-width: 0; color: var(--text-2);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
