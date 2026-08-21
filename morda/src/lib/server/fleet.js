@@ -577,6 +577,14 @@ export function session(project, key) {
       it.system = `подключён скилл ${name}`;
     } else if (/^<(system-reminder|command-message|local-command)/.test(t.trim())) {
       it.system = 'служебная вставка рантайма';
+    } else if (/^Another Claude session sent a message|<teammate-message/.test(t.trim())) {
+      // переписка с агентами-товарищами вываливалась в ленту стеной XML
+      // на пол-экрана (жалоба CTO 21.08) — сворачиваем в строку
+      const who = [...t.matchAll(/teammate_id="([\w-]+)"/g)].map((m) => m[1]);
+      const uniq = [...new Set(who)];
+      it.system = uniq.length
+        ? `сообщение от агентов: ${uniq.join(', ')}`
+        : 'сообщение от другой сессии';
     }
   }
   const hitlIdx = r.items.findLastIndex((i) => i.kind === 'tool' && i.questions && !i.result);
