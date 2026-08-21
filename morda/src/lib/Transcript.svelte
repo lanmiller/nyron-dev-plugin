@@ -126,6 +126,8 @@
       <!-- пачка технических действий: одна строка вместо стены плашек -->
       <!-- пачку раскрывает и «N действий», и чип типа; состояние держим
            сами: реактивный open перебивал нативный клик по summary -->
+      {@const shown = packFilter[bi]
+        ? b.tools.filter((t) => t.name === packFilter[bi]).length : b.tools.length}
       <details class="toolpack" class:iserr={hasErr(b.tools)} open={!!packOpen[bi]}>
         <summary onclick={(e) => {
           e.preventDefault();
@@ -135,23 +137,30 @@
           // раскрытая пачка не должна остаться под композером
           if (willOpen) revealPack(e.currentTarget.parentElement);
         }}>
-          <span class="tname"><Icon name="layers" size={13} /> {b.tools.length} действ{b.tools.length < 5 ? 'ия' : 'ий'}</span>
+          <!-- при фильтре счёт честный: «3 из 7», а не «7 действий» над тремя
+               строками (критика 19.08) -->
+          <span class="tname"><Icon name="layers" size={13} /> {packFilter[bi]
+            ? `${shown} из ${b.tools.length} действий`
+            : `${b.tools.length} действ${b.tools.length < 5 ? 'ия' : 'ий'}`}</span>
           <!-- типы = фильтры: клик открывает пачку и оставляет этот вид -->
           <span class="kinds">
             {#each groupKinds(b.tools) as k (k.name)}
               <button class="kind" class:on={packFilter[bi] === k.name}
+                aria-pressed={packFilter[bi] === k.name}
                 onclick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   const off = packFilter[bi] === k.name;
                   packFilter = { ...packFilter, [bi]: off ? null : k.name };
-                  packOpen = { ...packOpen, [bi]: !off };
+                  // снятие фильтра возвращает ВСЕ строки, а не схлопывает
+                  // пачку: закрывает её только «N действий» (критика 19.08)
+                  packOpen = { ...packOpen, [bi]: true };
                   // как и «N действий»: раскрытое подкручиваем к глазам
                   if (!off) revealPack(e.currentTarget.closest('.toolpack'));
                 }} title={k.name}>{shortTool(k.name)}{k.count > 1 ? ` ×${k.count}` : ''}</button>
             {/each}
           </span>
-          {#if hasErr(b.tools)}<span class="terr">есть ошибка</span>{/if}
+          {#if hasErr(b.tools)}<span class="terr"><Icon name="triangle-alert" size={12} />есть ошибка</span>{/if}
           <Icon name={packOpen[bi] ? 'chevron-up' : 'chevron-down'} size={14}
             class="text-ink-4 flex-none" />
         </summary>
@@ -172,7 +181,7 @@
                   onclick={() => openTool(it)}>
                   <span class="tname" title={it.name}>{shortTool(it.name)}</span>
                   <span class="tin">{inputOf(it)}</span>
-                  {#if it.is_error}<span class="terr">ошибка</span>{/if}
+                  {#if it.is_error}<span class="terr"><Icon name="triangle-alert" size={12} />ошибка</span>{/if}
                   <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
                 </button>
               {:else}
@@ -181,7 +190,7 @@
                   <summary>
                     <span class="tname" title={it.name}>{shortTool(it.name)}</span>
                     <span class="tin">{inputOf(it)}</span>
-                    {#if it.is_error}<span class="terr">ошибка</span>{/if}
+                    {#if it.is_error}<span class="terr"><Icon name="triangle-alert" size={12} />ошибка</span>{/if}
                   </summary>
                   {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
                   <div class="tout"><b>вывод</b><pre>{it.result || '(пусто)'}</pre></div>
@@ -230,7 +239,7 @@
         <button class="tool agent agent-row" onclick={() => openAgent(it.agent)}>
           <span class="tname"><Icon name="bot" size={13} /> субагент</span>
           <span class="tin">{it.agent.name || it.agent.agentId}{it.agent.agentType ? ` · ${it.agent.agentType}` : ''}{it.agent.description ? ` — ${it.agent.description}` : ''}</span>
-          {#if it.is_error}<span class="terr">ошибка</span>{/if}
+          {#if it.is_error}<span class="terr"><Icon name="triangle-alert" size={12} />ошибка</span>{/if}
           <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
         </button>
       {:else if it.agent}
@@ -239,7 +248,7 @@
           <summary>
             <span class="tname"><Icon name="bot" size={13} /> субагент</span>
             <span class="tin">{it.agent.name || it.agent.agentId}{it.agent.agentType ? ` · ${it.agent.agentType}` : ''}{it.agent.description ? ` — ${it.agent.description}` : ''}</span>
-            {#if it.is_error}<span class="terr">ошибка</span>{/if}
+            {#if it.is_error}<span class="terr"><Icon name="triangle-alert" size={12} />ошибка</span>{/if}
           </summary>
           {#if agents[it.agent.agentId] === 'loading'}
             <p class="quiet pad">читаю транскрипт субагента…</p>
@@ -258,7 +267,7 @@
             onclick={() => openTool(it)}>
             <span class="tname" title={it.name}>{shortTool(it.name)}</span>
             <span class="tin">{inputOf(it)}</span>
-            {#if it.is_error}<span class="terr">ошибка</span>{/if}
+            {#if it.is_error}<span class="terr"><Icon name="triangle-alert" size={12} />ошибка</span>{/if}
             <Icon name="chevron-right" size={14} class="text-ink-4 flex-none" />
           </button>
         {:else}
@@ -267,7 +276,7 @@
             <summary>
               <span class="tname" title={it.name}>{shortTool(it.name)}</span>
               <span class="tin">{inputOf(it)}</span>
-              {#if it.is_error}<span class="terr">ошибка</span>{/if}
+              {#if it.is_error}<span class="terr"><Icon name="triangle-alert" size={12} />ошибка</span>{/if}
             </summary>
             {#if it.input}<div class="tout"><b>ввод</b><pre>{it.input}</pre></div>{/if}
             <div class="tout"><b>вывод</b><pre>{it.result || '(пусто)'}</pre></div>
@@ -327,7 +336,13 @@
   }
   /* различие несёт цвет всей рамки: толстая полоса сбоку — узнаваемый
      признак ИИ-вёрстки (детектор impeccable, 11.08) */
-  .tool.iserr { border-color: var(--hot); }
+  /* --hot и --accent почти неотличимы (критика 19.08), поэтому у ошибки
+     своя ФОРМА, не только оттенок: треугольник у подписи и лёгкая заливка
+     всей плашки; субагент остаётся контурным с иконкой бота */
+  .tool.iserr {
+    border-color: var(--hot);
+    background: color-mix(in oklab, var(--hot) 8%, var(--bg-2));
+  }
   .tool.agent { border-color: var(--accent); }
   .tool.agent > summary .tname { color: var(--accent); }
   /* строка действия — кнопка: тап открывает шторку с вводом и выводом
@@ -363,12 +378,22 @@
   }
   .kind:hover { color: var(--text-1); border-color: var(--border); }
   .kind.on { color: var(--accent); border-color: var(--accent); }
+  /* палец: фильтр 21px не нажать (аудит 19.08 — заявлен --tap: 44). Пилюля
+     чуть выше, хит-зона добита невидимо по вертикали — соседей по ряду не
+     перекрывает (по горизонтали зона не растёт) */
+  @media (pointer: coarse) {
+    .kind { position: relative; padding: 4px 10px; }
+    .kind::after { content: ''; position: absolute; inset: -8px 0; }
+  }
   .tname { font-family: var(--mono); font-size: 12px; color: var(--text-2); flex: none; }
   .tin {
     color: var(--text-4); font-family: var(--mono); font-size: 12px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
   }
-  .terr { color: var(--hot); font-size: 12px; flex: none; }
+  .terr {
+    color: var(--hot); font-size: 12px; flex: none;
+    display: inline-flex; align-items: center; gap: 3px;
+  }
   .tout { padding: 4px 10px 8px; }
   .tout b { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-4); font-weight: 600; }
   .pad { padding: 8px 10px; }

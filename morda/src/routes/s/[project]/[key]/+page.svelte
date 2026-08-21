@@ -17,12 +17,13 @@
   import Icon from '$lib/Icon.svelte';
   import PickChip from '$lib/PickChip.svelte';
   import * as Sheet from '$lib/ui/sheet/index.js';
+  import * as Dialog from '$lib/ui/dialog/index.js';
   import TmuxPanel from '$lib/TmuxPanel.svelte';
   import { MODEL_OPTS, EFFORT_OPTS, MODE_OPTS, MCP_OPTS } from '$lib/composer-options.js';
   import { Button } from '$lib/ui/button/index.js';
   import { Badge } from '$lib/ui/badge/index.js';
   import { Skeleton } from '$lib/ui/skeleton/index.js';
-  import { STATE_RU, age } from '$lib/states.js';
+  import { STATE_RU, age, hhmm } from '$lib/states.js';
 
   const st = getContext('morda');
 
@@ -280,11 +281,27 @@
 
   let stateInfo = $derived(STATE_RU[data?.state] || null);
   let isDesktop = $derived(data?.entrypoint === 'claude-desktop');
+  // Пульс есть ВСЕГДА (критика 19.08, P0: живая неотличима от мёртвой):
+  // сторож молчит — статус собирается из фактов раннера и давности
+  // последнего события транскрипта.
+  let lastTs = $derived(data?.items?.at(-1)?.ts || null);
+  let fallbackState = $derived.by(() => {
+    if (!data || data.runner?.busy || stateInfo) return null;
+    const ago = lastTs ? age(lastTs) : '';
+    if (data.runner?.alive)
+      return [`живая · молчит${ago ? ' ' + ago : ''}`, 'var(--ok)'];
+    return [`затихла${ago ? ' · ' + ago : ''}`, 'var(--dead)'];
+  });
+  // палец или мышь: на телефоне Enter в поле делает перенос (Shift там нет),
+  // отправляет кнопка — как в мобильном приложении Claude (критика 19.08)
+  let coarse = $state(false);
+  onMount(() => { coarse = window.matchMedia('(pointer: coarse)').matches; });
 
   // Раннер (этап 1 STOVP-58): если процессом владеет пульт — стоп и резюм
   // прямо из карточки. Стоп = парковка: транскрипт на диске, --resume
   // поднимет с контекстом.
   let runnerBusy = $state(false);
+  let stopAsk = $state(false);   // подтверждение «остановить» — стоп рушит CLI
   async function runnerAct(action, extra = {}) {
     runnerBusy = true;
     try {
@@ -304,17 +321,20 @@
     // «думает…» — модель отвечает прямо сейчас (CLI держит «esc to
     // interrupt»); иначе обычное состояние сторожа
     ...(data.runner?.busy ? [{ label: 'думает…', dot: 'var(--ok)', note: true }]
-      : stateInfo ? [{ label: stateInfo[0], dot: stateInfo[1], note: true }] : []),
+      : stateInfo ? [{ label: stateInfo[0], dot: stateInfo[1], note: true }]
+        : fallbackState ? [{ label: fallbackState[0], dot: fallbackState[1], note: true }] : []),
+    ...(data.runner?.alive ? [{ label: 'консоль', icon: 'terminal',
+      run: () => (consoleOpen = true),
+      title: 'настоящий экран терминала сессии — как tmux attach, только здесь' }] : []),
+    // разрушительное — НЕ первым пунктом и только через подтверждение
+    // (критика 19.08: «остановить» убивал CLI одним тапом)
     ...(data.runner ? [data.runner.alive
       ? { label: 'остановить', icon: 'pause', disabled: runnerBusy,
-        run: () => runnerAct('stop'),
+        run: () => (stopAsk = true),
         title: 'CLI-процесс закроется физически; транскрипт цел — сессия поднимется от сообщения или кнопкой «поднять резюмом»' }
       : { label: 'поднять резюмом', icon: 'play', disabled: runnerBusy,
         run: () => runnerAct('resume'),
         title: 'claude --resume — тот же разговор с полным контекстом' }] : []),
-    ...(data.runner?.alive ? [{ label: 'консоль', icon: 'terminal',
-      run: () => (consoleOpen = true),
-      title: 'настоящий экран терминала сессии — как tmux attach, только здесь' }] : []),
     { label: 'копия в Claude', icon: 'external-link', disabled: opening, run: openInClaude,
       title: 'claude://resume — приложение откроет копию этого разговора' },
     ...(data.cwd ? [{ label: files ? 'скрыть файлы' : 'файлы проекта', icon: 'folder-tree',
@@ -368,14 +388,34 @@
     tuneMcp = r.mcp || '';
     prevTune = null;
   });
+  // У ЖИВОЙ сессии смена чипа = перезапуск резюмом — молча так делать нельзя
+  // (критика 19.08, P1): сначала подтверждение, отмена возвращает чипы.
+  // У запаркованной параметры просто запишутся до подъёма — там тихо можно.
+  let tuneAsk = $state(null);   // { model, mode, effort } | null
   $effect(() => {
     const cur = [tuneModel, tuneMode, tuneEffort, tuneMcp].join('|');
     if (!data?.runner) return;
     if (prevTune === null) { prevTune = cur; return; }
     if (cur === prevTune) return;
+    if (data.runner.alive) {
+      tuneAsk = { model: tuneModel, mode: tuneMode, effort: tuneEffort };
+      return;   // prevTune не двигаем: отмена откатит чипы к нему
+    }
     prevTune = cur;
     runnerAct('retune', { model: tuneModel, mode: tuneMode, effort: tuneEffort, mcp: tuneMcp });
   });
+  function tuneConfirm() {
+    const t = tuneAsk;
+    tuneAsk = null;
+    prevTune = [t.model, t.mode, t.effort].join('|');
+    runnerAct('retune', t);
+  }
+  function tuneCancel() {
+    if (!tuneAsk) return;
+    const [m, md, e] = prevTune.split('|');
+    tuneAsk = null;
+    tuneModel = m; tuneMode = md; tuneEffort = e;
+  }
 
   // Живой TUI-диалог CLI (HITL-пикер, /usage, /model): транскрипт его не
   // видит. Формы рендерятся НАТИВНО (runner.dialog — структура с экрана,
@@ -410,6 +450,16 @@
   // (CTO 19.08, mobile-first): тап по строке открывает шторку с его лентой.
   let agentSheet = $state(null);   // { agent, items, error } | null
   let agentOpen = $state(false);
+  // Вложенность субагентов — стек: Esc и «назад» снимают ровно один слой
+  // (правило CTO 21.08: Esc никогда не перепрыгивает уровни), а не
+  // сбрасывают к списку через голову родителя.
+  let agentTrail = $state([]);     // родители открытого агента, снизу вверх
+  function agentBack() {
+    if (agentTrail.length) {
+      agentSheet = agentTrail.at(-1);
+      agentTrail = agentTrail.slice(0, -1);
+    } else agentSheet = null;      // к списку агентов; Esc из списка закроет
+  }
   // содержимое действия на телефоне — той же шторкой (в ленте под
   // композером места не остаётся, а шторка всегда открывается во весь кадр)
   let toolSheet = $state(null);    // элемент ленты | null
@@ -417,14 +467,20 @@
   function openTool(it) { toolSheet = it; toolOpen = true; }
   let agentsOpen = $state(false);  // раскрыт ли список агентов у чипа
   async function openAgent(agent) {
+    // переход из ленты одного агента в другого — родитель ложится в стек
+    if (agentOpen && agentSheet) agentTrail = [...agentTrail, agentSheet];
+    else agentTrail = [];
     agentSheet = { agent, items: null, error: null };
     agentOpen = true;
     try {
       const r = await fetch(`/api/agent/${encodeURIComponent(project)}/${key}/${agent.agentId}`);
       const out = await r.json();
+      // человек мог уйти назад, пока грузилось — поздний ответ не перекрывает
+      if (agentSheet?.agent?.agentId !== agent.agentId) return;
       agentSheet = r.ok ? { agent, items: out.items, error: null }
         : { agent, items: null, error: out.error || `HTTP ${r.status}` };
     } catch (e) {
+      if (agentSheet?.agent?.agentId !== agent.agentId) return;
       agentSheet = { agent, items: null, error: String(e.message || e) };
     }
   }
@@ -487,7 +543,14 @@
     ArrowRight: 'Tab', Tab: 'Tab', Enter: 'Enter', Escape: 'Escape' };
   function dialogKeydown(e) {
     if (!cliDialog) return;
-    if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName)) return;
+    // поверх открыта шторка или диалог — клавиши принадлежат им, а не
+    // терминалу: Esc в ленте агента отменял ещё и форму CLI (два уровня)
+    if (agentOpen || toolOpen || consoleOpen || stopAsk || tuneAsk) return;
+    // фокус на элементе управления страницы — нажатие его, не терминала:
+    // глобальный перехват Tab/Enter был клавиатурной ловушкой (аудит 19.08)
+    if (/^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(e.target?.tagName)) return;
+    const inCard = !!e.target?.closest?.('.dlg-card');
+    if ((e.key === 'Tab' || e.key === 'Enter') && !inCard) return;
     const k = KEYMAP[e.key] || (/^[1-9]$/.test(e.key) ? e.key : null);
     if (!k) return;
     e.preventDefault();
@@ -558,7 +621,12 @@
     {/if}
   </div>
 {:else if error}
+  <!-- ошибка — не тупик: рядом дорога назад (критика 19.08, «404 без ссылок») -->
   <p class="err">{error}</p>
+  <p>
+    <a class="quiet" href="/?p={encodeURIComponent(project)}">← к проекту {project}</a>
+    <a class="quiet" style="margin-left: var(--sp-6)" href="/">на главную</a>
+  </p>
 {:else if !data}
   <!-- каркас рисуется сразу: у диспетчеров транскрипт мегабайтный, и пустой
        экран на несколько секунд читался как «всё умерло» (CTO 11.08) -->
@@ -572,6 +640,9 @@
     {#each [72, 45, 88, 60] as w}<Skeleton class="h-4" style="width: {w}%" />{/each}
   </div>
 {:else}
+  <!-- композер стоит последним в DOM — клавиатуре нужен короткий путь к нему
+       (аудит 19.08, персона Alex) -->
+  <a class="skip-link" href="#composer-input">к полю ввода ↓</a>
   <header class="s-head">
     <a href="/?p={encodeURIComponent(project)}" class="back">
       <Icon name="arrow-left" size={13} /> {project}
@@ -583,7 +654,8 @@
     <div class="s-actions">
       {#each actions as a (a.label)}
         {#if a.note}
-          <Badge variant="outline"><i class="dot" style="background:{a.dot}"></i>{a.label}</Badge>
+          <!-- role=status: смена состояния объявляется читалке сама -->
+          <Badge variant="outline" role="status"><i class="dot" style="background:{a.dot}"></i>{a.label}</Badge>
         {:else}
           <Button variant="outline" size="xs" disabled={a.disabled} onclick={a.run}
             title={a.title} class={a.on ? 'border-primary text-ink-1' : ''}>
@@ -619,6 +691,49 @@
     <!-- ЗАКРЫТИЕ .chat — после нижней панели: ввод принадлежит чату, а не
          странице (CTO 21.08). Правая колонка вставлена ниже. -->
 
+  <!-- Остановка — единственное разрушительное действие в меню: без
+       подтверждения она случалась одним тапом (критика 19.08). Текст
+       говорит, что именно произойдёт и как вернуться. -->
+  <Dialog.Root bind:open={stopAsk}>
+    <Dialog.Content>
+      <Dialog.Header>
+        <Dialog.Title>Остановить сессию?</Dialog.Title>
+        <Dialog.Description>
+          CLI-процесс закроется, текущий шаг оборвётся. Транскрипт цел и
+          остаётся на диске: сессия поднимется с тем же контекстом — кнопкой
+          «поднять резюмом» или первым же сообщением ей.
+        </Dialog.Description>
+      </Dialog.Header>
+      <Dialog.Footer>
+        <Button variant="outline" onclick={() => (stopAsk = false)}>отмена</Button>
+        <Button variant="destructive" disabled={runnerBusy}
+          onclick={() => { stopAsk = false; runnerAct('stop'); }}>
+          <Icon name="pause" size={14} />остановить
+        </Button>
+      </Dialog.Footer>
+    </Dialog.Content>
+  </Dialog.Root>
+
+  <!-- Смена модели/режима у живой сессии — тоже через подтверждение:
+       retune перезапускает CLI резюмом, обрывая текущий шаг -->
+  <Dialog.Root open={!!tuneAsk} onOpenChange={(v) => { if (!v) tuneCancel(); }}>
+    <Dialog.Content>
+      <Dialog.Header>
+        <Dialog.Title>Перезапустить с новыми параметрами?</Dialog.Title>
+        <Dialog.Description>
+          Смена применяется перезапуском резюмом: текущий шаг оборвётся, CLI
+          поднимется заново с тем же разговором и контекстом.
+        </Dialog.Description>
+      </Dialog.Header>
+      <Dialog.Footer>
+        <Button variant="outline" onclick={tuneCancel}>отмена</Button>
+        <Button disabled={runnerBusy} onclick={tuneConfirm}>
+          <Icon name="rotate-ccw" size={14} />перезапустить
+        </Button>
+      </Dialog.Footer>
+    </Dialog.Content>
+  </Dialog.Root>
+
   <!-- Живая консоль: реальный экран tmux, обновляется сам -->
   <Sheet.Root bind:open={consoleOpen}>
     <Sheet.Content side="bottom" class="agent-sheet">
@@ -635,29 +750,6 @@
             await runnerAct('type', { text: t, enter: o.enter !== false });
             setTimeout(refresh, 600);
           }} />
-      </div>
-    </Sheet.Content>
-  </Sheet.Root>
-
-  <!-- Что сделало действие: ввод и вывод во весь кадр, закрывается свайпом
-       или крестиком (телефон; на десктопе плашка раскрывается в ленте) -->
-  <Sheet.Root bind:open={toolOpen}>
-    <Sheet.Content side="bottom" class="agent-sheet">
-      <Sheet.Header class="agent-head">
-        <div class="dlg-col">
-          <Sheet.Title>{toolSheet?.name || 'действие'}</Sheet.Title>
-          {#if toolSheet?.is_error}
-            <Sheet.Description class="text-hot">завершилось ошибкой</Sheet.Description>
-          {/if}
-        </div>
-      </Sheet.Header>
-      <div class="agent-body">
-        {#if toolSheet?.input}
-          <p class="tsec">ввод</p>
-          <pre class="cli-screen">{toolSheet.input}</pre>
-        {/if}
-        <p class="tsec">вывод</p>
-        <pre class="cli-screen">{toolSheet?.result || '(пусто)'}</pre>
       </div>
     </Sheet.Content>
   </Sheet.Root>
@@ -681,11 +773,21 @@
   <!-- Лента субагента во весь экран: заголовок = кто и зачем, тело — та же
        лента, что у сессии (вложенные субагенты открываются поверх) -->
   <Sheet.Root bind:open={agentOpen}>
-    <Sheet.Content side="bottom" class="agent-sheet">
+    <!-- Esc идёт по уровням, как стрелка «назад»: из вложенного субагента —
+         к родителю, из ленты агента — к списку, из списка — закрыть
+         (раньше рушил всю шторку разом) -->
+    <Sheet.Content side="bottom" class="agent-sheet"
+      onEscapeKeydown={(e) => {
+        if (!agentSheet) return;
+        e.preventDefault();
+        agentBack();
+      }}>
       <Sheet.Header class="agent-head">
         {#if agentSheet}
-          <button class="dlg-x" aria-label="к списку агентов"
-            onclick={() => (agentSheet = null)}><Icon name="arrow-left" size={16} /></button>
+          <button class="dlg-x"
+            aria-label={agentTrail.length
+              ? `назад к «${agentTrail.at(-1).agent?.name || 'агенту'}»` : 'к списку агентов'}
+            onclick={agentBack}><Icon name="arrow-left" size={16} /></button>
         {/if}
         <div class="dlg-col">
           <Sheet.Title>
@@ -721,7 +823,7 @@
                 <!-- молчание агента само по себе ничего не говорило: «уже
                      отработал» и «не пойми что» выглядели одинаково (CTO 21.08) -->
                 {#if a.busy}<span class="ag-state">работает</span>
-                {:else if a.failed}<span class="ag-state bad">ошибка</span>
+                {:else if a.failed}<span class="ag-state bad"><Icon name="triangle-alert" size={12} />ошибка</span>
                 {:else}<span class="ag-state done">отработал</span>{/if}
                 <Icon name="chevron-right" size={16} class="text-ink-4 flex-none" />
               </button>
@@ -732,9 +834,42 @@
         {:else if !agentSheet.items}
           <p class="quiet">читаю ленту субагента…</p>
         {:else}
+          <!-- openTool проброшен: действие в ленте агента открывается той же
+               шторкой, что в главной ленте (критика 19.08, п. «единообразие»);
+               этот слой Esc снимает первым, лента агента остаётся -->
           <Transcript items={agentSheet.items} {project} sessionKey={key}
-            tracker={data.tracker} {openAgent} agents={data.agents} />
+            tracker={data.tracker} {openAgent} {openTool} agents={data.agents} />
         {/if}
+      </div>
+    </Sheet.Content>
+  </Sheet.Root>
+
+  <!-- Что сделало действие: ввод и вывод во весь кадр, закрывается свайпом
+       или крестиком (телефон; на десктопе плашка раскрывается в ленте).
+       Стоит в разметке ПОСЛЕ шторки агента: порталы монтируются по порядку
+       разметки, и открытая из ленты агента шторка действия должна лечь
+       ПОВЕРХ неё — Esc снимает её первой, лента агента остаётся. -->
+  <Sheet.Root bind:open={toolOpen}>
+    <Sheet.Content side="bottom" class="agent-sheet">
+      <Sheet.Header class="agent-head">
+        <div class="dlg-col">
+          <Sheet.Title>{toolSheet?.name || 'действие'}</Sheet.Title>
+          {#if toolSheet?.is_error}
+            <Sheet.Description class="text-hot">завершилось ошибкой</Sheet.Description>
+          {/if}
+          <!-- когда это было: у ленты нет времени событий (критика 19.08, P0) -->
+          {#if toolSheet?.ts}
+            <Sheet.Description>{hhmm(toolSheet.ts)} · {age(toolSheet.ts)} назад</Sheet.Description>
+          {/if}
+        </div>
+      </Sheet.Header>
+      <div class="agent-body">
+        {#if toolSheet?.input}
+          <p class="tsec">ввод</p>
+          <pre class="cli-screen">{toolSheet.input}</pre>
+        {/if}
+        <p class="tsec">вывод</p>
+        <pre class="cli-screen">{toolSheet?.result || '(пусто)'}</pre>
       </div>
     </Sheet.Content>
   </Sheet.Root>
@@ -1035,10 +1170,11 @@
       {/if}
       <input type="file" multiple hidden bind:this={fileEl}
         onchange={(e) => attachFiles([...e.currentTarget.files])} />
-      <textarea rows="1" bind:this={ta} bind:value={draft} oninput={grow}
+      <textarea rows="1" id="composer-input" bind:this={ta} bind:value={draft} oninput={grow}
         placeholder={data.runner?.busy ? 'сообщение подождёт в очереди…' : data.input?.mode === 'tmux' ? 'написать в чат сессии…' : 'написать сессии…'}
         onkeydown={(e) => {
-          if (e.key !== 'Enter' || e.shiftKey) return;
+          // на телефоне Shift+Enter нет: Enter — перенос, шлёт кнопка
+          if (e.key !== 'Enter' || e.shiftKey || coarse) return;
           e.preventDefault(); sendText();
         }}></textarea>
       <div class="launch-bar">
@@ -1080,7 +1216,8 @@
          занимала 84 px из 1063 — CTO 11.08) -->
     <p class="hint quiet">
       {#if data.input?.mode === 'tmux'}
-        Enter — отправить, сообщение уходит прямо в CLI-сессию.
+        {coarse ? 'Сообщение уходит прямо в CLI-сессию; отправка — кнопкой.'
+          : 'Enter — отправить, сообщение уходит прямо в CLI-сессию.'}
       {:else}
         Мёртвую сессию сообщение поднимет резюмом и уедет в неё; живущую в
         Desktop доставит будка-почтальон.
@@ -1100,8 +1237,16 @@
         {/each}
       </p>
     {/if}
-    {#if sent}<p class="hint ok-note">{sent}</p>{/if}
-    {#if sayError}<p class="err">Не отправлено: {sayError}</p>{/if}
+    {#if sent}<p class="hint ok-note" role="status">{sent}</p>{/if}
+    {#if sayError}
+      <!-- черновик цел (чистится только при успехе) — «повторить» шлёт его же -->
+      <p class="err" role="alert">
+        Не отправлено: {sayError}
+        {#if draft.trim() || attachments.length}
+          <Button variant="link" size="xs" disabled={saying} onclick={sendText}>повторить</Button>
+        {/if}
+      </p>
+    {/if}
   </div>
     </div>
     {#if files}
@@ -1127,6 +1272,15 @@
      ПОД неё, а не обрывается. На широком экране полосы нет — липнет к нулю.
      mobile-first: имя сессии и «назад» живут в общей шапке телефона, здесь
      они появляются только на широком экране. */
+  /* скип-линк: невидим, пока не получит фокус с клавиатуры */
+  .skip-link {
+    position: absolute; left: -9999px; z-index: 30;
+    background: var(--bg-2); color: var(--text-1);
+    border: 1px solid var(--accent); border-radius: var(--r-sm);
+    padding: var(--sp-2) var(--sp-4); font-size: var(--fs-sm);
+    text-decoration: none;
+  }
+  .skip-link:focus-visible { left: var(--sp-5); top: var(--sp-5); outline: none; }
   .s-head {
     position: sticky; top: var(--bar-h, 0px); z-index: 5;
     background: var(--bg-1); margin: calc(-1 * var(--sp-5)) 0 var(--sp-6);
@@ -1188,6 +1342,11 @@
     .body.with-files .files-pane :global(> *) { flex: 1; min-height: 0; height: auto; }
   }
 
+  /* на телефоне имя и действия живут в общей шапке: пустая местная шапка
+     не должна оставлять полосу с линией (аудит 19.08, «19px пустоты») */
+  @media (max-width: 900px) {
+    .s-head:not(:has(.s-meta, .reason)) { display: none; }
+  }
   .back, .s-title { display: none; }
   .back { color: var(--text-3); text-decoration: none; font-size: var(--fs-sm); }
   .back:hover { color: var(--text-1); }
@@ -1298,6 +1457,14 @@
   .dlg-tab.done { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, transparent); }
   .dlg-tab.cur { color: var(--text-1); border-color: var(--warn); }
   .dlg-tab:disabled { opacity: 0.6; cursor: default; }
+  /* палец: табы формы и её крестики мелкие — хит-зона добита невидимо
+     по вертикали, соседи по ряду не перекрываются (аудит 19.08) */
+  @media (pointer: coarse) {
+    .dlg-tab { position: relative; padding: 4px var(--sp-4); }
+    .dlg-tab::after { content: ''; position: absolute; inset: -9px 0; }
+    .dlg-x { position: relative; }
+    .dlg-x::after { content: ''; position: absolute; inset: -8px; }
+  }
   .dlg-mini {
     flex: 1; min-width: 0; font-size: var(--fs-sm);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1394,7 +1561,10 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .ag-state { flex: none; color: var(--ok); font-size: var(--fs-xs); }
-  .ag-state.bad { color: var(--hot); }
+  .ag-state.bad {
+    color: var(--hot);
+    display: inline-flex; align-items: center; gap: 3px;
+  }
   .ag-state.done { color: var(--text-4); }
   /* подписи «ввод» / «вывод» в шторке действия */
   .tsec {
