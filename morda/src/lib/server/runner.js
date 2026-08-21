@@ -291,12 +291,15 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
     throw new Error(`запись ${name} уже в реестре`);
   // Гейт паспорта (STOVP-61): красный паспорт закрывает запуск в любом
   // режиме, отсутствие паспорта — только bypass (остальным предупреждение);
-  // решение — passportGate, здесь только исполнение. skipPassportGate —
+  // решение — passportGate, здесь только исполнение. passportlessOk —
   // СЛУЖЕБНЫЙ второй аргумент (клиент API передаёт только первый): аудитор
-  // запускается ДО паспорта по замыслу — его работа паспорт и собрать.
-  const pgate = opts.skipPassportGate
+  // запускается ДО паспорта, его работа паспорт и собрать — но пропускается
+  // только ОТСУТСТВИЕ паспорта; красный режет и аудит (кросс-ревью Sol:
+  // краснота чинится кнопкой «проверить готовность», не bypass-сессией).
+  const problems = passportQuick(root);
+  const pgate = (problems === null && opts.passportlessOk)
     ? { block: null, warning: null }
-    : passportGate(passportQuick(root), mode);
+    : passportGate(problems, mode);
   if (pgate.block) throw new Error(pgate.block);
   const args = (resumeId ? ` --resume ${resumeId}` : '')
     + (model ? ` --model ${model}` : '')
@@ -1032,8 +1035,9 @@ export function auditStart({ project }) {
     project, name,
     goal: `${prompt}\n\nПроект: «${project}», корень: ${root}. Вопросы человеку задавай формами AskUserQuestion (пульт показывает их нативно); каждую закрытую ступень — сообщением в чат.`,
     model: 'fable', mode: 'bypass', effort: 'high',
-    // аудит идёт ДО паспорта: его работа — паспорт собрать (STOVP-61)
-  }, { skipPassportGate: true }) };
+    // аудит идёт ДО паспорта: его работа — паспорт собрать (STOVP-61);
+    // пропускается только отсутствие паспорта, красный режет и аудит
+  }, { passportlessOk: true }) };
 }
 
 /** Код со страницы после входа (только Claude-флоу). */
