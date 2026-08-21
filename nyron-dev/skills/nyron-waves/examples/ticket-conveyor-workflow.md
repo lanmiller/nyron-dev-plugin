@@ -122,9 +122,11 @@ phase('CrossReview')
 let crRound = 0, cr
 while (crRound < 2) {
   cr = await agent(
-    `1) Полный прогон тестов проекта для зоны тикета (make -C ... / npm test).
+    `1) Тесты: в промежуточном круге — ТОЧЕЧНЫЕ по зоне тикета; полный прогон
+     (make -C ... / npm test) — один раз, на круге после последнего фикса
+     (канон «полный сьют один раз» — правила волн, «Качество»).
      2) Запусти Bash: ${args.crossReviewSh} -C ${args.worktree} -b main -t ${args.ticketFile}
-     Верни ok=true при зелёном полном прогоне И «ВЕРДИКТ: ПРИНЯТО»; иначе
+     Верни ok=true при зелёных тестах И «ВЕРДИКТ: ПРИНЯТО»; иначе
      findings (замечания дословно, «[sol] тип: суть»; НЕБЛОКИРУЮЩЕЕ — отдельным
      списком nonblocking). Метрики находок — echo в ${args.metricsFile}.`,
     { label: `sol:${args.ticket}#${crRound}`, model: 'sonnet', schema: VERDICT })
