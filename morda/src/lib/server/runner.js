@@ -47,9 +47,24 @@ function tmux(args, opts = {}) {
   return execFileSync(TMUX_BIN, args,
     { timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'], env: SPAWN_ENV, ...opts }).toString();
 }
+// Живые сессии — ОДНИМ вызовом на опрос, а не по вызову на запись реестра:
+// 35 записей давали 35 синхронных `tmux has-session`, и под нагрузкой
+// (тестовый прогон волны в docker) опрос флота вставал на десятки секунд —
+// сервер переставал отвечать целиком (факт 22.08).
+let aliveCache = { at: 0, set: null };
+function aliveSet() {
+  if (aliveCache.set && Date.now() - aliveCache.at < 500) return aliveCache.set;
+  let set = new Set();
+  try {
+    set = new Set(tmux(['list-sessions', '-F', '#S']).split('\n')
+      .filter(Boolean).filter((n) => n.startsWith(TMUX_PREFIX))
+      .map((n) => n.slice(TMUX_PREFIX.length)));
+  } catch { /* tmux-сервера нет — живых сессий нет */ }
+  aliveCache = { at: Date.now(), set };
+  return set;
+}
 function tmuxAlive(name) {
-  try { tmux(['has-session', '-t', TMUX_PREFIX + name]); return true; }
-  catch { return false; }
+  return aliveSet().has(name);
 }
 function pane(name) {
   // одна панель на сессию раннера — окно 0, панель 0
