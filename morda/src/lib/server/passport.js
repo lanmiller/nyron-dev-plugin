@@ -420,7 +420,13 @@ export function strictMcpProfile(root) {
   const pp = j(path.join(root, '.claude', 'passport.json'));
   const proj = j(path.join(root, '.mcp.json'))?.mcpServers || {};
   for (const name of Object.keys(pp?.mcp || {})) {
-    if (proj[name]) { servers[name] = proj[name]; from.push(`${name} (паспорт)`); }
+    // конфиг паспортного сервера: проектный .mcp.json сильнее (едет с репо,
+    // относительные пути — от корня), нет в проекте — берём user-scope
+    // аккаунта: машинные инструменты (playwright, codebase-memory) живут там,
+    // и заставлять дублировать их в каждый .mcp.json — ложный отказ
+    // (факт 22.08: psylia не стартовала строгим профилем)
+    if (proj[name]) { servers[name] = proj[name]; from.push(`${name} (паспорт, .mcp.json)`); }
+    else if (acc[name]) { servers[name] = acc[name]; from.push(`${name} (паспорт, user-scope)`); }
     else missing.push(name);
   }
   return { servers, from, missing };
