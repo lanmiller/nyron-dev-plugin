@@ -113,3 +113,20 @@ if (!globalThis.__mordaAutoJudge) {
   }, AUTOJUDGE_EVERY);
   globalThis.__mordaAutoJudge.unref?.();
 }
+
+// Толкач финала (STOVP-57, план 22.08 п.9): «закончила, ветка не влита» —
+// живой пинок в промпт, мёртвой — карточка. Правило кодом; мерж руками
+// пульта — никогда. Частота пинков ограничена внутри finisherScan (4 часа).
+import { finisherScan } from '$lib/server/finisher.js';
+const FINISHER_EVERY = 30 * 60 * 1000;
+if (!globalThis.__mordaFinisher) {
+  globalThis.__mordaFinisher = setInterval(() => {
+    for (const p of projects() || []) {
+      try {
+        for (const a of finisherScan(p.name))
+          console.log(`[finisher] ${p.name}/${a.name}: ${a.did} (${a.branch})`);
+      } catch { /* проект без git/будки — пропускаем */ }
+    }
+  }, FINISHER_EVERY);
+  globalThis.__mordaFinisher.unref?.();
+}
