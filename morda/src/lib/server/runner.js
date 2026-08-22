@@ -392,6 +392,19 @@ export function runnerFinisherMark({ name, branch }) {
   return s.finisher;
 }
 
+/** Счётчик автопинков застрявшей (hooks.server.js): после двух безответных
+ *  пинков — карточка человеку вместо третьего. count 0 — сброс (ожила).
+ *  Третий однотипный сеттер поля реестра (judge/finisher/autopush) — при
+ *  четвёртом объединить в один с белым списком полей. */
+export function runnerAutopushMark({ name, count }) {
+  const reg = loadReg();
+  const s = reg.sessions[name];
+  if (!s) throw new Error(`нет записи ${name}`);
+  s.autopush = count > 0 ? { at: new Date().toISOString(), count } : null;
+  saveReg(reg);
+  return s.autopush;
+}
+
 /** Подъём резюмом: новая tmux-сессия с тем же именем, claude --resume. */
 export function runnerResume({ name, goal }) {
   const reg = loadReg();

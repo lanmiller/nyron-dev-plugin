@@ -85,21 +85,56 @@ if (!globalThis.__mordaTriage) {
   globalThis.__mordaTriage.unref?.();
 }
 
-// Автосудья застрявших (план 22.08 п.7): раньше вердикт был только кнопкой —
-// теперь пульт сам зовёт судью, когда лента молчит при бодром счётчике.
-// Улики собирает код, deepseek судит, вердикт ложится в реестр (runnerList
-// отдаёт его строкой флота). Повторный суд той же сессии — не чаще часа.
+// Автосудья застрявших (план 22.08 п.7) + автопинок (решение CTO 22.08:
+// «почему на автомате не сделать — застряло → написали „продолжай, если
+// сдал — передай диспетчеру“»). Улики собирает код, deepseek судит, вердикт
+// ложится в реестр; при вердикте «встала» сессии сразу уходит текстовый
+// пинок. Пинок — это ввод в промпт, НЕ руки в git: мерж по-прежнему делает
+// только сессия по merge_rights или человек. Два пинка без результата —
+// карточка человеку вместо третьего; ожила — счётчик сбрасывается.
 import { judgeReady, judgeStuck } from '$lib/server/judge.js';
-import { runnerList, runnerJudgeSave } from '$lib/server/runner.js';
+import { runnerList, runnerJudgeSave, runnerType, runnerAutopushMark }
+  from '$lib/server/runner.js';
+import { hubForJudge, rootByName } from '$lib/server/fleet.js';
 const AUTOJUDGE_EVERY = 10 * 60 * 1000;
 const REJUDGE_MS = 60 * 60 * 1000;
+// на этих экранах CLI ждёт выбора — ввод туда сломал бы диалог
+const NO_PUSH_SCREENS = new Set(['dialog', 'permission', 'hitl', 'needs_auth',
+  'mcp_consent', 'trust', 'browser_consent', 'bypass_warning', 'login_flow']);
+function autoPush(p, s, v) {
+  if (v.state !== 'stuck' || NO_PUSH_SCREENS.has(s.screen)) return;
+  const n = s.autopush?.count || 0;
+  if (n < 2) {
+    runnerType({ name: s.name, enter: true,
+      text: `[автосудья] Похоже, ты застряла: ${String(v.verdict).split('\n')[0]}. `
+        + 'Если работа сделана — сдай её: влей по своим merge_rights или передай '
+        + 'диспетчеру и запаркуйся. Если не закончена — продолжай с места остановки. '
+        + 'Если чего-то ждёшь — напиши одной строкой, чего именно.' });
+    runnerAutopushMark({ name: s.name, count: n + 1 });
+    console.log(`[autopush] ${s.name}: пинок ${n + 1}/2`);
+  } else {
+    // третьего пинка нет — эскалация человеку; дедуп будки держит одну карточку
+    hubForJudge(rootByName(p)).ask({
+      session: s.sessionId || s.name, type: 'choice',
+      question: `Автопинки не помогли: ${s.name}`,
+      options: [{ n: 1, label: 'вижу, разбираюсь' }],
+      context: String(v.verdict).slice(0, 300), urgency: 'active',
+    });
+    console.log(`[autopush] ${s.name}: два пинка без ответа — карточка человеку`);
+  }
+}
 if (!globalThis.__mordaAutoJudge) {
   globalThis.__mordaAutoJudge = setInterval(async () => {
     if (!judgeReady()) return; // ключей нет — механика живёт без судьи
     for (const p of projects() || []) {
       let rows = [];
       try { rows = runnerList(p.name); } catch { continue; }
-      for (const s of rows.filter((x) => x.stuck)) {
+      for (const s of rows) {
+        if (!s.stuck) {
+          // ожила после пинков — счётчик обнуляется, эпизод закрыт
+          if (s.autopush) try { runnerAutopushMark({ name: s.name, count: 0 }); } catch {}
+          continue;
+        }
         const fresh = s.judge && Date.now() - new Date(s.judge.at).getTime() < REJUDGE_MS;
         if (fresh) continue;
         try {
@@ -107,6 +142,7 @@ if (!globalThis.__mordaAutoJudge) {
           runnerJudgeSave({ name: s.name,
             judge: { at: new Date().toISOString(), state: v.state, verdict: v.verdict } });
           console.log(`[autojudge] ${s.name}: ${v.state || 'вердикт'}`);
+          try { autoPush(p.name, s, v); } catch (e) { console.log(`[autopush] ${s.name}: ${e.message}`); }
         } catch (e) { console.log(`[autojudge] ${s.name}: ${e.message}`); }
       }
     }
