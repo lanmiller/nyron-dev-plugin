@@ -212,8 +212,13 @@ export async function judgeVision({ url = 'http://127.0.0.1:4747/config' } = {})
   if (!/^http:\/\/127\.0\.0\.1:\d+\//.test(url))
     throw new Error('вижн-смок снимает только страницы пульта (127.0.0.1)');
   const file = path.join(os.tmpdir(), `morda-vision-${Date.now()}.png`);
+  // бинарь по пути из зависимостей morda: npx под launchd недетерминирован
+  // (факт 22.08 — ETIMEDOUT при первом резолве из чужого кеша)
+  const pw = path.join(MORDA_ROOT, 'node_modules', '.bin', 'playwright');
+  if (!fs.existsSync(pw))
+    throw new Error('playwright не установлен: npm install в morda/ (он в devDependencies)');
   try {
-    execFileSync('npx', ['playwright', 'screenshot', '--viewport-size=1280,900',
+    execFileSync(pw, ['screenshot', '--viewport-size=1280,900',
       '--full-page', url, file], { timeout: 90_000, env: SPAWN_ENV, stdio: 'ignore' });
     const b64 = fs.readFileSync(file).toString('base64');
     const d = await judgeCall(k, {
