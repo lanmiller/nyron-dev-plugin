@@ -456,7 +456,7 @@ export function runnerResume({ name, goal }) {
 
 /** Реестр + здоровье по факту (не по памяти реестра): tmux жив? транскрипт
  *  пишется? Экран — needs_auth? Это ответ на «жив/молчит/упёрся». */
-export function runnerList(project) {
+function runnerListRaw(project) {
   const reg = loadReg();
   const out = [];
   for (const [name, s] of Object.entries(reg.sessions)) {
@@ -508,6 +508,22 @@ export function runnerList(project) {
       pulse: busy ? parsePulse(visible(name)) : null });
   }
   return out.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+}
+
+// Кэш опроса: список стоит десятки синхронных вызовов tmux (по вызову на
+// запись реестра), а спрашивают его разом вкладки, автосудья и толкач
+// финала. Под нагрузкой (тестовый прогон волны в docker) вызовы ползут, и
+// сервер вставал целиком — порт слушает, ответить некому (факт 22.08).
+// Полсекунды несвежести человеку незаметны, лавину опросов срезают.
+const LIST_TTL = 500;
+const listCache = new Map(); // project|'' → { at, rows }
+export function runnerList(project) {
+  const key = project || '';
+  const c = listCache.get(key);
+  if (c && Date.now() - c.at < LIST_TTL) return c.rows;
+  const rows = runnerListRaw(project);
+  listCache.set(key, { at: Date.now(), rows });
+  return rows;
 }
 
 /** Запись раннера по sessionId — карточка сессии показывает кнопки
