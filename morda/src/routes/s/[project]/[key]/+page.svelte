@@ -470,6 +470,17 @@
   let toolOpen = $state(false);
   function openTool(it) { toolSheet = it; toolOpen = true; }
   let agentsOpen = $state(false);  // раскрыт ли список агентов у чипа
+  // живые цифры агента (время · токены) — с экрана CLI (runner.agents_live):
+  // ленты про это молчат, и «работает» стояло без движения (CTO 22.08).
+  // Сопоставление: тимейты — по имени, субагенты — по началу брифа.
+  function liveOf(a) {
+    const live = data?.runner?.agents_live || [];
+    const nm = String(a.name || a.agentId || '').toLowerCase();
+    const desc = String(a.description || '').toLowerCase().slice(0, 16);
+    return live.find((l) => l.name.toLowerCase() === nm)
+      || (desc && live.find((l) =>
+        String(l.brief || '').toLowerCase().startsWith(desc))) || null;
+  }
   async function openAgent(agent) {
     // переход из ленты одного агента в другого — родитель ложится в стек
     if (agentOpen && agentSheet) agentTrail = [...agentTrail, agentSheet];
@@ -817,16 +828,21 @@
                помощник сессии он и есть, отличается только иконкой. -->
           <div class="ag-list">
             {#each data.agents || [] as a (a.agentId)}
-              <button class="ag-row" class:on={a.busy} onclick={() => openAgent(a)}>
+              {@const lv = liveOf(a)}
+              <button class="ag-row" class:on={a.busy || lv} onclick={() => openAgent(a)}>
                 <Icon name={a.kind === 'workflow' ? 'workflow' : 'bot'} size={17}
-                  class="flex-none {a.failed ? 'text-hot' : a.busy ? 'text-ok' : 'text-ink-4'}" />
+                  class="flex-none {a.failed ? 'text-hot' : (a.busy || lv) ? 'text-ok' : 'text-ink-4'}" />
                 <span class="ag-col">
                   <b>{a.name || a.agentId}</b>
                   {#if a.description}<span class="ag-desc">{a.description}</span>{/if}
                 </span>
                 <!-- молчание агента само по себе ничего не говорило: «уже
-                     отработал» и «не пойми что» выглядели одинаково (CTO 21.08) -->
-                {#if a.busy}<span class="ag-state">работает</span>
+                     отработал» и «не пойми что» выглядели одинаково (CTO 21.08);
+                     живые цифры — с экрана CLI: он единственный их знает -->
+                {#if lv}
+                  <span class="ag-state" title="время работы и скачанные токены — живой счётчик с экрана CLI">
+                    работает{lv.elapsed ? ` · ${lv.elapsed}` : ''}{lv.tokens ? ` · ↓${lv.tokens}` : ''}</span>
+                {:else if a.busy}<span class="ag-state">работает</span>
                 {:else if a.failed}<span class="ag-state bad"><Icon name="triangle-alert" size={12} />ошибка</span>
                 {:else}<span class="ag-state done">отработал</span>{/if}
                 <Icon name="chevron-right" size={16} class="text-ink-4 flex-none" />

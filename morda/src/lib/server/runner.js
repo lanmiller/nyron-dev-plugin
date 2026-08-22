@@ -166,6 +166,26 @@ function parsePulse(text) {
   return { what, elapsed, tokens, note };
 }
 
+/** Живые агенты сессии — из списка внизу экрана CLI («⏺ main», «◯ wave-kan84
+ *  Бриф… 12m 25s · ↓ 109.6k tokens»): токены и время работы агентов видны
+ *  только там, пульт их не выдумает (CTO 22.08: «не вижу движения»). */
+function parseAgents(text) {
+  const out = [];
+  for (const l of String(text || '').split('\n')) {
+    const m = l.match(/^\s*(?:❯\s*)?([⏺◯])\s+(\S+)\s*(.*)$/u);
+    if (!m || m[2] === 'main') continue;
+    const tail = m[3];
+    const elapsed = tail.match(/(\d+m\s*\d*s?|\d+s)\s*·/)?.[1]?.trim() || null;
+    const tokens = tail.match(/↓\s*([\d.,]+k?)\s*tokens/)?.[1] || null;
+    const brief = tail.replace(/(\d+m\s*\d*s?|\d+s)\s*·.*$/, '').trim() || null;
+    // маркер ⏺ носят и строки транскрипта — агентом считаем только строку
+    // со счётчиком (время/токены), это и есть живой список внизу экрана
+    if (!elapsed && !tokens) continue;
+    out.push({ name: m[2], active: m[1] === '⏺', brief, elapsed, tokens });
+  }
+  return out;
+}
+
 function step(name) {
   const reg = loadReg();
   const s = reg.sessions[name];
@@ -505,7 +525,8 @@ export function runnerBySessionId(key) {
       return { name, ...s, queue: s.queue || [], tmux: TMUX_PREFIX + name, alive, screen, busy,
         quiet_ms: quiet, stuck: quiet != null && quiet > STUCK_MS,
         pulse: busy ? parsePulse(vis) : null,
-        screen_text, dialog, permission, slot_label: slot?.label || 'основной' };
+        screen_text, dialog, permission, slot_label: slot?.label || 'основной',
+        agents_live: parseAgents(vis) };
     }
   return null;
 }
