@@ -363,6 +363,9 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
       ? ` --strict-mcp-config --mcp-config ${strictMcpFile(name, dir)}` : '');
   const targs = ['new-session', '-d', '-s', TMUX_PREFIX + name];
   for (const [k, v] of Object.entries(slotEnv(slotDef || {}))) targs.push('-e', `${k}=${v}`);
+  // метка «сессия раннера»: SessionStart-хук оркестратора по ней молчит —
+  // режим постановщика получают только интерактивные окна человека, не волны
+  targs.push('-e', 'NYRON_RUNNER=1');
   targs.push('-c', dir, CLAUDE_BIN + args);
   execFileSync(TMUX_BIN, targs, { timeout: 5000, env: SPAWN_ENV });
   reg.sessions[name] = {
