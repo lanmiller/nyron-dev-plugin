@@ -55,12 +55,35 @@ function skillAt(dir, id) {
   return { ok, fact: ok ? `skills/${id}` : `нет каталога skills/${id}` };
 }
 
-function pluginAt(dir, id) {
+// установки плагина у адресата: installed_plugins.json хранит записи по
+// scope (user/project) с реальной версией — settings.json версии не знает
+function pluginInstalls(dir, id) {
+  const inst = readJson(path.join(dir, 'plugins', 'installed_plugins.json'));
+  const key = Object.keys(inst?.plugins || {}).find((k) => k.split('@')[0] === id);
+  return key ? inst.plugins[key] : [];
+}
+
+function pluginAt(dir, id, { mainVersion = null, checkPins = false } = {}) {
   const st = readJson(path.join(dir, 'settings.json'));
   const key = Object.keys(st?.enabledPlugins || {}).find((k) => k.split('@')[0] === id);
-  if (key && st.enabledPlugins[key]) return { ok: true, fact: `включён: ${key}` };
-  if (key) return { ok: false, fact: `выключен в settings.json: ${key}` };
-  return { ok: false, fact: st ? 'нет в enabledPlugins' : 'settings.json нет или пуст' };
+  if (!key) return { ok: false, fact: st ? 'нет в enabledPlugins' : 'settings.json нет или пуст' };
+  if (!st.enabledPlugins[key]) return { ok: false, fact: `выключен в settings.json: ${key}` };
+  const recs = pluginInstalls(dir, id);
+  const ver = recs.find((r) => r.scope === 'user')?.version || null;
+  // копия отстала от основного — до 22.08 матрица тут врала зелёным
+  if (mainVersion && ver && ver !== mainVersion)
+    return { ok: false, version: ver,
+      fact: `включён, но версия ${ver} — у основного ${mainVersion}; раздай заново` };
+  // project-scope установка со СВОЕЙ версией перекрывает user-scope в своём
+  // дереве (так 0.9.2 в ai-evolve прятал выкаченный 0.10.0 — найдено 22.08)
+  if (checkPins && ver) {
+    const pins = recs.filter((r) => r.scope === 'project' && r.version !== ver);
+    if (pins.length) return { ok: false, version: ver,
+      fact: `user-scope ${ver}, но project-scope прибит к `
+        + pins.map((p) => `${p.version} (${p.projectPath})`).join(', ')
+        + ` — сессии этих деревьев берут старую; лечится: claude plugin update ${key} --scope project из дерева` };
+  }
+  return { ok: true, version: ver, fact: `включён: ${key}${ver ? ` · ${ver}` : ''}` };
 }
 
 function mcpAt(dir, acc, id, { scanProjects = false } = {}) {
@@ -78,9 +101,10 @@ function mcpAt(dir, acc, id, { scanProjects = false } = {}) {
   return { ok: false, fact: 'не прописан' };
 }
 
-function detect(item, dir, acc, isMain) {
+function detect(item, dir, acc, isMain, { mainVersion = null } = {}) {
   if (item.kind === 'skill') return skillAt(dir, item.id);
-  if (item.kind === 'plugin') return pluginAt(dir, item.id);
+  if (item.kind === 'plugin')
+    return pluginAt(dir, item.id, { mainVersion, checkPins: isMain });
   return mcpAt(dir, acc, item.id, { scanProjects: isMain });
 }
 
@@ -116,14 +140,16 @@ export function configMatrix() {
   const tags = canonTags();
   const realms = canonRealms();
   const row = (item, isCanon) => {
+    const main = detect(item, md, mainAcc, true);
     const copies = {};
     for (const s of slots)
-      copies[s.id] = detect(item, s.home, readJson(path.join(s.home, '.claude.json')) || {}, false);
+      copies[s.id] = detect(item, s.home, readJson(path.join(s.home, '.claude.json')) || {},
+        false, { mainVersion: main.version || null });
     const inProjects = {};
     for (const { name, pp } of pps) inProjects[name] = needIn(item, pp);
     return { ...item, canon: isCanon, tag: tags[item.id] || null,
       realm: item.realm || realms[item.id] || null,
-      main: detect(item, md, mainAcc, true), copies, projects: inProjects };
+      main, copies, projects: inProjects };
   };
 
   const rows = canonItems().map((c) => row(c, true));
