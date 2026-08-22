@@ -289,14 +289,24 @@
             </div>
             <div class="eyebrow bh">Локальные</div>
             {#each branchData.locals as b (b.name)}
-              <button class="row brow" class:active={b.current} disabled={b.current || busy.checkout}
-                onclick={() => act('checkout', { branch: b.name })}
-                title={b.current ? 'текущая' : `переключиться на ${b.name} (дерево должно быть чистым)`}>
-                <Icon name="git-branch" size={13} class={b.current ? 'text-primary' : 'text-ink-4'} />
-                <span class="grow">{b.name}</span>
-                {#if b.upstream}<span class="trail">→ {b.upstream}</span>{/if}
-                <span class="trail mono">{b.sha}</span>
-              </button>
+              <div class="row brow" class:active={b.current}>
+                <button class="bmain" disabled={b.current || busy.checkout}
+                  onclick={() => act('checkout', { branch: b.name })}
+                  title={b.current ? 'текущая' : `переключиться на ${b.name} (дерево должно быть чистым)`}>
+                  <Icon name="git-branch" size={13} class={b.current ? 'text-primary' : 'text-ink-4'} />
+                  <span class="grow">{b.name}</span>
+                  {#if b.upstream}<span class="trail">→ {b.upstream}</span>{/if}
+                  <span class="trail mono">{b.sha}</span>
+                </button>
+                {#if !b.current}
+                  <!-- уборка кнопками, не руками сессии (CTO 22.08: «раз мы
+                       до сих пор не научились прибираться») -->
+                  <button class="bact" class:busy={busy.merge} title="влить {b.name} в текущую (--no-ff; конфликт откатится сам)"
+                    onclick={() => act('merge', { branch: b.name })}>влить</button>
+                  <button class="bact" class:busy={busy.tidy} title="удалить ветку локально и на origin — только если влита; невлитую не тронет"
+                    onclick={() => act('tidy', { branch: b.name })}>прибрать</button>
+                {/if}
+              </div>
             {/each}
             <div class="eyebrow bh">Удалённые</div>
             {#each branchData.remotes as b (b.name)}
@@ -428,4 +438,15 @@
     white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 var(--sp-5);
   }
   .cfile { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .brow { display: flex; align-items: center; gap: var(--sp-2); }
+  .bmain { display: flex; align-items: center; gap: var(--sp-3); flex: 1; min-width: 0;
+    background: none; border: 0; color: inherit; font: inherit; cursor: pointer; min-height: 32px; }
+  .bmain:disabled { cursor: default; }
+  .bact {
+    flex: none; font-size: var(--fs-xs); color: var(--text-3);
+    background: none; border: 1px solid var(--border-soft); border-radius: var(--r-sm);
+    padding: 2px 8px; min-height: 26px; cursor: pointer;
+  }
+  .bact:hover { border-color: var(--accent, var(--primary)); color: var(--text-1); }
+  .bact.busy { opacity: .5; pointer-events: none; }
 </style>

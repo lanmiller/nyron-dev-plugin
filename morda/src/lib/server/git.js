@@ -261,6 +261,65 @@ export async function createBranch(root, rel, name) {
   return { created: name };
 }
 
+/** Влить ветку в текущую (обычно main). Только чистое дерево; конфликт —
+ *  честная ошибка с abort, полурезультат в дереве не оставляем.
+ *  (CTO 22.08: «как мне вливать?» — мержи делались руками сессии) */
+export async function merge(root, rel, branch) {
+  const repo = repoPath(root, rel);
+  await git(repo, ['check-ref-format', '--branch', branch]).catch(() => {
+    throw new Error(`некорректное имя ветки: ${branch}`);
+  });
+  const st = await status(root, rel);
+  const dirty = st.staged.length + st.unstaged.filter((f) => f.s !== 'U').length;
+  if (dirty) throw new Error(`дерево не чистое (${dirty} файл(ов)) — закоммить или откати перед мержем`);
+  const into = (await git(repo, ['branch', '--show-current'])).trim() || '(detached)';
+  try {
+    await git(repo, ['merge', '--no-ff', branch,
+      '-m', `мерж ${branch} в ${into} (git-панель пульта)`], { timeout: 60_000 });
+  } catch (e) {
+    await git(repo, ['merge', '--abort']).catch(() => {});
+    throw new Error(`конфликт при мерже ${branch} в ${into} — мерж отменён, дерево цело; разведи конфликт в сессии`);
+  }
+  return { merged: branch, into };
+}
+
+/** Прибрать ветку: удалить локально и на origin — ТОЛЬКО если влита в
+ *  текущую. Невлитую не трогаем вовсе («прибраться» ≠ «потерять работу»).
+ *  Если ветку держит worktree — сносим его, но лишь с чистым деревом. */
+export async function tidyBranch(root, rel, branch) {
+  const repo = repoPath(root, rel);
+  await git(repo, ['check-ref-format', '--branch', branch]).catch(() => {
+    throw new Error(`некорректное имя ветки: ${branch}`);
+  });
+  const cur = (await git(repo, ['branch', '--show-current'])).trim();
+  if (branch === cur) throw new Error('это текущая ветка — сначала переключись');
+  const notMerged = (await git(repo, ['branch', '--no-merged', 'HEAD']))
+    .split('\n').map((l) => l.replace(/^[*+]?\s*/, '').trim());
+  if (notMerged.includes(branch))
+    throw new Error(`ветка ${branch} НЕ влита в текущую — прибирать отказываюсь; сначала «влить»`);
+  // ветку может держать рабочая копия (git worktree) — снесём, если чистая
+  const wt = (await git(repo, ['worktree', 'list', '--porcelain']))
+    .split('\n\n').map((b) => ({
+      dir: b.match(/^worktree (.+)$/m)?.[1],
+      br: b.match(/^branch refs\/heads\/(.+)$/m)?.[1],
+    })).find((w) => w.br === branch);
+  const out = { removed: branch };
+  if (wt?.dir) {
+    const wtDirty = (await git(wt.dir, ['status', '--porcelain'])).trim();
+    if (wtDirty) throw new Error(`рабочая копия ${wt.dir} не чистая — прибери или закоммить в ней сначала`);
+    await git(repo, ['worktree', 'remove', wt.dir], { timeout: 30_000 });
+    out.worktree = wt.dir;
+  }
+  await git(repo, ['branch', '-d', branch]);
+  const hadRemote = (await git(repo, ['branch', '-r']))
+    .split('\n').some((l) => l.trim() === `origin/${branch}`);
+  if (hadRemote) {
+    await git(repo, ['push', 'origin', '--delete', branch], { timeout: 30_000 });
+    out.remote = `origin/${branch} удалена`;
+  }
+  return out;
+}
+
 /** Граф: последние коммиты всех веток в topo-порядке + раскладка по колонкам.
  *  Раскладка простая (колонка на ветку): активные дорожки ждут своего
  *  родителя; коммит занимает первую ждущую его дорожку, его родители
