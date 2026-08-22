@@ -224,13 +224,18 @@ export async function judgeVision({ url = 'http://127.0.0.1:4747/config' } = {})
     // token-бюджет размышлением, и content приходил пустым (факт 22.08)
     await new Promise((res, rej) => {
       execFile(pw, ['screenshot', '--viewport-size=1280,900',
+        '--wait-for-timeout=3000', // дать странице догрузить матрицу/списки
         url, file], { timeout: 90_000, env: SPAWN_ENV },
       (err) => (err ? rej(new Error(`скрин не снялся: ${err.message}`)) : res()));
     });
     const b64 = fs.readFileSync(file).toString('base64');
     const d = await judgeCall(k, {
       model: k.JUDGE_MODEL, temperature: 0.2,
-      max_tokens: 4000, // вижн-размышление длиннее текстового (факт: ~5 КБ)
+      // вижн-размышление ненасытно: без колпака съедало ЛЮБОЙ max_tokens
+      // целиком (finish=length, content пуст — факт 22.08). Колпак OpenRouter
+      // на размышление + запас на сам ответ.
+      max_tokens: 6000,
+      reasoning: { max_tokens: 2000 },
       messages: [
         { role: 'system', content:
 'Ты — ревьюер вёрстки тёмной панели управления. Ищи дефекты: обрезанный или налезающий текст, сломанную сетку, нечитаемый контраст, горизонтальный скролл, разнобой отступов. Отвечай по-русски списком до 5 пунктов, самое важное первым; вёрстка чистая — скажи одной строкой.' },
