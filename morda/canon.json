@@ -14,7 +14,7 @@
       "kind": "mcp",
       "realm": "session",
       "title": "Playwright — браузер фактом",
-      "why": "скриншоты и e2e-проверки из сессий; сейчас прописан только в проекте ai-evolve — копиям не раздаётся",
+      "why": "скриншоты и e2e-проверки из сессий (user-scope с 22.08 — раздаётся копиям)",
       "install": { "type": "stdio", "command": "npx", "args": ["@playwright/mcp@latest"], "env": {} }
     },
     {
