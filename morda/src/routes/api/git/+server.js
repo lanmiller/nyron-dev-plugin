@@ -43,6 +43,8 @@ export async function POST({ request }) {
       case 'discard': return json(await g.discard(root, repo, files));
       case 'commit': return json(await g.commit(root, repo, b.message));
       case 'checkout': return json(await g.checkout(root, repo, b.branch));
+      case 'merge': return json(await g.merge(root, repo, b.branch));
+      case 'tidy': return json(await g.tidyBranch(root, repo, b.branch));
       case 'create-branch': return json(await g.createBranch(root, repo, b.name));
       case 'push': return json(await g.push(root, repo));
       case 'pull': return json(await g.pull(root, repo));
