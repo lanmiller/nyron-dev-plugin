@@ -370,6 +370,17 @@ export function runnerStop({ name }) {
   return s;
 }
 
+/** Вердикт автосудьи — в запись реестра: runnerList отдаёт его строкой
+ *  флота (spread записи), человек видит суждение без нажатия кнопки. */
+export function runnerJudgeSave({ name, judge }) {
+  const reg = loadReg();
+  const s = reg.sessions[name];
+  if (!s) throw new Error(`нет записи ${name}`);
+  s.judge = judge; // { at, state, verdict } либо null — стереть
+  saveReg(reg);
+  return s.judge;
+}
+
 /** Подъём резюмом: новая tmux-сессия с тем же именем, claude --resume. */
 export function runnerResume({ name, goal }) {
   const reg = loadReg();
