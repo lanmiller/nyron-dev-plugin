@@ -1,0 +1,175 @@
+#!/usr/bin/env node
+/**
+ * pult-mcp — MCP-коннектор пульта (решение CTO 22.08: «Клод Десктоп —
+ * оркестратор: попиздел — и он сам диспетчеров запускает»).
+ *
+ * Тонкий stdio-прокси к живому пульту http://127.0.0.1:4747 (launchd).
+ * Zero-deps, каркас — nyron-dev/hub/server.mjs (вторую реализацию
+ * JSON-RPC-цикла не заводим, этот — его прямой форк под async-тулы).
+ *
+ * ГРАНИЦЫ РУК (разбор 22.08, принято CTO):
+ *  - смотреть (флот, экран), поднимать (через раннер — с гейтом паспорта),
+ *    писать сессии (очередь), судить — ДА;
+ *  - stop, резюм чужих, мерж — НЕТ: это право человека и сессий по
+ *    merge_rights, модели через коннектор такие руки не выдаются;
+ *  - в канон коннектор НЕ вносится аккаунтным: строгие сессии (волны,
+ *    исполнители) его не видят — иерархия «постановщик → диспетчер →
+ *    волны» держится механизмом strict-профиля, а не уговором.
+ *
+ * Регистрация (user-scope, одна на машину):
+ *   claude mcp add pult -- sh <репо>/morda/mcp/run-pult.sh
+ */
+const PULT = process.env.MORDA_PULT_URL || 'http://127.0.0.1:4747';
+
+async function api(method, path, body) {
+  let r;
+  try {
+    r = await fetch(PULT + path, {
+      method,
+      headers: { 'content-type': 'application/json', 'x-morda': '1' },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch (e) {
+    throw new Error(`пульт не отвечает на ${PULT} — подними: bash morda/install-launchd.sh (${e.message})`);
+  }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || `пульт ответил HTTP ${r.status}`);
+  return d;
+}
+
+// сессии в ответах — только нужное оркестратору, без внутренностей реестра
+function brief(s) {
+  return {
+    name: s.name, project: s.project, state: s.state, alive: s.alive,
+    busy: s.busy, stuck: s.stuck || false, screen: s.screen,
+    goal: String(s.goal || '').slice(0, 160) || null,
+    mode: s.mode, mcp: s.mcp, slot: s.slot || 'основной',
+    quiet_min: s.quiet_ms != null ? Math.round(s.quiet_ms / 60000) : null,
+    pulse: s.pulse || null, queue: (s.queue || []).length,
+    judge: s.judge?.verdict ? String(s.judge.verdict).split('\n')[0] : null,
+    sessionId: s.sessionId || null,
+  };
+}
+
+const tools = {
+  pult_fleet: {
+    description:
+      'Флот CLI-сессий пульта: кто жив, занят, застрял, ждёт человека; слоты подписок. Первый вызов оркестратора — посмотреть, что уже идёт, прежде чем плодить новое.',
+    inputSchema: { type: 'object', properties: {
+      project: { type: 'string', description: 'имя проекта пульта (psylia, nyron, stovp…); пусто — все' },
+    }, additionalProperties: false },
+    async handler({ project }) {
+      const d = await api('GET', `/api/runner${project ? `?project=${encodeURIComponent(project)}` : ''}`);
+      return {
+        sessions: (d.sessions || []).map(brief),
+        slots: (d.slots || []).map((s) => ({ id: s.id, label: s.label, provider: s.provider })),
+      };
+    },
+  },
+
+  pult_start: {
+    description:
+      'Поднять новую CLI-сессию через раннер пульта — с гейтом паспорта, судьёй и автопинками. Для эпика поднимай ОДНОГО диспетчера со скиллом nyron-waves — волны дальше плодит он. Слот подписки задавай, когда нужен параллельный лимит (Мариха, stovpe3tt).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'проект пульта: psylia, nyron, stovp…' },
+        name: { type: 'string', description: 'имя сессии: строчные латиница/цифры/дефис' },
+        goal: { type: 'string', description: 'задача первым сообщением' },
+        mode: { type: 'string', description: 'auto | acceptEdits | plan | bypass (bypass — только за забором, его ставит раннер)' },
+        mcp: { type: 'string', description: "'strict' — только серверы паспорта + аккаунтные канона; пусто — все серверы машины" },
+        model: { type: 'string', description: 'fable | opus | sonnet | haiku (пусто — дефолт)' },
+        effort: { type: 'string', description: 'low | medium | high | xhigh | max (пусто — дефолт)' },
+        slot: { type: 'string', description: 'id слота подписки из pult_fleet (пусто — основной)' },
+      },
+      required: ['project', 'name', 'goal'],
+      additionalProperties: false,
+    },
+    async handler(a) {
+      const s = await api('POST', '/api/runner', { action: 'start', ...a });
+      return { started: s.name, state: s.state, passport_warning: s.passport_warning || null };
+    },
+  },
+
+  pult_send: {
+    description:
+      'Написать сессии: текст встаёт в очередь пульта и доставляется, когда её промпт готов (занятую не сбивает, диалоги не ломает).',
+    inputSchema: { type: 'object', properties: {
+      name: { type: 'string', description: 'имя сессии из pult_fleet' },
+      text: { type: 'string', description: 'сообщение' },
+    }, required: ['name', 'text'], additionalProperties: false },
+    async handler({ name, text }) { return api('POST', '/api/runner', { action: 'queue_add', name, text }); },
+  },
+
+  pult_screen: {
+    description: 'Живой экран tmux сессии — что она видит прямо сейчас (последние строки терминала).',
+    inputSchema: { type: 'object', properties: {
+      name: { type: 'string' },
+      lines: { type: 'number', description: 'сколько строк снизу (дефолт 40)' },
+    }, required: ['name'], additionalProperties: false },
+    async handler({ name, lines }) { return api('POST', '/api/runner', { action: 'screen', name, lines }); },
+  },
+
+  pult_judge: {
+    description:
+      'Вердикт независимого судьи (deepseek) по сессии: встала / работает / ждёт человека, с причиной и действием. Зови при подозрении, что сессия залипла.',
+    inputSchema: { type: 'object', properties: {
+      name: { type: 'string' },
+      project: { type: 'string' },
+      sessionId: { type: 'string', description: 'из pult_fleet (для чтения ленты)' },
+    }, required: ['name', 'project'], additionalProperties: false },
+    async handler(a) {
+      const v = await api('POST', '/api/runner', { action: 'judge', ...a });
+      return { verdict: v.verdict, state: v.state, confidence: v.confidence };
+    },
+  },
+};
+
+// ---------- MCP stdio (JSON-RPC 2.0) — форк цикла nyron-dev/hub/server.mjs,
+// отличие одно: handler'ы асинхронные (HTTP к пульту) ----------
+
+import readline from 'node:readline';
+
+function send(obj) { process.stdout.write(JSON.stringify(obj) + '\n'); }
+
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on('line', async (line) => {
+  line = line.trim();
+  if (!line) return;
+  let req;
+  try { req = JSON.parse(line); } catch { return; }
+  const { id, method, params } = req;
+  try {
+    if (method === 'initialize') {
+      send({ jsonrpc: '2.0', id, result: {
+        protocolVersion: params?.protocolVersion || '2024-11-05',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'pult', version: '0.1.0' },
+      } });
+    } else if (method === 'notifications/initialized' || method === 'initialized') {
+      // notification — ответа не требует
+    } else if (method === 'ping') {
+      send({ jsonrpc: '2.0', id, result: {} });
+    } else if (method === 'tools/list') {
+      send({ jsonrpc: '2.0', id, result: { tools: Object.entries(tools).map(
+        ([name, t]) => ({ name, description: t.description, inputSchema: t.inputSchema })) } });
+    } else if (method === 'tools/call') {
+      const t = tools[params?.name];
+      if (!t) throw new Error(`unknown tool: ${params?.name}`);
+      const result = await t.handler(params?.arguments || {});
+      send({ jsonrpc: '2.0', id, result: {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] } });
+    } else if (id !== undefined) {
+      send({ jsonrpc: '2.0', id, error: { code: -32601, message: `unknown method: ${method}` } });
+    }
+  } catch (e) {
+    if (id !== undefined)
+      send({ jsonrpc: '2.0', id, result: {
+        content: [{ type: 'text', text: JSON.stringify({ error: String(e.message || e) }) }],
+        isError: true } });
+  }
+});
+// НЕ exit(0): async-вызов мог быть в полёте, ответ обязан долететь в stdout;
+// когда ответы отданы, процесс завершится сам — держать его нечему
+rl.on('close', () => {});
