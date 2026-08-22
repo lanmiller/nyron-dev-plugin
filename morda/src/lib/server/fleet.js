@@ -457,10 +457,15 @@ export function sessions(project) {
         w: watch.get(s.key), lastAct,
         aliveOwned: owned.get(s.key)?.alive, thresholdMs,
       });
-      if (ck?.state === 'stalled')
-        stalledCard(hub, { key: s.key, title: s.title, reason: ck.reason,
+      if (ck?.state === 'stalled') {
+        const card = stalledCard(hub, { key: s.key, title: s.title, reason: ck.reason,
           quietMs: Date.now() - lastAct, thresholdMs,
           aliveOwned: owned.get(s.key)?.alive });
+        // свежая карточка — в счётчик ЭТОГО же опроса: бейдж не отставал бы
+        // на опрос (долг cross-review STOVP-60 r4, закрыт 22.08)
+        if (card && card.deduped === false)
+          open.set(s.key, (open.get(s.key) || 0) + 1);
+      }
       return {
         ...s,
         state: parked ? 'parked' : ck?.state || null,

@@ -381,6 +381,17 @@ export function runnerJudgeSave({ name, judge }) {
   return s.judge;
 }
 
+/** Отметка толкача финала (finisher.js): когда и о какой ветке пнули —
+ *  чтобы живую сессию не дёргать чаще раза в 4 часа. */
+export function runnerFinisherMark({ name, branch }) {
+  const reg = loadReg();
+  const s = reg.sessions[name];
+  if (!s) throw new Error(`нет записи ${name}`);
+  s.finisher = { at: new Date().toISOString(), branch };
+  saveReg(reg);
+  return s.finisher;
+}
+
 /** Подъём резюмом: новая tmux-сессия с тем же именем, claude --resume. */
 export function runnerResume({ name, goal }) {
   const reg = loadReg();

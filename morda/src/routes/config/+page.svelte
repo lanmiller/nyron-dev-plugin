@@ -109,6 +109,16 @@
   };
   const requiredIn = (i) =>
     Object.entries(i.projects).filter(([, v]) => v.required).map(([p]) => p);
+
+  // вижн-смок вёрстки: код снимает скрин этой страницы, вижн-модель смотрит
+  let vision = $state(null);
+  let visionBusy = $state(false);
+  async function visionSmoke() {
+    visionBusy = true; vision = null;
+    vision = (await act({ action: 'vision' }))?.verdict
+      || `не вышло: ${error || 'судья промолчал'}`;
+    visionBusy = false;
+  }
 </script>
 
 <svelte:head><title>Инструменты — STOVP</title></svelte:head>
@@ -136,6 +146,15 @@
       везде) или сессионный (под задачу: браузер, Jira проекта — такой
       набор можно резать строгим профилем сессии).</p>
   </details>
+  <div class="vision-row">
+    <Button variant="outline" size="xs" disabled={visionBusy}
+      title="код снимет полный скрин этой страницы (playwright) и отдаст вижн-модели судьи — вердикт по вёрстке списком"
+      onclick={visionSmoke}>
+      <Icon name={visionBusy ? 'loader-circle' : 'eye'} size={13} />
+      {visionBusy ? 'смотрю…' : 'вижн-смок вёрстки'}
+    </Button>
+    {#if vision}<p class="vision-verdict">{vision}</p>{/if}
+  </div>
 </header>
 
 {#if error}<p class="err">{error}</p>{/if}
@@ -359,6 +378,11 @@
   .legend { margin-top: var(--sp-3); font-size: var(--fs-xs); color: var(--text-3); }
   .legend summary { cursor: pointer; user-select: none; }
   .legend p { margin: var(--sp-2) 0 0; max-width: 62ch; }
+  .vision-row { margin-top: var(--sp-3); }
+  .vision-verdict {
+    margin: var(--sp-2) 0 0; font-size: var(--fs-xs); color: var(--text-3);
+    white-space: pre-line; max-width: 72ch;
+  }
   .fl { color: var(--text-3); font-weight: 600; margin-right: var(--sp-1); }
   /* .banner (светофор) и .chip.on — из дизайн-системы (app.css, витрина /design) */
   .mb { margin-bottom: var(--sp-4); }

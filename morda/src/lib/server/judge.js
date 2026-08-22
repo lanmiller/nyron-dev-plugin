@@ -13,6 +13,7 @@
  * Ключей нет — судья честно недоступен, механика пульта живёт без него.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { MORDA_ROOT, TMUX_BIN, SPAWN_ENV, transcriptQuietMs, session as readSession } from './fleet.js';
@@ -43,7 +44,11 @@ function evidence({ name, project, sessionId }) {
     screen = execFileSync(TMUX_BIN, ['capture-pane', '-t', `stovp-${name}:0.0`, '-p'],
       { timeout: 3000, env: SPAWN_ENV }).toString().split('\n')
       .filter((l) => l.trim()).slice(-14).join('\n');
-  } catch {}
+  } catch (e) {
+    // ошибка tmux — сама по себе улика (сессии вне раннера, убитые):
+    // молчаливая пустота вчера читалась как «экран пуст» и путала вердикт
+    screen = `(tmux: ${String(e.stderr || e.message).trim().split('\n')[0]})`;
+  }
   const quiet = sessionId ? transcriptQuietMs(project, sessionId) : null;
   let hooks = '';
   try {
@@ -195,6 +200,38 @@ ${ev.screen || '(экран пуст)'}` }];
     : clean;
   return { verdict, state: parsed?.state || null, confidence: parsed?.confidence ?? null,
     model: k.JUDGE_MODEL, evidence: ev, investigated: used };
+}
+
+/** Вижн-смок вёрстки (план 22.08 п.10): скрин страницы пульта — вердикт
+ *  вижн-модели. Скрин снимает код (playwright CLI), модель только смотрит;
+ *  начали с /config, добавить страницу — передать url. Только свой пульт. */
+export async function judgeVision({ url = 'http://127.0.0.1:4747/config' } = {}) {
+  const k = keysEnv();
+  if (!judgeReady())
+    throw new Error('судья не настроен: положи JUDGE_API_URL, JUDGE_API_KEY и JUDGE_MODEL в .secrets/env');
+  if (!/^http:\/\/127\.0\.0\.1:\d+\//.test(url))
+    throw new Error('вижн-смок снимает только страницы пульта (127.0.0.1)');
+  const file = path.join(os.tmpdir(), `morda-vision-${Date.now()}.png`);
+  try {
+    execFileSync('npx', ['playwright', 'screenshot', '--viewport-size=1280,900',
+      '--full-page', url, file], { timeout: 90_000, env: SPAWN_ENV, stdio: 'ignore' });
+    const b64 = fs.readFileSync(file).toString('base64');
+    const d = await judgeCall(k, {
+      model: k.JUDGE_MODEL, temperature: 0.2, max_tokens: 2000,
+      messages: [
+        { role: 'system', content:
+'Ты — ревьюер вёрстки тёмной панели управления. Ищи дефекты: обрезанный или налезающий текст, сломанную сетку, нечитаемый контраст, горизонтальный скролл, разнобой отступов. Отвечай по-русски списком до 5 пунктов, самое важное первым; вёрстка чистая — скажи одной строкой.' },
+        { role: 'user', content: [
+          { type: 'text', text: `Страница ${url}, полноразмерный скрин при ширине 1280px.` },
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } },
+        ] },
+      ],
+    });
+    const clean = (d.choices?.[0]?.message?.content || '')
+      .replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    if (!clean) throw new Error('вижн-судья вернул пустой ответ');
+    return { url, verdict: clean, model: k.JUDGE_MODEL };
+  } finally { fs.rmSync(file, { force: true }); }
 }
 
 /** Триаж висящих карточек: протухшие ответы мёртвым адресатам закрываются.

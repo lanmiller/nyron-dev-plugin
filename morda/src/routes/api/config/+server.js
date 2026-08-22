@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import { configMatrix, configRequire, configSmoke, configInstall,
   configSync, syncPreview } from '$lib/server/configurator.js';
 import { releaseStatus, releaseRun } from '$lib/server/release.js';
+import { judgeVision } from '$lib/server/judge.js';
 import { guarded } from '$lib/server/guard.js';
 
 // Конфигуратор инструментов (docs/specs/2026-08-20-configurator.md):
@@ -23,6 +24,8 @@ const ACTIONS = {
   // run требует confirm:true и существует только за кнопкой человека в UI
   release_status: releaseStatus,
   release: releaseRun,
+  // вижн-смок вёрстки (judge.js): скрин страницы пульта → вердикт вижн-модели
+  vision: judgeVision,
 };
 
 export async function POST({ request }) {
