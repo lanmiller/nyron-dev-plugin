@@ -391,14 +391,18 @@
   // У ЖИВОЙ сессии смена чипа = перезапуск резюмом — молча так делать нельзя
   // (критика 19.08, P1): сначала подтверждение, отмена возвращает чипы.
   // У запаркованной параметры просто запишутся до подъёма — там тихо можно.
-  let tuneAsk = $state(null);   // { model, mode, effort } | null
+  // ВСЕ четыре параметра ходят вместе: mcp добавили позже, и подтверждение
+  // несло только три — отпечатки никогда не сходились, диалог перезапуска
+  // выскакивал заново после каждого «перезапустить», а строгий набор терялся
+  // при рестарте (факт 22.08, сессия psylia)
+  let tuneAsk = $state(null);   // { model, mode, effort, mcp } | null
   $effect(() => {
     const cur = [tuneModel, tuneMode, tuneEffort, tuneMcp].join('|');
     if (!data?.runner) return;
     if (prevTune === null) { prevTune = cur; return; }
     if (cur === prevTune) return;
     if (data.runner.alive) {
-      tuneAsk = { model: tuneModel, mode: tuneMode, effort: tuneEffort };
+      tuneAsk = { model: tuneModel, mode: tuneMode, effort: tuneEffort, mcp: tuneMcp };
       return;   // prevTune не двигаем: отмена откатит чипы к нему
     }
     prevTune = cur;
@@ -407,14 +411,14 @@
   function tuneConfirm() {
     const t = tuneAsk;
     tuneAsk = null;
-    prevTune = [t.model, t.mode, t.effort].join('|');
+    prevTune = [t.model, t.mode, t.effort, t.mcp].join('|');
     runnerAct('retune', t);
   }
   function tuneCancel() {
     if (!tuneAsk) return;
-    const [m, md, e] = prevTune.split('|');
+    const [m, md, e, mc] = prevTune.split('|');
     tuneAsk = null;
-    tuneModel = m; tuneMode = md; tuneEffort = e;
+    tuneModel = m; tuneMode = md; tuneEffort = e; tuneMcp = mc || '';
   }
 
   // Живой TUI-диалог CLI (HITL-пикер, /usage, /model): транскрипт его не
