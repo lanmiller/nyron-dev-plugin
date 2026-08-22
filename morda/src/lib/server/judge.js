@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { MORDA_ROOT, TMUX_BIN, SPAWN_ENV, transcriptQuietMs, session as readSession } from './fleet.js';
 import { checkinMs } from './checkin.js';
 
@@ -218,8 +218,13 @@ export async function judgeVision({ url = 'http://127.0.0.1:4747/config' } = {})
   if (!fs.existsSync(pw))
     throw new Error('playwright не установлен: npm install в morda/ (он в devDependencies)');
   try {
-    execFileSync(pw, ['screenshot', '--viewport-size=1280,900',
-      '--full-page', url, file], { timeout: 90_000, env: SPAWN_ENV, stdio: 'ignore' });
+    // строго АСИНХРОННО: execFileSync замораживал событийный цикл, а скрин
+    // просит страницу у этого же сервера — самоблокировка (факт 22.08)
+    await new Promise((res, rej) => {
+      execFile(pw, ['screenshot', '--viewport-size=1280,900',
+        '--full-page', url, file], { timeout: 90_000, env: SPAWN_ENV },
+      (err) => (err ? rej(new Error(`скрин не снялся: ${err.message}`)) : res()));
+    });
     const b64 = fs.readFileSync(file).toString('base64');
     const d = await judgeCall(k, {
       model: k.JUDGE_MODEL, temperature: 0.2, max_tokens: 2000,
