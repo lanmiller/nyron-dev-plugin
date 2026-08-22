@@ -35,9 +35,16 @@ export function finisherScan(project) {
   const acts = [];
   let rows = [];
   try { rows = runnerList(project); } catch { return acts; }
+  const DAY = 24 * 3600_000;
+  const seen = new Map(); // каталог → вердикт: git по одному дереву, не по сессии
   for (const s of rows) {
     if (!s.root || !fs.existsSync(s.root)) continue;
-    const un = unmergedBranch(s.root);
+    // давно запаркованные не проверяем: их ветки уже не «только что сдали»,
+    // а каждая проверка — три синхронные git-команды (35 записей реестра =
+    // сотня вызовов, сервер вставал под нагрузкой — факт 22.08)
+    if (!s.alive && s.stoppedAt && Date.now() - new Date(s.stoppedAt).getTime() > DAY) continue;
+    if (!seen.has(s.root)) seen.set(s.root, unmergedBranch(s.root));
+    const un = seen.get(s.root);
     if (!un) continue;
     if (s.alive && s.screen === 'prompt' && !s.busy) {
       const last = s.finisher?.at ? Date.now() - new Date(s.finisher.at).getTime() : Infinity;
