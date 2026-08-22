@@ -220,19 +220,22 @@ export async function judgeVision({ url = 'http://127.0.0.1:4747/config' } = {})
   try {
     // строго АСИНХРОННО: execFileSync замораживал событийный цикл, а скрин
     // просит страницу у этого же сервера — самоблокировка (факт 22.08)
+    // вьюпорт, НЕ --full-page: гигантский скрин длинной страницы съедал весь
+    // token-бюджет размышлением, и content приходил пустым (факт 22.08)
     await new Promise((res, rej) => {
       execFile(pw, ['screenshot', '--viewport-size=1280,900',
-        '--full-page', url, file], { timeout: 90_000, env: SPAWN_ENV },
+        url, file], { timeout: 90_000, env: SPAWN_ENV },
       (err) => (err ? rej(new Error(`скрин не снялся: ${err.message}`)) : res()));
     });
     const b64 = fs.readFileSync(file).toString('base64');
     const d = await judgeCall(k, {
-      model: k.JUDGE_MODEL, temperature: 0.2, max_tokens: 2000,
+      model: k.JUDGE_MODEL, temperature: 0.2,
+      max_tokens: 4000, // вижн-размышление длиннее текстового (факт: ~5 КБ)
       messages: [
         { role: 'system', content:
 'Ты — ревьюер вёрстки тёмной панели управления. Ищи дефекты: обрезанный или налезающий текст, сломанную сетку, нечитаемый контраст, горизонтальный скролл, разнобой отступов. Отвечай по-русски списком до 5 пунктов, самое важное первым; вёрстка чистая — скажи одной строкой.' },
         { role: 'user', content: [
-          { type: 'text', text: `Страница ${url}, полноразмерный скрин при ширине 1280px.` },
+          { type: 'text', text: `Страница ${url}, первый экран при 1280×900.` },
           { type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } },
         ] },
       ],
