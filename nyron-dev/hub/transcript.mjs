@@ -94,6 +94,14 @@ function cwdForeign(cwd, root) {
  * Заголовок — последний custom-title; фолбэк — первая реплика человека.
  * Файлы читаются головой и хвостом (транскрипты бывают в десятки МБ).
  */
+// Пофайловый кэш разбора: заголовок и хост сессии меняются редко, а лента
+// дописывается непрерывно. Раньше кэш держался на сигнатуре ВСЕГО каталога —
+// любая запись в любую ленту сбрасывала его целиком, и морда на каждый опрос
+// заново парсила сотню файлов (~20 МБ JSON), захлёбываясь при живом флоте
+// (факт 22.08: сервер вставал под тестовым прогоном волны). Теперь
+// перечитывается только то, что реально изменилось.
+const metaCache = new Map(); // full → { mtimeMs, size, meta }
+
 export function listSessions(root) {
   const out = [];
   for (const dir of transcriptDirs(root)) {
@@ -106,6 +114,11 @@ export function listSessions(root) {
       if (!st.isFile()) continue; // подкаталоги субагентов — не сессии
       // хвост широкий (128К): custom-title обновляется по ходу сессии и на
       // многомегабайтных транскриптах живёт в десятках КБ от конца (факт 09.08)
+      const cached = metaCache.get(full);
+      if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+        out.push({ ...cached.meta, mtime: st.mtime.toISOString(), size: st.size });
+        continue;
+      }
       const head = parseLines(headOf(full, 64));
       const tail = st.size > 64 * 1024 ? parseLines(tailOf(full, 128)) : [];
       const events = [...head, ...tail];
@@ -125,14 +138,16 @@ export function listSessions(root) {
           if (t) { title = t.slice(0, 100); break; }
         }
       }
-      out.push({
+      const meta = {
         key: path.basename(f, '.jsonl'),
         file: full,
         mtime: st.mtime.toISOString(),
         size: st.size,
         title: title || '(без названия)',
         entrypoint,
-      });
+      };
+      metaCache.set(full, { mtimeMs: st.mtimeMs, size: st.size, meta });
+      out.push(meta);
     }
   }
   // один uuid может лежать в двух munged-каталогах (корень + worktree после
