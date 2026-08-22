@@ -25,6 +25,10 @@ fi
 ( cd "$MORDA" && npm run build --silent )
 
 launchctl bootout "gui/$(id -u)" "$PLIST" 2>/dev/null || true
+# добить сирот: процесс, переживший bootout, держит старый код без порта —
+# launchd считает службу живой и новую не поднимает (факт 22.08, вечер)
+pkill -f "morda/build/index.js" 2>/dev/null || true
+sleep 1
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
