@@ -30,7 +30,22 @@ function maxMtime(dir) {
 /** Свежесть сессии по всем трём лентам, ms epoch.
  *  file — путь транскрипта, mtime — его ISO-время из списка сессий.
  *  tmpBase — корень скретчпадов (для тестов; по умолчанию машина). */
+// TTL-кэш: свежесть сессии спрашивают все потребители разом (overview всех
+// проектов, runnerList, автосудья, толкач) — а каждый ответ это readdir+stat
+// по сотне файлов субагентов. Под нагрузкой диска опрос главной въезжал в
+// секунды и сервер вставал (факт 22.08, третий заход). 3 секунды несвежести
+// для детектора с порогом в минуты не значат ничего.
+const actCache = new Map(); // file|key → { at, best }
 export function lastActivityMs(file, key, mtime, { tmpBase } = {}) {
+  const ck = `${file}|${key}`;
+  const c = actCache.get(ck);
+  if (c && Date.now() - c.at < 3000) return Math.max(c.best, new Date(mtime || 0).getTime() || 0);
+  const best = lastActivityRaw(file, key, mtime, { tmpBase });
+  actCache.set(ck, { at: Date.now(), best });
+  if (actCache.size > 2000) actCache.clear(); // не копить старые сессии вечно
+  return best;
+}
+function lastActivityRaw(file, key, mtime, { tmpBase } = {}) {
   let best = new Date(mtime || 0).getTime() || 0;
   if (!file || !key) return best;
   const slugDir = path.dirname(file);
