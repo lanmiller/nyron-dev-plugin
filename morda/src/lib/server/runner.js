@@ -310,6 +310,15 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
   const root = rootByName(project); // бросит на чужом имени — allowlist
   if (!NAME_RE.test(name || '')) throw new Error('имя: строчные латиница/цифры/дефис');
   checkParams({ model, mode, effort, mcp });
+  // slot 'auto' — пульт сам берёт наименее занятую подписку по /usage
+  // (CTO 22.08: «не хочу думать, в какой подписке поднимать»); объяснение
+  // выбора уезжает в ответ — оркестратор говорит его человеку
+  let slotWhy = null;
+  if (slot === 'auto') {
+    const p = slotPick();
+    slot = p.id === 'claude-main' ? null : p.id; // основной = без слота
+    slotWhy = p.why;
+  }
   let slotDef = null;
   if (slot) {
     slotDef = loadSlots().slots.find((x) => x.id === slot);
@@ -371,7 +380,7 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
   startPoller(name);
   // имя — ключ реестра, внутри записи его нет; вызывающему оно нужно, чтобы
   // дать ссылку на сессию (без него ответ выглядел пустым — факт 21.08)
-  return { name, ...reg.sessions[name] };
+  return { name, ...reg.sessions[name], ...(slotWhy ? { slot_pick: slotWhy } : {}) };
 }
 
 /** Стоп = парковка, не убийство: транскрипт уже на диске, sessionId в
@@ -1067,6 +1076,35 @@ export function slotUsage({ id }) {
   if (!usage.session && !usage.week_all)
     throw new Error('не смог прочитать /usage — открой tmux attach -t stovp-' + name);
   return usage;
+}
+
+/** Автовыбор подписки (CTO 22.08: «не хочу думать, в какой подписке
+ *  поднимать»): обойти claude-слоты, снять /usage, взять наименее занятую
+ *  по 5-часовому окну (при равенстве — по неделе). Лимиты меняются
+ *  медленно — кеш 10 минут, чтобы старт сессии не ждал три /usage подряд.
+ *  Возвращает и объяснение выбора — оркестратор говорит его человеку. */
+const usagePickCache = new Map(); // slot id → { at, usage }
+export function slotPick() {
+  const scored = [], failed = [];
+  for (const s of loadSlots().slots.filter((x) => x.provider === 'claude')) {
+    let c = usagePickCache.get(s.id);
+    if (!c || Date.now() - c.at > 10 * 60_000) {
+      try { c = { at: Date.now(), usage: slotUsage({ id: s.id }) }; usagePickCache.set(s.id, c); }
+      catch (e) { failed.push(`${s.label}: ${e.message}`); continue; }
+    }
+    scored.push({
+      id: s.id, label: s.label,
+      session_pct: c.usage.session?.used_pct ?? c.usage.week_all?.used_pct ?? 100,
+      week_pct: c.usage.week_all?.used_pct ?? 100,
+    });
+  }
+  if (!scored.length)
+    throw new Error(`ни один слот не отдал лимиты: ${failed.join('; ') || 'слотов нет'}`);
+  scored.sort((a, b) => a.session_pct - b.session_pct || a.week_pct - b.week_pct);
+  const pick = scored[0];
+  const why = scored.map((x) => `${x.label} — сессия ${x.session_pct}%, неделя ${x.week_pct}%`)
+    .join('; ') + (failed.length ? `; без ответа: ${failed.join('; ')}` : '');
+  return { id: pick.id, label: pick.label, why: `выбран «${pick.label}» (${why})`, scored };
 }
 
 // Codex: панель /status. «% left» нормализуем в «использовано», как у

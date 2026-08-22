@@ -81,14 +81,16 @@ const tools = {
         mcp: { type: 'string', description: "'strict' — только серверы паспорта + аккаунтные канона; пусто — все серверы машины" },
         model: { type: 'string', description: 'fable | opus | sonnet | haiku (пусто — дефолт)' },
         effort: { type: 'string', description: 'low | medium | high | xhigh | max (пусто — дефолт)' },
-        slot: { type: 'string', description: 'id слота подписки из pult_fleet (пусто — основной)' },
+        slot: { type: 'string', description: 'id слота подписки из pult_fleet; ПУСТО — пульт сам возьмёт наименее занятую по /usage и объяснит выбор (slot_pick в ответе — перескажи его человеку)' },
       },
       required: ['project', 'name', 'goal'],
       additionalProperties: false,
     },
     async handler(a) {
-      const s = await api('POST', '/api/runner', { action: 'start', ...a });
-      return { started: s.name, state: s.state, passport_warning: s.passport_warning || null };
+      // без слота — автовыбор подписки: человек не должен думать, где лимит
+      const s = await api('POST', '/api/runner', { action: 'start', slot: 'auto', ...a });
+      return { started: s.name, state: s.state, slot: s.slot || 'основной',
+        slot_pick: s.slot_pick || null, passport_warning: s.passport_warning || null };
     },
   },
 
