@@ -262,6 +262,9 @@
           </Button>
           {#if verdicts[s.name]}
             <p class="verdict">{verdicts[s.name]}</p>
+          {:else if s.judge?.verdict}
+            <!-- автосудья (10-минутный цикл сервера) уже отсудил без кнопки -->
+            <p class="verdict">автосудья {mins(Date.now() - new Date(s.judge.at).getTime())} мин назад · {s.judge.verdict}</p>
           {/if}
         </div>
       {/each}

@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { MORDA_ROOT, TMUX_BIN, SPAWN_ENV, transcriptQuietMs, session as readSession } from './fleet.js';
+import { checkinMs } from './checkin.js';
 
 function keysEnv() {
   const out = {};
@@ -140,6 +141,33 @@ export function judgeTriage({ project, days = 7 }) {
     if (age < horizon) { kept.push({ id: a.id, why: 'моложе недели' }); continue; }
     hub.ack({ ask_id: a.id, by: 'judge-triage@morda' });
     closed.push({ id: a.id, q: String(a.question || '').slice(0, 60), days: Math.round(age / 86_400_000) });
+  }
+  // ОТКРЫТЫЕ автокарточки чек-ина по мёртвым сессиям (план 22.08 п.6).
+  // Живой считаем только сессию, которую раннер числит НЕ-стопнутой:
+  // у неё карточку держим (есть что спасать). Остальным — разовым пробам
+  // вне реестра и запаркованным — отвечать некому: тишина больше
+  // 4 порогов чек-ина (та же отсечка «история, не событие», что у
+  // stalledCard) закрывает карточку. Оживёт — чек-ин заведёт новую.
+  const DEAD_MS = 24 * 3600_000;
+  const aliveIds = new Set();
+  try {
+    const reg = JSON.parse(fs.readFileSync(path.join(MORDA_ROOT, 'runner.json'), 'utf8'));
+    for (const s of Object.values(reg.sessions || {}))
+      if (s.sessionId && s.state !== 'stopped' && s.state !== 'died_on_start')
+        aliveIds.add(s.sessionId);
+  } catch {}
+  const staleMs = 4 * checkinMs(rbn(project));
+  for (const a of hub.asks({ status: 'open' }).asks) {
+    if (!String(a.question || '').startsWith('Сессия молчит')) continue;
+    const quiet = a.session ? fleet.transcriptQuietMs(project, a.session) : null;
+    const dead = quiet == null || quiet >= DEAD_MS
+      || (!aliveIds.has(a.session) && quiet >= staleMs);
+    if (!dead) { kept.push({ id: a.id, why: 'сессия ещё пишет либо жива у раннера' }); continue; }
+    // открытую карточку не ack-ают (решения нет) — её отменяют с причиной
+    hub.cancelAsk({ ask_id: a.id, by: 'judge-triage@morda',
+      reason: 'сессия-адресат мертва: лента давно молчит, у раннера не числится живой' });
+    closed.push({ id: a.id, q: String(a.question || '').slice(0, 60),
+      days: Math.round((now - new Date(a.ts).getTime()) / 86_400_000) });
   }
   return { project, closed, kept: kept.length };
 }

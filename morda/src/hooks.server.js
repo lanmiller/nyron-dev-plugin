@@ -84,3 +84,32 @@ if (!globalThis.__mordaTriage) {
   }, TRIAGE_EVERY);
   globalThis.__mordaTriage.unref?.();
 }
+
+// Автосудья застрявших (план 22.08 п.7): раньше вердикт был только кнопкой —
+// теперь пульт сам зовёт судью, когда лента молчит при бодром счётчике.
+// Улики собирает код, deepseek судит, вердикт ложится в реестр (runnerList
+// отдаёт его строкой флота). Повторный суд той же сессии — не чаще часа.
+import { judgeReady, judgeStuck } from '$lib/server/judge.js';
+import { runnerList, runnerJudgeSave } from '$lib/server/runner.js';
+const AUTOJUDGE_EVERY = 10 * 60 * 1000;
+const REJUDGE_MS = 60 * 60 * 1000;
+if (!globalThis.__mordaAutoJudge) {
+  globalThis.__mordaAutoJudge = setInterval(async () => {
+    if (!judgeReady()) return; // ключей нет — механика живёт без судьи
+    for (const p of projects() || []) {
+      let rows = [];
+      try { rows = runnerList(p.name); } catch { continue; }
+      for (const s of rows.filter((x) => x.stuck)) {
+        const fresh = s.judge && Date.now() - new Date(s.judge.at).getTime() < REJUDGE_MS;
+        if (fresh) continue;
+        try {
+          const v = await judgeStuck({ name: s.name, project: s.project, sessionId: s.sessionId });
+          runnerJudgeSave({ name: s.name,
+            judge: { at: new Date().toISOString(), state: v.state, verdict: v.verdict } });
+          console.log(`[autojudge] ${s.name}: ${v.state || 'вердикт'}`);
+        } catch (e) { console.log(`[autojudge] ${s.name}: ${e.message}`); }
+      }
+    }
+  }, AUTOJUDGE_EVERY);
+  globalThis.__mordaAutoJudge.unref?.();
+}
