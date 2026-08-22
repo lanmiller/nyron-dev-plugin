@@ -72,30 +72,8 @@ function evidence({ name, project, sessionId }) {
     hooks, goal, queue, tail };
 }
 
-/** Вердикт тремя строками. Бросает понятную ошибку, если судья не настроен. */
-export async function judgeStuck({ name, project, sessionId }) {
-  const k = keysEnv();
-  if (!judgeReady())
-    throw new Error('судья не настроен: положи JUDGE_API_URL, JUDGE_API_KEY и JUDGE_MODEL в .secrets/env (кнопка «ключи» проекта stovp)');
-  const ev = evidence({ name, project, sessionId });
-  const body = {
-    model: k.JUDGE_MODEL,
-    temperature: 0.2,
-    max_tokens: 2000, // думающим моделям нужен запас на размышление (факт 22.08)
-    messages: [
-      { role: 'system', content:
-`Ты — дежурный судья флота CLI-сессий на маке оператора. Сессии — Claude Code в tmux; известные болезни: зависший Stop-хук (строка «running stop hook» с большим временем), фоновые агенты-товарищи без возврата результата, обрыв по лимиту подписки, ожидание ответа человека на форму. «Лента» — транскрипт сессии: живая дописывает его каждые пару минут; спиннер на экране при молчащей ленте — признак зависания, не работы. Отвечай ПО-РУССКИ строго JSON-объектом без обёрток: {"state":"working|stuck|waiting_human","fact":"главная улика одной фразой","cause":"причина одной фразой","action":"конкретный шаг оператора одной фразой","confidence":0..1}` },
-      { role: 'user', content:
-`Сессия «${name}», проект ${project}.
-Цель (начало): ${ev.goal || 'неизвестна'}
-Сообщений в очереди пульта: ${ev.queue}
-Лента молчит: ${ev.quietMin != null ? ev.quietMin + ' мин' : 'нет данных'}
-Висящие Stop-хуки: ${ev.hooks || 'нет'}
-Последние ходы ленты:
-${ev.tail || '(нет)'}
-Низ экрана tmux:
-${ev.screen || '(экран пуст)'}` }],
-  };
+// один запрос к провайдеру с таймаутом — общий для стартового и следственных
+async function judgeCall(k, body) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 90_000);
   try {
@@ -105,20 +83,118 @@ ${ev.screen || '(экран пуст)'}` }],
       body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error(`судья ответил HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
-    const d = await r.json();
-    const raw = d.choices?.[0]?.message?.content || '';
-    const clean = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-    if (!clean) throw new Error('судья вернул пустой ответ (всё ушло в размышление?)');
-    // структура — чтобы карточка красилась по полю; не разобралось — текст как есть
-    let parsed = null;
-    try { parsed = JSON.parse(clean.match(/\{[\s\S]*\}/)?.[0] || ''); } catch {}
-    const RU = { working: 'работает', stuck: 'встала', waiting_human: 'ждёт человека' };
-    const verdict = parsed
-      ? `${RU[parsed.state] || parsed.state}: ${parsed.fact}\nПричина: ${parsed.cause}\nДействие: ${parsed.action}`
-      : clean;
-    return { verdict, state: parsed?.state || null, confidence: parsed?.confidence ?? null,
-      model: k.JUDGE_MODEL, evidence: ev };
+    return await r.json();
   } finally { clearTimeout(t); }
+}
+
+// Следственные инструменты судьи (план 22.08 п.8) — СТРОГО read-only:
+// модель выбирает, ЧТО дозапросить, но исполняет всё код с прибитыми
+// командами; аргументы модели — только числа, зажатые в границы.
+function judgeTools({ name, project, sessionId }) {
+  const clamp = (v, lo, hi, d) => Math.max(lo, Math.min(hi, Number(v) || d));
+  const defs = [
+    { type: 'function', function: { name: 'screen',
+      description: 'полный экран tmux сессии (по умолчанию 40 строк, до 60)',
+      parameters: { type: 'object', properties: { lines: { type: 'number' } } } } },
+    { type: 'function', function: { name: 'tail',
+      description: 'больше последних ходов ленты сессии (по умолчанию 15, до 30)',
+      parameters: { type: 'object', properties: { count: { type: 'number' } } } } },
+    { type: 'function', function: { name: 'hung_hooks',
+      description: 'висящие процессы Stop-хука на машине',
+      parameters: { type: 'object', properties: {} } } },
+    { type: 'function', function: { name: 'git_state',
+      description: 'ветка, незакоммиченное и последние коммиты репозитория проекта',
+      parameters: { type: 'object', properties: {} } } },
+  ];
+  function run(tool, args = {}) {
+    if (tool === 'screen') {
+      const out = execFileSync(TMUX_BIN, ['capture-pane', '-t', `stovp-${name}:0.0`, '-p'],
+        { timeout: 3000, env: SPAWN_ENV }).toString();
+      return out.split('\n').filter((l) => l.trim()).slice(-clamp(args.lines, 10, 60, 40)).join('\n') || '(экран пуст)';
+    }
+    if (tool === 'tail') {
+      const sess = readSession(project, sessionId);
+      return (sess?.items || []).slice(-clamp(args.count, 6, 30, 15)).map((it) => {
+        const what = it.kind === 'tool' ? `→ ${it.name}: ${String(it.input || '').slice(0, 120)}`
+          : String(it.text || '').slice(0, 200);
+        return `[${it.kind}] ${what.replace(/\s+/g, ' ')}`;
+      }).join('\n') || '(лента пуста)';
+    }
+    if (tool === 'hung_hooks') {
+      try {
+        return execFileSync('pgrep', ['-fl', 'hub-rearm.sh hook'], { timeout: 2000 }).toString().trim() || 'нет';
+      } catch { return 'нет'; }
+    }
+    if (tool === 'git_state') {
+      const root = fleet.rootByName(project);
+      const g = (...a) => execFileSync('git', ['-C', root, ...a],
+        { timeout: 5000 }).toString().trim();
+      return `ветка: ${g('branch', '--show-current')}\nнезакоммиченное:\n${
+        g('status', '--porcelain').split('\n').slice(0, 25).join('\n') || '(чисто)'}\nкоммиты:\n${
+        g('log', '--oneline', '-3')}`;
+    }
+    throw new Error(`неизвестный инструмент ${tool}`);
+  }
+  return { defs, run };
+}
+
+/** Вердикт тремя строками; судья может дозапросить улики read-only
+ *  инструментами (до 3 следственных ходов). Бросает понятную ошибку,
+ *  если судья не настроен. */
+export async function judgeStuck({ name, project, sessionId }) {
+  const k = keysEnv();
+  if (!judgeReady())
+    throw new Error('судья не настроен: положи JUDGE_API_URL, JUDGE_API_KEY и JUDGE_MODEL в .secrets/env (кнопка «ключи» проекта stovp)');
+  const ev = evidence({ name, project, sessionId });
+  const tools = judgeTools({ name, project, sessionId });
+  const messages = [
+    { role: 'system', content:
+`Ты — дежурный судья флота CLI-сессий на маке оператора. Сессии — Claude Code в tmux; известные болезни: зависший Stop-хук (строка «running stop hook» с большим временем), фоновые агенты-товарищи без возврата результата, обрыв по лимиту подписки, ожидание ответа человека на форму. «Лента» — транскрипт сессии: живая дописывает его каждые пару минут; спиннер на экране при молчащей ленте — признак зависания, не работы. Не хватает улик — дозапроси инструментами (они read-only), но не больше трёх ходов. Когда уверен — отвечай ПО-РУССКИ строго JSON-объектом без обёрток: {"state":"working|stuck|waiting_human","fact":"главная улика одной фразой","cause":"причина одной фразой","action":"конкретный шаг оператора одной фразой","confidence":0..1}` },
+    { role: 'user', content:
+`Сессия «${name}», проект ${project}.
+Цель (начало): ${ev.goal || 'неизвестна'}
+Сообщений в очереди пульта: ${ev.queue}
+Лента молчит: ${ev.quietMin != null ? ev.quietMin + ' мин' : 'нет данных'}
+Висящие Stop-хуки: ${ev.hooks || 'нет'}
+Последние ходы ленты:
+${ev.tail || '(нет)'}
+Низ экрана tmux:
+${ev.screen || '(экран пуст)'}` }];
+  const used = [];
+  let raw = '';
+  for (let round = 0; round < 4; round++) {
+    const last = round === 3; // финальный круг — только вердикт, без инструментов
+    const d = await judgeCall(k, {
+      model: k.JUDGE_MODEL, temperature: 0.2,
+      max_tokens: 2000, // думающим моделям нужен запас на размышление (факт 22.08)
+      messages, ...(last ? {} : { tools: tools.defs }),
+    });
+    const msg = d.choices?.[0]?.message || {};
+    if (msg.tool_calls?.length && !last) {
+      messages.push(msg);
+      for (const tc of msg.tool_calls.slice(0, 4)) {
+        let out;
+        try { out = tools.run(tc.function?.name, JSON.parse(tc.function?.arguments || '{}')); }
+        catch (e) { out = `ошибка: ${e.message}`; }
+        used.push(tc.function?.name);
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: String(out).slice(0, 4000) });
+      }
+      continue;
+    }
+    raw = msg.content || '';
+    break;
+  }
+  const clean = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  if (!clean) throw new Error('судья вернул пустой ответ (всё ушло в размышление?)');
+  // структура — чтобы карточка красилась по полю; не разобралось — текст как есть
+  let parsed = null;
+  try { parsed = JSON.parse(clean.match(/\{[\s\S]*\}/)?.[0] || ''); } catch {}
+  const RU = { working: 'работает', stuck: 'встала', waiting_human: 'ждёт человека' };
+  const verdict = parsed
+    ? `${RU[parsed.state] || parsed.state}: ${parsed.fact}\nПричина: ${parsed.cause}\nДействие: ${parsed.action}`
+    : clean;
+  return { verdict, state: parsed?.state || null, confidence: parsed?.confidence ?? null,
+    model: k.JUDGE_MODEL, evidence: ev, investigated: used };
 }
 
 /** Триаж висящих карточек: протухшие ответы мёртвым адресатам закрываются.
