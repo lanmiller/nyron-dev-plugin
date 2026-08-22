@@ -46,6 +46,23 @@
     finally { busy = false; }
   }
 
+  // выкат плагина nyron-dev (release.js): панель диффа + кнопка человека
+  let rel = $state(null);        // releaseStatus, когда панель открыта
+  let relVersion = $state('');
+  let relNotes = $state('');
+  let relResult = $state(null);  // итог прогона: { version, ok, steps }
+  async function openRelease() {
+    relResult = null;
+    rel = await act({ action: 'release_status' });
+    if (rel) relVersion = rel.suggest || '';
+  }
+  async function doRelease() {
+    relResult = await act({ action: 'release', version: relVersion,
+      notes: relNotes, confirm: true });
+    if (relResult) rel = await act({ action: 'release_status' });
+    await refresh();
+  }
+
   const key = (i) => `${i.kind}:${i.id}`;
   async function smoke(i) {
     smoked = { ...smoked, [key(i)]: { busy: true } };
@@ -73,10 +90,16 @@
   }
 
   const REALM_RU = { account: 'аккаунтный', session: 'сессионный' };
+  // подсказки вкладок — не «где лежит файл», а как инструмент живёт и ездит
   const TABS = [
-    ['mcp', 'Коннекторы', 'MCP-серверы: user-scope раздаётся копиям, project-scope остаётся в проекте'],
-    ['skill', 'Скиллы', 'каталоги в skills/ конфиг-каталога аккаунта'],
-    ['plugin', 'Плагины', 'enabledPlugins в settings.json аккаунта'],
+    ['mcp', 'Коннекторы', 'MCP-серверы — внешние руки сессий (браузер, Jira, память). '
+      + 'Живут в двух местах: у аккаунта (user-scope — раздаются копиям кнопкой «раздать») '
+      + 'или в репозитории проекта (.mcp.json — едут с git-репо, копиям НЕ раздаются).'],
+    ['skill', 'Скиллы', 'папки с инструкциями в skills/ у аккаунта — сессия подхватывает их сама. '
+      + 'Копиям уезжают зеркалом при раздаче.'],
+    ['plugin', 'Плагины', 'ставятся командой CLI из маркетплейса и включаются в settings.json; '
+      + 'несут свои скиллы, хуки и коннекторы. «Включён» ещё не значит «свежий» — '
+      + 'версию смотри в строке «основной».'],
   ];
   const ofKind = (k) => (data?.items || []).filter((i) => i.kind === k);
   // сколько канон-пунктов у копии на месте — зелёность копии одним числом
@@ -92,9 +115,27 @@
 
 <header class="head">
   <h1>Инструменты флота</h1>
-  <p class="quiet">Канон — morda/canon.json. Поток: довести основной до канона →
-    смоук фактом → раздать копиям → смоук на копии. Пока основной красный,
-    раздача закрыта.</p>
+  <p class="quiet">Каждая карточка отвечает на два разных вопроса:
+    <b>стоит ли</b> — факт с диска (строки «основной» и «копии») и
+    <b>требуется ли</b> — запись в паспорте проекта (строка «проекты»).
+    Канон — morda/canon.json. Поток: довести основной до канона →
+    проверить фактом → раздать копиям. Пока основной красный, раздача закрыта.</p>
+  <details class="legend">
+    <summary>как читать карточку</summary>
+    <p><b>основной</b> — что фактически стоит у основного аккаунта
+      (~/.claude и ~/.claude.json). Это источник: отсюда всё раздаётся.</p>
+    <p><b>копии</b> — доехало ли то же самое до копий подписки. Копия —
+      зеркало основного после кнопки «раздать»; серый чип значит «у копии
+      не так, как у основного» (наведи — увидишь чем).</p>
+    <p><b>проекты</b> — какой проект ЗАПИСАЛ инструмент себе в паспорт
+      (.claude/passport.json). Паспорт ничего не ставит — он требует:
+      перед стартом сессии проекта инструмент проверяется фактом, красный
+      паспорт не даёт стартовать. «Ни один не требует» — это нормально:
+      инструмент просто общий, стартам он не мешает.</p>
+    <p><b>разряд</b> — аккаунтный (личное: почта, Slack, память — нужно
+      везде) или сессионный (под задачу: браузер, Jira проекта — такой
+      набор можно резать строгим профилем сессии).</p>
+  </details>
 </header>
 
 {#if error}<p class="err">{error}</p>{/if}
@@ -191,16 +232,18 @@
                 </Card.Action>
               </Card.Header>
               <Card.Content class="card-facts">
-                <!-- факт 1: основной -->
-                <div class="fact">
+                <!-- факт 1: стоит ли у основного (источник раздачи) -->
+                <div class="fact"
+                  title="факт с диска основного аккаунта (~/.claude и ~/.claude.json) — отсюда раздаётся копиям">
                   <Icon name={i.main.ok ? 'check' : 'x'} size={14}
                     class={i.main.ok ? 'text-ok' : 'text-hot'} />
                   <span><b>основной:</b> {i.main.fact}</span>
                 </div>
-                <!-- факт 2: копии -->
-                <div class="fact">
+                <!-- факт 2: доехало ли до копий (зеркало после «раздать») -->
+                <div class="fact"
+                  title="стоит ли то же самое у копий подписки; серый чип — у копии не так, как у основного (наведи на чип)">
                   <Icon name="copy" size={13} class="text-ink-4" />
-                  <span class="chips">
+                  <span class="chips"><b class="fl">копии:</b>
                     {#each data.copies as c (c.id)}
                       <i class="chip" class:on={i.copies[c.id]?.ok}
                         title={i.copies[c.id]?.fact}>{c.label}</i>
@@ -209,16 +252,17 @@
                     {/each}
                   </span>
                 </div>
-                <!-- факт 3: проекты по паспорту -->
-                <div class="fact">
+                <!-- факт 3: кто требует по паспорту (не «где стоит»!) -->
+                <div class="fact"
+                  title="паспорт проекта (.claude/passport.json) ничего не ставит — он требует проверять инструмент фактом перед стартом сессии; пусто — стартам не мешает">
                   <Icon name="folder-tree" size={13} class="text-ink-4" />
-                  <span class="chips">
+                  <span class="chips"><b class="fl">проекты:</b>
                     {#if req.length}
                       {#each req as p (p)}
                         <i class="chip on" title={i.projects[p].fact || 'в паспорте'}>{p}</i>
                       {/each}
                     {:else}
-                      <span class="quiet">ни один паспорт не требует</span>
+                      <span class="quiet">ни один не вписал в паспорт — стартам не мешает</span>
                     {/if}
                   </span>
                 </div>
@@ -247,7 +291,46 @@
                     onclick={() => (needOpen = needOpen === key(i) ? null : key(i))}>
                     <Icon name="file-badge" size={13} /> нужен проекту
                   </Button>
+                  {#if i.id === 'nyron-dev' && i.kind === 'plugin'}
+                    <Button variant="outline" size="xs" disabled={busy}
+                      title="панель выката: дифф «что поедет» и весь цикл (версии → CHANGELOG → push → обновление установок) одной кнопкой; жмёт только человек"
+                      onclick={() => (rel ? (rel = null) : openRelease())}>
+                      <Icon name="rocket" size={13} /> выкат…
+                    </Button>
+                  {/if}
                 </div>
+                {#if i.id === 'nyron-dev' && rel}
+                  <div class="rel">
+                    <p><b>стоит:</b> dev {rel.devVersion} · marketplace-клон {rel.cloneSha}
+                      · установки: {rel.installs.map((x) => `${x.scope} ${x.version}`).join(', ')}</p>
+                    {#if rel.dirty.length}
+                      <p class="warn-note">незакоммиченное в файлах плагина (в выкат не поедет):
+                        {rel.dirty.join('; ')}</p>
+                    {/if}
+                    {#if rel.commits.length}
+                      <p><b>поедет ({rel.commits.length}):</b></p>
+                      <ul>{#each rel.commits as c (c)}<li>{c}</li>{/each}</ul>
+                    {:else}
+                      <p class="quiet">новых коммитов по плагину нет — выкатывать нечего.</p>
+                    {/if}
+                    <div class="rel-form">
+                      <input class="rel-in" bind:value={relVersion} placeholder="версия x.y.z"
+                        title="новая версия; предложен минорный бамп" />
+                      <textarea class="rel-in" rows="2" bind:value={relNotes}
+                        placeholder="заметки в CHANGELOG (пусто — возьмётся список коммитов)"></textarea>
+                      <Button size="xs" disabled={busy || !rel.commits.length}
+                        title="весь цикл сразу: бамп версий → CHANGELOG → коммит+push → marketplace update → обновление user- и project-установок → проверка кеша"
+                        onclick={doRelease}>
+                        <Icon name="rocket" size={13} /> выкатить {relVersion}
+                      </Button>
+                    </div>
+                    {#if relResult}
+                      <ul class="rel-steps" class:ok={relResult.ok}>
+                        {#each relResult.steps as s (s)}<li>{s}</li>{/each}
+                      </ul>
+                    {/if}
+                  </div>
+                {/if}
                 {#if needOpen === key(i)}
                   <div class="need-row">
                     {#each data.projects as p (p)}
@@ -273,6 +356,10 @@
   .head { margin-bottom: var(--sp-6); }
   .head h1 { font-size: var(--fs-xl); margin: 0 0 var(--sp-2); }
   .head p { margin: 0; font-size: var(--fs-sm); }
+  .legend { margin-top: var(--sp-3); font-size: var(--fs-xs); color: var(--text-3); }
+  .legend summary { cursor: pointer; user-select: none; }
+  .legend p { margin: var(--sp-2) 0 0; max-width: 62ch; }
+  .fl { color: var(--text-3); font-weight: 600; margin-right: var(--sp-1); }
   /* .banner (светофор) и .chip.on — из дизайн-системы (app.css, витрина /design) */
   .mb { margin-bottom: var(--sp-4); }
   .copies-row { display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-bottom: var(--sp-4); }
@@ -313,6 +400,20 @@
     display: flex; flex-wrap: wrap; gap: var(--sp-2);
     padding-top: var(--sp-3); border-top: 1px solid var(--border-soft);
   }
+  .rel {
+    padding-top: var(--sp-3); border-top: 1px solid var(--border-soft);
+    font-size: var(--fs-xs);
+  }
+  .rel p { margin: 0 0 var(--sp-2); }
+  .rel ul { margin: 0 0 var(--sp-2); padding-left: var(--sp-5); }
+  .rel-form { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .rel-in {
+    font: inherit; color: inherit; background: transparent;
+    border: 1px solid var(--border-soft); border-radius: var(--r);
+    padding: var(--sp-2) var(--sp-3);
+  }
+  .rel-steps { margin: var(--sp-2) 0 0; padding-left: var(--sp-5); color: var(--text-3); }
+  .rel-steps.ok li:last-child { color: var(--ok); }
   /* .dot — атом системы; здесь только отступ от текста таба */
   .dot { margin-left: 4px; width: 6px; height: 6px; }
 </style>
