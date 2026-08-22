@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { configMatrix, configRequire, configSmoke, configInstall,
   configSync, syncPreview } from '$lib/server/configurator.js';
+import { releaseStatus, releaseRun } from '$lib/server/release.js';
 import { guarded } from '$lib/server/guard.js';
 
 // Конфигуратор инструментов (docs/specs/2026-08-20-configurator.md):
@@ -18,6 +19,10 @@ const ACTIONS = {
   install: configInstall,
   sync_preview: syncPreview,
   sync: configSync,
+  // выкат плагина (release.js): status — дифф «что поедет», run — сам выкат;
+  // run требует confirm:true и существует только за кнопкой человека в UI
+  release_status: releaseStatus,
+  release: releaseRun,
 };
 
 export async function POST({ request }) {

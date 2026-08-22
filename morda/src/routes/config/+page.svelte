@@ -46,6 +46,23 @@
     finally { busy = false; }
   }
 
+  // выкат плагина nyron-dev (release.js): панель диффа + кнопка человека
+  let rel = $state(null);        // releaseStatus, когда панель открыта
+  let relVersion = $state('');
+  let relNotes = $state('');
+  let relResult = $state(null);  // итог прогона: { version, ok, steps }
+  async function openRelease() {
+    relResult = null;
+    rel = await act({ action: 'release_status' });
+    if (rel) relVersion = rel.suggest || '';
+  }
+  async function doRelease() {
+    relResult = await act({ action: 'release', version: relVersion,
+      notes: relNotes, confirm: true });
+    if (relResult) rel = await act({ action: 'release_status' });
+    await refresh();
+  }
+
   const key = (i) => `${i.kind}:${i.id}`;
   async function smoke(i) {
     smoked = { ...smoked, [key(i)]: { busy: true } };
@@ -274,7 +291,46 @@
                     onclick={() => (needOpen = needOpen === key(i) ? null : key(i))}>
                     <Icon name="file-badge" size={13} /> нужен проекту
                   </Button>
+                  {#if i.id === 'nyron-dev' && i.kind === 'plugin'}
+                    <Button variant="outline" size="xs" disabled={busy}
+                      title="панель выката: дифф «что поедет» и весь цикл (версии → CHANGELOG → push → обновление установок) одной кнопкой; жмёт только человек"
+                      onclick={() => (rel ? (rel = null) : openRelease())}>
+                      <Icon name="rocket" size={13} /> выкат…
+                    </Button>
+                  {/if}
                 </div>
+                {#if i.id === 'nyron-dev' && rel}
+                  <div class="rel">
+                    <p><b>стоит:</b> dev {rel.devVersion} · marketplace-клон {rel.cloneSha}
+                      · установки: {rel.installs.map((x) => `${x.scope} ${x.version}`).join(', ')}</p>
+                    {#if rel.dirty.length}
+                      <p class="warn-note">незакоммиченное в файлах плагина (в выкат не поедет):
+                        {rel.dirty.join('; ')}</p>
+                    {/if}
+                    {#if rel.commits.length}
+                      <p><b>поедет ({rel.commits.length}):</b></p>
+                      <ul>{#each rel.commits as c (c)}<li>{c}</li>{/each}</ul>
+                    {:else}
+                      <p class="quiet">новых коммитов по плагину нет — выкатывать нечего.</p>
+                    {/if}
+                    <div class="rel-form">
+                      <input class="rel-in" bind:value={relVersion} placeholder="версия x.y.z"
+                        title="новая версия; предложен минорный бамп" />
+                      <textarea class="rel-in" rows="2" bind:value={relNotes}
+                        placeholder="заметки в CHANGELOG (пусто — возьмётся список коммитов)"></textarea>
+                      <Button size="xs" disabled={busy || !rel.commits.length}
+                        title="весь цикл сразу: бамп версий → CHANGELOG → коммит+push → marketplace update → обновление user- и project-установок → проверка кеша"
+                        onclick={doRelease}>
+                        <Icon name="rocket" size={13} /> выкатить {relVersion}
+                      </Button>
+                    </div>
+                    {#if relResult}
+                      <ul class="rel-steps" class:ok={relResult.ok}>
+                        {#each relResult.steps as s (s)}<li>{s}</li>{/each}
+                      </ul>
+                    {/if}
+                  </div>
+                {/if}
                 {#if needOpen === key(i)}
                   <div class="need-row">
                     {#each data.projects as p (p)}
@@ -344,6 +400,20 @@
     display: flex; flex-wrap: wrap; gap: var(--sp-2);
     padding-top: var(--sp-3); border-top: 1px solid var(--border-soft);
   }
+  .rel {
+    padding-top: var(--sp-3); border-top: 1px solid var(--border-soft);
+    font-size: var(--fs-xs);
+  }
+  .rel p { margin: 0 0 var(--sp-2); }
+  .rel ul { margin: 0 0 var(--sp-2); padding-left: var(--sp-5); }
+  .rel-form { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .rel-in {
+    font: inherit; color: inherit; background: transparent;
+    border: 1px solid var(--border-soft); border-radius: var(--r);
+    padding: var(--sp-2) var(--sp-3);
+  }
+  .rel-steps { margin: var(--sp-2) 0 0; padding-left: var(--sp-5); color: var(--text-3); }
+  .rel-steps.ok li:last-child { color: var(--ok); }
   /* .dot — атом системы; здесь только отступ от текста таба */
   .dot { margin-left: 4px; width: 6px; height: 6px; }
 </style>
