@@ -160,7 +160,17 @@ function trackerFor(root) {
   return t;
 }
 
+// Сводку главной поллит каждая открытая вкладка раз в ~5 с; сборка стоит
+// обхода лент всех проектов. Кэш 2 с схлопывает лавину параллельных вкладок
+// в одну сборку (факт 22.08: overview ел 4.8 с на опрос под нагрузкой).
+let ovCache = { at: 0, data: null };
 export function overview() {
+  if (ovCache.data && Date.now() - ovCache.at < 2000) return ovCache.data;
+  const data = overviewRaw();
+  ovCache = { at: Date.now(), data };
+  return data;
+}
+function overviewRaw() {
   const list = projects();
   if (!list) {
     return { error: 'нет morda/projects.json — скопируй projects.json.example и впиши корни проектов', projects: [] };
