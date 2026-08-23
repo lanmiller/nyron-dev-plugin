@@ -391,7 +391,10 @@ export function sessions(project) {
   const roles = rolesFromHub(hub, trackerFor(root)?.keys?.[0] || null);
   const owned = runnerOwned();
   const thresholdMs = checkinMs(root);
-  return sessionList(root)
+  // список берём ОДИН раз на запрос: он копирует по объекту на сессию
+  // (тысячи на большом проекте), а звался дважды — здесь и в starting()
+  const list = sessionList(root);
+  return list
     .map(({ file, lastActivity, ...s }) => {
       const r = roles.get(normLabel(s.title)) || null;
       // заголовок сессии — второй источник: «DEV-1210 Блок 1 диспетчер»
@@ -442,19 +445,19 @@ export function sessions(project) {
     .filter((s) => !(s.entrypoint === 'sdk-cli'
       && s.title === '(без названия)' && !s.open_asks))
     .slice(0, 60)
-    .concat(starting(project));
+    .concat(starting(project, new Set(list.map((s) => s.key))));
 }
 
 // Свежезапущенная сессия раннера до первой записи ленты была невидимкой в
 // сайдбаре («запустил — а её нет», CTO 23.08): реестр знает о ней раньше
 // транскрипта. Доклеиваем строку «стартует…»; эпик — тикет из цели, чтобы
 // она сразу вставала под свой эпик, а не «вне эпиков».
-function starting(project) {
+// seen — ключи уже собранного списка сессий этого же запроса (второй
+// sessionList на тот же опрос был лишней копией тысяч объектов).
+function starting(project, seen) {
   const out = [];
   try {
     const reg = JSON.parse(fs.readFileSync(RUNNER_STATE_FILE, 'utf8'));
-    const root = rootByName(project);
-    const seen = new Set(sessionList(root).map((x) => x.key));
     for (const [name, rec] of Object.entries(reg.sessions || {})) {
       if (rec.project !== project) continue;
       if (rec.state === 'stopped' || rec.state === 'died_on_start') continue;
