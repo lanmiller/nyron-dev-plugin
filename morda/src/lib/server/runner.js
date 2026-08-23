@@ -560,10 +560,17 @@ function runnerListRaw(project) {
  *  берёт тот же кэш трекера, что дерево сессий (одно обращение на опрос). */
 function withEpics(rows) {
   for (const r of rows) {
-    const epic = toEpic(r.ticket || null);
+    // Записи, заведённые до STOVP-69, поля ticket не имеют — живой флот
+    // после обновления пульта не перезапускают, и такие строки висели «вне
+    // эпиков», хотя сайдбар для них же ключ находит. Порядок тот же, что
+    // там (fleet.js: starting): поле записи сильнее текста цели.
+    // В реестр при этом НЕ пишем: путь чтения состояние не мутирует, поле
+    // ticket запишет следующий старт или резюм (registryRecord).
+    const tick = ticketOf({ ticket: r.ticket, goal: r.goal });
+    const epic = toEpic(tick);
     // сам эпик тикетом не считается — иначе он висел бы сам под собой
     r.epic = epic;
-    r.ticket = r.ticket && r.ticket !== epic ? r.ticket : null;
+    r.ticket = tick && tick !== epic ? tick : null;
   }
   const keys = rows.flatMap((r) => [r.ticket, r.epic]).filter(Boolean);
   const names = jiraNames(keys);                 // только кэш — вызов синхронный
@@ -842,7 +849,13 @@ export function resumeForInput({ project, key, text }) {
   // убивал сессию на старте — «No conversation found» (факт 17.08)
   const meta = sessionMeta(project, key);
   if (!meta) return null;                     // сессия не этого проекта
+  // Усыновляем ЧУЖУЮ сессию, а не заводим новую: тикет у неё уже свой, и
+  // текст сообщения его не переназначает. Поэтому ключ из заголовка
+  // исходной сессии сильнее ключа из нового текста, а текст — только
+  // фолбэк, когда заголовок молчит. Без этого усыновлённая сессия вставала
+  // «вне эпиков»: /api/say шлёт текст без поля ticket.
   return runnerStart({ project, name, goal: text, resumeId: key,
+    ticket: ticketOf({ goal: meta.title }) ?? ticketOf({ goal: text }),
     workdir: meta.cwd || undefined });
 }
 
