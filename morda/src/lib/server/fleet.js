@@ -758,7 +758,9 @@ export function transcriptQuietMs(project, key) {
 
 export function sessionMeta(project, key) {
   const r = withSlotDir(key, () => T.readSession(rootByName(project), key, { maxBytes: 64 * 1024 }));
-  return r ? { cwd: r.cwd, cwd_alive: r.cwd_alive, entrypoint: r.entrypoint } : null;
+  // title нужен усыновлению (runner.js: resumeForInput) — ключ тикета
+  // исходной сессии берётся из её заголовка, не из нового сообщения
+  return r ? { cwd: r.cwd, cwd_alive: r.cwd_alive, entrypoint: r.entrypoint, title: r.title } : null;
 }
 
 // ---------- ввод в чат (спека, этап 4: tmux — мгновенно; Desktop — зеркало) ----------
