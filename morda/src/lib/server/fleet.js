@@ -497,7 +497,41 @@ export function sessions(project) {
     // рабочего пула; с открытым ask или заголовком остаются
     .filter((s) => !(s.entrypoint === 'sdk-cli'
       && s.title === '(без названия)' && !s.open_asks))
-    .slice(0, 60);
+    .slice(0, 60)
+    .concat(starting(project));
+}
+
+// Свежезапущенная сессия раннера до первой записи ленты была невидимкой в
+// сайдбаре («запустил — а её нет», CTO 23.08): реестр знает о ней раньше
+// транскрипта. Доклеиваем строку «стартует…»; эпик — тикет из цели, чтобы
+// она сразу вставала под свой эпик, а не «вне эпиков».
+function starting(project) {
+  const out = [];
+  try {
+    const reg = JSON.parse(fs.readFileSync(RUNNER_STATE_FILE, 'utf8'));
+    const root = rootByName(project);
+    const seen = new Set(listSessionsCached(root).map((x) => x.key));
+    for (const [name, rec] of Object.entries(reg.sessions || {})) {
+      if (rec.project !== project) continue;
+      if (rec.state === 'stopped' || rec.state === 'died_on_start') continue;
+      if (rec.sessionId && seen.has(rec.sessionId)) continue;
+      const tick = String(rec.goal || '').match(/\b([A-Z]{2,10}-\d+)\b/)?.[1] || null;
+      const live = rec.state === 'running' || rec.state === 'goal_sent';
+      const brief = String(rec.goal || '').replace(/\s+/g, ' ').slice(0, 60);
+      out.push({
+        key: 'n-' + name, file: null, mtime: rec.startedAt, size: 0,
+        title: brief ? `${name} — ${brief}` : `${name} — стартует…`,
+        entrypoint: 'cli',
+        state: live ? 'working' : 'starting',
+        reason: live ? 'работает под слотом подписки — лента в каталоге слота'
+          : 'сессия поднимается, лента ещё не создана',
+        open_asks: 0, epic: toEpic(tick), epic_title: epicTitle(toEpic(tick)),
+        group: null,
+        role: /^disp/.test(name) ? 'dispatcher' : /^wave/.test(name) ? 'wave' : null,
+      });
+    }
+  } catch { /* реестра нет — нечего доклеивать */ }
+  return out;
 }
 
 /** Окно сессии: транскрипт + состояние + её ask + режим ввода.
