@@ -187,7 +187,9 @@
 
   function nearBottom() {
     if (!data) return true; // первая загрузка — сразу вниз
-    return window.innerHeight + window.scrollY > document.body.scrollHeight - 300;
+    // 80px: раньше 300 — «чуть проскроллил вверх» ещё считалось «у низа»,
+    // и свежая запись ленты утягивала читателя вниз (CTO 23.08)
+    return window.innerHeight + window.scrollY > document.body.scrollHeight - 80;
   }
 
   onMount(() => {
@@ -609,7 +611,12 @@
   // в доке — только живое: открытые и сейчас работает на сессию; подтверждённое своё
   // отработало и чат не перекрывает (CTO 10.08)
   let recentDecided = $derived((data?.asks || [])
-    .filter((a) => ['answered', 'delivered'].includes(a.status)).slice(-2));
+    .filter((a) => ['answered', 'delivered'].includes(a.status))
+    // авто-вопросы чек-ина закрываются решением на месте — их «не подтверждено»
+    // ничего не значит и висело развёрнутой карточкой (CTO 23.08)
+    .filter((a) => !String(a.question || '').startsWith('Сессия молчит'))
+    .slice(-2));
+  let doneOpen = $state(null); // развернуть решённую строку по клику
   let sheetCount = $derived(openCount + recentDecided.length);
   // ответил — шторка закрывается сама; новый вопрос на десктопе — сам
   // открывается (на телефоне остаётся кнопкой, чтобы не съедать экран)
@@ -993,7 +1000,17 @@
         <AskCard ask={a} project={project} linkToSession={false} onSent={refresh} />
       {/each}
       {#each recentDecided as a (a.id)}
-        <AskCard ask={a} project={project} linkToSession={false} onSent={refresh} />
+        <!-- решённое — одной строкой: развёрнутая карточка закрытого вопроса
+             читалась как «всё ещё ждёт» (CTO 23.08); клик раскрывает -->
+        <button class="ask-done" title={a.question}
+          onclick={() => (doneOpen = doneOpen === a.id ? null : a.id)}>
+          <Icon name="check" size={12} class="text-ok flex-none" />
+          решено «{a.decision}» · {new Date(a.decided_ts || a.ts).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}
+          · <span class="ask-done-q">{String(a.question || '').slice(0, 60)}</span>
+        </button>
+        {#if doneOpen === a.id}
+          <AskCard ask={a} project={project} linkToSession={false} onSent={refresh} />
+        {/if}
       {/each}
     </div>
 
@@ -1403,6 +1420,13 @@
     padding: var(--sp-4) var(--sp-5) calc(var(--sp-4) + var(--safe-b));
   }
   .dock-asks { display: none; max-height: 60vh; overflow-y: auto; margin-bottom: var(--sp-4); }
+  .ask-done {
+    display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+    font-size: var(--fs-xs); color: var(--text-3); text-align: left;
+    padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-soft);
+    border-radius: var(--r); background: transparent; cursor: pointer;
+  }
+  .ask-done-q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dock-asks.sheet-open { display: block; }
 
   @media (min-width: 901px) {

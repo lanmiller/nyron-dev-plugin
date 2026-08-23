@@ -269,7 +269,10 @@ export function judgeTriage({ project, days = 7 }) {
   ];
   for (const a of pool) {
     const age = now - new Date(a.ts).getTime();
-    if (age < horizon) { kept.push({ id: a.id, why: 'моложе недели' }); continue; }
+    // авто-вопрос чек-ина решён человеком на месте — подтверждать некому
+    // и незачем, закрываем сразу (висел «не подтверждено» — CTO 23.08)
+    const instant = String(a.question || '').startsWith('Сессия молчит');
+    if (!instant && age < horizon) { kept.push({ id: a.id, why: 'моложе недели' }); continue; }
     hub.ack({ ask_id: a.id, by: 'judge-triage@morda' });
     closed.push({ id: a.id, q: String(a.question || '').slice(0, 60), days: Math.round(age / 86_400_000) });
   }
