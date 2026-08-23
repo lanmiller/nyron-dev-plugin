@@ -44,7 +44,10 @@
   let fleet = $state([]);
   async function pullFleet() {
     try {
-      const r = await (await fetch('/api/runner')).json();
+      // флот — ТОЛЬКО выбранного проекта: без фильтра на странице stovp
+      // висели волны nyron, и «почему их нет в сайдбаре» (CTO 23.08)
+      if (!project?.name) return;
+      const r = await (await fetch(`/api/runner?project=${encodeURIComponent(project.name)}`)).json();
       claudeSlots = (r.slots || []).filter((s) => s.provider === 'claude');
       if (!claudeSlots.some((s) => s.id === launchSlot) && claudeSlots[0])
         launchSlot = claudeSlots[0].id;
