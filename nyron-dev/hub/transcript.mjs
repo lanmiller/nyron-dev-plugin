@@ -34,13 +34,25 @@ const TEXT_CAP = 40_000;
 // Claude Code; worktree-варианты попадают тем же префиксом)
 const slugPrefix = (root) => root.replace(/[/.]/g, '-');
 
-// каталоги транскриптов проекта: корень + его worktree-копии
-export function transcriptDirs(root) {
+// каталоги транскриптов проекта: корень + его worktree-копии.
+// Внутренний вариант отдаёт ещё и ошибку readdir: пустой список при
+// EACCES/EIO/EMFILE — это «сейчас не видно», а не «каталогов не стало», и
+// индекс не имеет права принимать его за удаление (ревью: пульт временно
+// терял ВСЕ сессии проекта). ENOENT/ENOTDIR — каталога правда нет.
+function transcriptDirsOf(root) {
   const prefix = slugPrefix(root);
-  let entries = [];
-  try { entries = fs.readdirSync(projectsDir()); } catch { return []; }
-  return entries.filter((e) => e.startsWith(prefix))
-    .map((e) => path.join(projectsDir(), e));
+  let entries;
+  try { entries = fs.readdirSync(projectsDir()); } catch (err) { return { dirs: [], err }; }
+  return {
+    dirs: entries.filter((e) => e.startsWith(prefix))
+      .map((e) => path.join(projectsDir(), e)),
+    err: null,
+  };
+}
+
+/** Контракт для надзирателя (watchdog.mjs) неизменен: любая ошибка → []. */
+export function transcriptDirs(root) {
+  return transcriptDirsOf(root).dirs;
 }
 
 export function tailOf(file, kb) {
@@ -166,17 +178,12 @@ function updateFile(dir, name, root, files) {
   if (meta) files.set(name, meta); else files.delete(name);
 }
 
-/** Сессии ОДНОГО каталога слага: Map(имя файла → мета).
- *  prev — прежняя карта того же каталога (для индекса): если каталог
- *  ВРЕМЕННО нечитаем (EACCES/EIO/EMFILE), пустой картой его подменять
- *  нельзя — сессии исчезали бы из пульта до следующей удачи. Возврат того
- *  же объекта prev означает «не сканировали, повторить позже». */
-function scanDir(dir, root, prev) {
+/** Сессии ОДНОГО каталога слага одним куском: Map(имя файла → мета).
+ *  Разовый вход listSessions (у индекса свой обход — порциями, см.
+ *  rescanJobs: там тот же updateFile, механизм не дублируется). */
+function scanDir(dir, root) {
   let names;
-  try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch (e) {
-    if (e?.code === 'ENOENT' || e?.code === 'ENOTDIR') return new Map(); // каталога нет — сессий нет
-    return prev ?? new Map();
-  }
+  try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { return new Map(); }
   const files = new Map();
   for (const f of names) updateFile(dir, f, root, files);
   return files;
@@ -792,17 +799,67 @@ export function sessionIndex(root, { scratchBase } = {}) {
   return idx;
 }
 
-// Сравнение состава каталога по видимым полям: пересканирование строит
-// новые объекты меты, и без сверки список пересобирался бы (сортировка
+// Сравнение меты по видимым полям: перечитывание строит НОВЫЙ объект даже
+// для нетронутой ленты, и без сверки список пересобирался бы (сортировка
 // тысяч сессий) на каждый фоновый обход, хотя на диске ничего не менялось.
-function sameFiles(a, b) {
-  if (a === b) return true;
-  if (a.size !== b.size) return false;
-  for (const [name, m] of a) {
-    const n = b.get(name);
-    if (!n || n.mtime !== m.mtime || n.size !== m.size || n.title !== m.title) return false;
+function sameMeta(a, b) {
+  if (!a || !b) return !a && !b;
+  return a.mtime === b.mtime && a.size === b.size && a.title === b.title;
+}
+
+/**
+ * Обход каталога слага ПОРЦИЯМИ: readdir один раз, затем stat порциями по
+ * SWEEP_CHUNK лент, результат применяется по ходу (точечный updateFile).
+ *
+ * Раньше это было одно задание фонового обхода на весь каталог: readdir +
+ * stat по всем лентам подряд, и бюджет SWEEP_CHUNK списывался уже ПОСЛЕ
+ * скана — цикл событий стоял всё это время, запросы к пульту ждали (замер
+ * на /Users/stovp/ai-evolve, 2692 ленты: 18 мс одним куском, 4,5 мс после
+ * дробления). Теперь порция стоит не больше бюджета, а между порциями
+ * sweepStep отдаёт цикл через setTimeout(0).
+ *
+ * Тот же генератор — единственный обход каталога у индекса: sync()
+ * вычерпывает его целиком (событие о составе каталога надо отработать
+ * сразу), фоновый обход — по порциям.
+ */
+function* rescanJobs(rec, root, onChange) {
+  const dir = rec.obs.slugDir;
+  let names = null;
+  let err = null;
+  yield () => {
+    try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); }
+    catch (e) { err = e; return 1; }
+    // Флаги гасим по СНИМКУ каталога: события, пришедшие после readdir,
+    // должны пережить обход — иначе правка в середине порции потерялась бы.
+    rec.sub.dirDirty = false;
+    rec.sub.names.clear();
+    return 1;
+  };
+  if (!names) {
+    // ENOENT/ENOTDIR — каталога нет, сессий нет; прочая ошибка (EACCES/EIO/
+    // EMFILE) — временная слепота, прежний состав держим до следующего раза
+    if (err?.code !== 'ENOENT' && err?.code !== 'ENOTDIR') return;
+    rec.sub.dirDirty = false;
+    rec.sub.names.clear();
+    if (rec.files.size) { rec.files.clear(); onChange(); }
+    return;
   }
-  return true;
+  // исчезнувшие ленты видны уже по составу каталога — снимаем без stat
+  const known = new Set(names);
+  for (const name of [...rec.files.keys()]) {
+    if (!known.has(name)) { rec.files.delete(name); onChange(); }
+  }
+  for (let i = 0; i < names.length; i += SWEEP_CHUNK) {
+    const part = names.slice(i, i + SWEEP_CHUNK);
+    yield () => {
+      for (const name of part) {
+        const было = rec.files.get(name);
+        updateFile(dir, name, root, rec.files);
+        if (!sameMeta(было, rec.files.get(name))) onChange();
+      }
+      return part.length;
+    };
+  }
 }
 
 function createIndex(root, scratchBase, ck) {
@@ -826,8 +883,12 @@ function createIndex(root, scratchBase, ck) {
 
   /** Состав каталогов слага проекта (корень + worktree-копии). */
   function recompose() {
+    const { dirs: found, err } = transcriptDirsOf(root);
+    // Каталог projects временно нечитаем (EACCES/EIO/EMFILE) — пустой ответ
+    // за удаление каталогов НЕ принимаем: прежний состав держим, dirsDirty
+    // оставляем взведённым и пробуем на следующем обходе (ревью).
+    if (err && err.code !== 'ENOENT' && err.code !== 'ENOTDIR') return 1;
     dirsDirty = false;
-    const found = transcriptDirs(root);
     for (const [d, rec] of dirs) {
       if (found.includes(d)) continue;
       rec.obs.unfollow(rec.sub);
@@ -843,15 +904,15 @@ function createIndex(root, scratchBase, ck) {
     return found.length + 1;
   }
 
-  /** Полное перечитывание каталога слага. Полный скан старше точечных
-   *  флагов — гасим их, чтобы list() не читал тот же каталог второй раз. */
+  const markStale = () => { listStale = true; };
+
+  /** Полное перечитывание каталога слага одним куском — путь события о
+   *  составе каталога (list() обязан отдать актуальный ответ сразу).
+   *  Фоновый обход вычерпывает тот же генератор порциями. */
   function rescan(rec) {
-    const fresh = scanDir(rec.obs.slugDir, root, rec.files);
-    if (fresh === rec.files) return 1;      // каталог временно нечитаем — повторим
-    rec.sub.dirDirty = false;
-    rec.sub.names.clear();
-    if (!sameFiles(rec.files, fresh)) { rec.files = fresh; listStale = true; }
-    return fresh.size + 1;
+    let cost = 0;
+    for (const job of rescanJobs(rec, root, markStale)) cost += job();
+    return cost;
   }
 
   function sync() {
@@ -910,7 +971,9 @@ function createIndex(root, scratchBase, ck) {
      *  Состав каталогов и лент перечитывается ЗДЕСЬ, вне пути запроса. */
     * sweepJobs() {
       yield () => recompose();
-      for (const rec of dirs.values()) yield () => rescan(rec);
+      // каталог отдаётся порциями: одно задание на весь каталог держало бы
+      // цикл событий десятки миллисекунд (ревью, см. rescanJobs)
+      for (const rec of dirs.values()) yield* rescanJobs(rec, root, markStale);
     },
     close() {
       treeLeave(projectsDir(), null, treeSub);
