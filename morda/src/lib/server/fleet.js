@@ -9,38 +9,16 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { execFile, execFileSync } from 'node:child_process';
 import { lastActivityMs, checkinMs, checkinState, stalledCard } from './checkin.js';
+import { MORDA_ROOT, PLUGIN_HUB, T } from './plugin-hub.js';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-// Модуль переезжает между dev (morda/src/lib/server), сборкой
-// (.svelte-kit/output/…) и прод-билдом (build/server/chunks) — жёсткий
-// относительный путь ломается (ревью Sol 09.08 + факт: build падал).
-// Резолв честный: env в приоритете, дальше перебор кандидатов по факту
-// существования файла.
-function firstExisting(cands, probe, envName) {
-  for (const c of cands.filter(Boolean)) {
-    if (fs.existsSync(path.join(c, probe))) return c;
-  }
-  throw new Error(
-    `не нашёл ${probe}; задай env ${envName}; искал: ${cands.filter(Boolean).join(' | ')}`);
-}
-export const MORDA_ROOT = firstExisting([
-  process.env.MORDA_ROOT,
-  path.resolve(HERE, '../../..'),      // dev: morda/src/lib/server → morda
-  path.resolve(HERE, '../../../..'),   // build/server/chunks → morda
-  process.cwd(),                        // npm запускается из morda/
-], 'projects.json.example', 'MORDA_ROOT');
-const PLUGIN_HUB = firstExisting([
-  process.env.NYRON_PLUGIN_HUB,
-  path.resolve(MORDA_ROOT, '../nyron-dev/hub'),
-], 'hub-db.mjs', 'NYRON_PLUGIN_HUB');
+export { MORDA_ROOT };
 
-// hub-db из плагина — единственная реализация будки, вторую не заводим;
-// транскрипты — тоже реализацией плагина (transcript.mjs, общая со сторожем)
+// Где лежит плагин и его transcript.mjs — plugin-hub.js: тот же модуль
+// нужен checkin.js, а вторая копия transcript.mjs в бандле означала бы
+// второй набор вотчеров и второй кэш индекса сессий (STOVP-65).
 const { HubDb } = await import(/* @vite-ignore */ path.join(PLUGIN_HUB, 'hub-db.mjs'));
-const T = await import(/* @vite-ignore */ path.join(PLUGIN_HUB, 'transcript.mjs'));
 
 // Реестр соединений — в globalThis: Vite HMR пересоздаёт модуль, и
 // локальная Map копила бы открытые SQLite-дескрипторы (ревью Sol 09.08).
@@ -181,7 +159,7 @@ function overviewRaw() {
         const hub = hubFor(root);
         // uuid сессии человеку ничего не говорит — резолвим в заголовок
         // транскрипта («кто спрашивает» — UX-аудит impeccable 10.08)
-        const sess = listSessionsCached(root);
+        const sess = sessionList(root);
         const titles = new Map(sess.map((s) => [s.key, s.title]));
         const named = (a) => {
           const hit = titles.has(a.session)
@@ -233,7 +211,7 @@ export function openCopy(app) {
  *  по uuid транскрипта). Ключ обязан существовать среди сессий проекта. */
 export function openSession(project, key) {
   const root = rootByName(project);
-  if (!listSessionsCached(root).some((s) => s.key === key))
+  if (!sessionList(root).some((s) => s.key === key))
     throw new Error(`сессия ${key} не найдена в проекте ${project}`);
   execFile('/usr/bin/open', [`claude://resume?session=${encodeURIComponent(key)}`]);
   return { opened: key };
@@ -299,49 +277,14 @@ export function cancelAsk({ project, ask_id, by, reason }) {
 
 // ---------- этап 4: сессии и окно ----------
 
-// Список сессий читает голову каждого транскрипта — при поллинге раз в 5с
-// это лишние мегабайты; короткий TTL-кэш достаточен (окно свежести 10с).
-const sessListCache = new Map(); // root → { at, sig, list }
-
-/** Отпечаток набора транскриптов: сколько файлов и когда правился самый
- *  свежий. Полный обход у нас стоит 1.7 с (610 файлов, 1.7 ГБ) и на это
- *  время затыкает сервер — окно сессии открывалось секундами (CTO 11.08).
- *  Заголовок и точка входа от дописывания строк НЕ меняются, поэтому
- *  перечитываем головы, только когда состав или свежесть каталога сдвинулись. */
-function transcriptsSig(root) {
-  const dirs = [
-    path.join(os.homedir(), '.claude', 'projects',
-      '-' + path.resolve(root).replace(/^\//, '').replace(/[/.]/g, '-')),
-  ];
-  let n = 0, newest = 0;
-  for (const d of dirs) {
-    let files = [];
-    try { files = fs.readdirSync(d); } catch { continue; }
-    for (const f of files) {
-      if (!f.endsWith('.jsonl')) continue;
-      n++;
-      try {
-        const m = fs.statSync(path.join(d, f)).mtimeMs;
-        if (m > newest) newest = m;
-      } catch {}
-    }
-  }
-  return `${n}:${Math.round(newest)}`;
-}
-
-function listSessionsCached(root) {
-  const c = sessListCache.get(root);
-  const fresh = Date.now() - (c?.at || 0) < 3000;
-  if (c && fresh) return c.list;                    // частые тики — без stat
-  let sig = null;
-  try { sig = transcriptsSig(root); } catch {}
-  if (c && sig && sig === c.sig) {                  // ничего не изменилось
-    c.at = Date.now();
-    return c.list;
-  }
-  const list = T.listSessions(root);
-  sessListCache.set(root, { at: Date.now(), sig, list });
-  return list;
+/** Сессии проекта из индекса плагина: список держится в памяти и
+ *  перечитывается, только когда файловая система сказала, что каталог
+ *  изменился (transcript.mjs, STOVP-65). Свой отпечаток каталога здесь
+ *  больше не считается: он читал ОДИН каталог по хардкоду ~/.claude/projects
+ *  (мимо CLAUDE_PROJECTS_DIR и worktree-каталогов) и всё равно stat-ил
+ *  сотни файлов на каждый опрос. */
+function sessionList(root) {
+  return T.sessionIndex(root).list();
 }
 
 /** Сессии проекта + состояние сторожа + счётчик открытых ask по сессии.
@@ -448,8 +391,8 @@ export function sessions(project) {
   const roles = rolesFromHub(hub, trackerFor(root)?.keys?.[0] || null);
   const owned = runnerOwned();
   const thresholdMs = checkinMs(root);
-  return listSessionsCached(root)
-    .map(({ file, ...s }) => {
+  return sessionList(root)
+    .map(({ file, lastActivity, ...s }) => {
       const r = roles.get(normLabel(s.title)) || null;
       // заголовок сессии — второй источник: «DEV-1210 Блок 1 диспетчер»
       const named = String(s.title || '').match(/\b([A-Z]{2,10}-\d+)\b/)?.[1] || null;
@@ -461,8 +404,9 @@ export function sessions(project) {
       // лентам субагентов и выводам фоновых команд, поэтому «думают
       // субагенты» больше не выглядит тишиной (серый psylia, факт 21.08),
       // а «CLI жив» больше не прикрывает тишину дольше порога (45-минутный
-      // тупик psylia на фоновых товарищах, факт 21.08).
-      const lastAct = lastActivityMs(file, s.key, s.mtime);
+      // тупик psylia на фоновых товарищах, факт 21.08). Считает её индекс
+      // сессий (STOVP-65) — обхода лент на каждый опрос здесь больше нет.
+      const lastAct = lastActivity;
       const ck = parked ? null : checkinState({
         w: watch.get(s.key), lastAct,
         aliveOwned: owned.get(s.key)?.alive, thresholdMs,
@@ -510,7 +454,7 @@ function starting(project) {
   try {
     const reg = JSON.parse(fs.readFileSync(RUNNER_STATE_FILE, 'utf8'));
     const root = rootByName(project);
-    const seen = new Set(listSessionsCached(root).map((x) => x.key));
+    const seen = new Set(sessionList(root).map((x) => x.key));
     for (const [name, rec] of Object.entries(reg.sessions || {})) {
       if (rec.project !== project) continue;
       if (rec.state === 'stopped' || rec.state === 'died_on_start') continue;
@@ -652,7 +596,7 @@ export function session(project, key) {
   // одной сессии — нет: окно писало «(без названия)» там, где сайдбар в той
   // же секунде показывал имя (факт 21.08). Берём из того же списка.
   if (!rest.title) {
-    const inList = listSessionsCached(root).find((s) => s.key === key);
+    const inList = sessionList(root).find((s) => s.key === key);
     if (inList) { rest.title = inList.title; rest.short = rest.short || inList.short; }
   }
   const tracker = trackerFor(root);
@@ -762,9 +706,8 @@ export function sessionAgents(project, key) {
  *  автосудья пинал работающую (факт 22.08, psylia на 8 агентах). */
 export function transcriptQuietMs(project, key) {
   try {
-    const rec = listSessionsCached(rootByName(project)).find((s) => s.key === key);
-    if (!rec?.mtime) return null;
-    return Date.now() - lastActivityMs(rec.file, key, rec.mtime);
+    const act = T.sessionIndex(rootByName(project)).lastActivity(key);
+    return act ? Date.now() - act : null;
   } catch { return null; }
 }
 

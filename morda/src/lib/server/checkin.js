@@ -11,54 +11,24 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { T } from './plugin-hub.js';
 
 // «пишет прямо сейчас» — короткое окно зелёного без вердикта сторожа,
 // то же, что жило в fleet.js до выноса
 const RECENT = 5 * 60 * 1000;
 export const CHECKIN_MIN_DEFAULT = 15;
 
-function maxMtime(dir) {
-  let best = 0;
-  let files;
-  try { files = fs.readdirSync(dir); } catch { return 0; }
-  for (const f of files) {
-    try { best = Math.max(best, fs.statSync(path.join(dir, f)).mtimeMs); } catch {}
-  }
-  return best;
-}
-
 /** Свежесть сессии по всем трём лентам, ms epoch.
  *  file — путь транскрипта, mtime — его ISO-время из списка сессий.
  *  tmpBase — корень скретчпадов (для тестов; по умолчанию машина). */
-// TTL-кэш: свежесть сессии спрашивают все потребители разом (overview всех
-// проектов, runnerList, автосудья, толкач) — а каждый ответ это readdir+stat
-// по сотне файлов субагентов. Под нагрузкой диска опрос главной въезжал в
-// секунды и сервер вставал (факт 22.08, третий заход). 3 секунды несвежести
-// для детектора с порогом в минуты не значат ничего.
-const actCache = new Map(); // file|key → { at, best }
+// Ленты субагентов и фоновых команд считает индекс сессий плагина
+// (transcript.mjs, STOVP-65): он держит их свежесть на вотчерах fs.watch и
+// отдаёт из памяти. Свой обход (readdir+stat по сотне файлов на каждый
+// опрос) и TTL-кэш поверх него отсюда снесены — механизм один на пульт.
 export function lastActivityMs(file, key, mtime, { tmpBase } = {}) {
-  const ck = `${file}|${key}`;
-  const c = actCache.get(ck);
-  if (c && Date.now() - c.at < 3000) return Math.max(c.best, new Date(mtime || 0).getTime() || 0);
-  const best = lastActivityRaw(file, key, mtime, { tmpBase });
-  actCache.set(ck, { at: Date.now(), best });
-  if (actCache.size > 2000) actCache.clear(); // не копить старые сессии вечно
-  return best;
-}
-function lastActivityRaw(file, key, mtime, { tmpBase } = {}) {
-  let best = new Date(mtime || 0).getTime() || 0;
+  const best = new Date(mtime || 0).getTime() || 0;
   if (!file || !key) return best;
-  const slugDir = path.dirname(file);
-  best = Math.max(best, maxMtime(path.join(slugDir, key, 'subagents')));
-  // Выводы фоновых команд: <tmp>/claude-<uid>/<слаг>/<key>/tasks — слаг тот
-  // же, что у каталога транскриптов. Корень — /tmp: на маке это симлинк на
-  // /private/tmp (факт 21.08), на линуксе — прямой путь; os.tmpdir() НЕ
-  // годится (на маке это /var/folders, CLI пишет не туда). Иное окружение —
-  // env MORDA_SCRATCH_BASE (кросс-ревью Sol r4).
-  const base = tmpBase ?? process.env.MORDA_SCRATCH_BASE ?? path.join('/tmp',
-    `claude-${typeof process.getuid === 'function' ? process.getuid() : 0}`);
-  best = Math.max(best, maxMtime(path.join(base, path.basename(slugDir), key, 'tasks')));
-  return best;
+  return Math.max(best, T.activityOf(file, key, { scratchBase: tmpBase }));
 }
 
 /** Порог чек-ина проекта в ms: env MORDA_CHECKIN_MIN сильнее ключа
