@@ -1,0 +1,21 @@
+{
+  "ticket": "STOVP-70", "wave": 4, "order_in_wave": "после STOVP-71",
+  "repo": "/Users/stovp/ai-evolve/nyron-dev-plugin", "zone": "morda-server",
+  "branch": "wt-w4-app", "worktree": ".claude/worktrees/w4-app",
+  "tests_dir": "morda/tests", "test_cmd": "npm --prefix morda test",
+  "behavioral": true, "complexity": "обычный",
+  "files": ["morda/src/lib/server/notify.js (новый)", "morda/src/hooks.server.js (вызов из существующего цикла, новый интервал не заводить)", "morda/src/lib/server/judge.js (событие «встала» из общего judgeStuck — и ручной, и фоновый путь; Sol п.11)", "morda/src/lib/server/keys.js (ключи NTFY_TOPIC, PULT_PUBLIC_URL — только чтение)"],
+  "dod": [
+    "новая открытая ask будки (переход в status=open) → POST на ntfy-топик с текстом карточки и ссылкой на пульт (PULT_PUBLIC_URL) < 30 с",
+    "вердикт судьи «встала» (из общего judgeStuck) → пуш",
+    "на старте процесса существующие asks засеваются в seen без отправки (Sol п.11); закрытая/acknowledged ask пуш не шлёт",
+    "дребезг: не чаще раза в 10 мин на сессию",
+    "нет ключа NTFY_TOPIC → тихо выключено, без ошибок в логе; топик — в ключнице, не в git"
+  ],
+  "how_to_test": [
+    "notify.js с подменённым fetch: новая open ask → 1 POST с текстом и ссылкой; повтор той же и вторая ask той же сессии в 10 мин → 0; acknowledged → 0; старт с уже открытыми asks → 0",
+    "judgeStuck ручной и фоновый → одно и то же событие",
+    "нет ключа → 0 запросов, 0 ошибок",
+    "руками: hub_ask из живой сессии → пуш на телефоне → тап открывает пульт по туннелю"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "ticket": "STOVP-68", "wave": 3, "depends_on": "мерж волны 2 (WS-хост server.mjs/ws.js из STOVP-66)",
+  "repo": "/Users/stovp/ai-evolve/nyron-dev-plugin", "zone": "morda-ui+server",
+  "branch": "wt-w3-browse", "worktree": ".claude/worktrees/w3-browse",
+  "tests_dir": "morda/tests", "test_cmd": "npm --prefix morda test",
+  "behavioral": true, "complexity": "СЛОЖНЫЙ",
+  "flag": "MORDA_BROWSE (дефолт on; off → /browse и /ws/browse не поднимаются); тикет на снос — STOVP-73",
+  "files": ["morda/src/lib/server/browser.js (новый: lifecycle playwright chromium — launch, persistent user-data-dir, владелец page, reconnect при падении, cleanup на shutdown; judge.js не трогать — там одноразовый CLI screenshot, Sol п.8)", "morda/src/lib/server/ws.js (канал browse: кадры CDP screencast + input)", "morda/src/routes/browse/+page.svelte (новый)", "morda/src/routes/api/browse/+server.js (новый: open, pick, send)", "morda/src/lib/Browser*.svelte (новые компоненты ДС: стрим, пикер, панель отправки)", "morda/src/lib/server/runner.js (queueAdd — только вызов)", "morda/src/routes/api/upload (только вызов)", "morda/src/routes/design/+page.svelte"],
+  "dod": [
+    "страница /browse: URL → живой стрим (CDP Page.startScreencast по WS-слою 66) → клики/скролл/ввод проксируются (логин, навигация); логин переживает переход между страницами (persistent context)",
+    "режим «выбрать элемент»: подсветка как в инспекторе; клик фиксирует селектор (стабильно: data-testid → id → aria → css-path), outerHTML (обрезан), скрин элемента",
+    "панель «отправить в сессию…» (живые из /api/runner) → queueAdd: url, селектор, приписка оператора, путь к скрину (скрин — /api/upload в проект сессии)",
+    "цикл «открыл стейдж → выбрал элемент → написал „почини отступ“ → волна получила и видит скрин» проходит фактом на живой сессии",
+    "один браузер-контекст на пульт; никаких действий от имени сессий; хост UI — только 127.0.0.1-пульт; MORDA_BROWSE=off выключает всё",
+    "375px: стрим и панель отправки влезают (режим «только просмотр» на мобиле допустим — явно в отчёте); компоненты на витрине /design"
+  ],
+  "how_to_test": [
+    "построение селектора на фикстурном HTML: data-testid → id → aria → css-path; сборка текста очереди содержит url, селектор, приписку, путь скрина",
+    "api/browse send → queueAdd вызван с name и text; файл скрина лежит в проекте",
+    "browser.js: падение chromium → следующий запрос перезапускает; shutdown закрывает процесс",
+    "негатив: без auth — отказ; MORDA_BROWSE=off → 404",
+    "руками: /browse → my.nyron-stage.ru → логин → переход без повторного логина → выбрать элемент → отправить в живую сессию → в её окне очередь содержит задание и путь скрина; 375px"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "ticket": "STOVP-67", "wave": 2, "order_in_wave": "первый",
+  "repo": "/Users/stovp/ai-evolve/nyron-dev-plugin", "zone": "morda-ui+server",
+  "branch": "wt-w2-session", "worktree": ".claude/worktrees/w2-session",
+  "tests_dir": "morda/tests", "test_cmd": "npm --prefix morda test",
+  "behavioral": true, "complexity": "обычный",
+  "files": ["morda/src/routes/s/[project]/[key]/+page.svelte", "morda/src/lib/server/git.js", "morda/src/routes/api/git/+server.js", "morda/src/lib/server/fleet.js (только чтение записи раннера)", "morda/src/routes/design/+page.svelte"],
+  "dod": [
+    "в шапке окна сессии — табы «лента | изменения» (tabs ДС); третий таб «терминал» добавит STOVP-66",
+    "из окна живой сессии с веткой — два клика до построчного диффа её работы (незакоммиченное и дельта ветки против main: список файлов → дифф)",
+    "для сессии на main — незакоммиченное; read-only, никаких кнопок мержа",
+    "серверная session-aware операция git.js: sessionRepo(project, key) берёт cwd из реестра/транскрипта и сверяет с git worktree list (Sol п.3: repoPath режет глубину >2, worktree .claude/worktrees/* глубже)",
+    "кнопка «открыть в git-панели»",
+    "375px: список и дифф скроллятся внутри, без горизонтального скролла страницы; блок диффа и таб-шапка — на витрине /design"
+  ],
+  "how_to_test": [
+    "временный репо с worktree глубины 3 и веткой с коммитами: sessionRepo резолвит worktree, session-diff отдаёт список файлов и дифф против main",
+    "сессия на main с грязным деревом → незакоммиченное; чистая main → пусто, не ошибка",
+    "негатив: cwd записи не в git worktree list → понятный отказ, не дифф main",
+    "руками десктоп: окно сессии → таб «изменения» → файл → построчный дифф; 375px"
+  ]
+}

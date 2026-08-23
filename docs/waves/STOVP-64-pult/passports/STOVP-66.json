@@ -1,0 +1,26 @@
+{
+  "ticket": "STOVP-66", "wave": 2, "order_in_wave": "после STOVP-67",
+  "repo": "/Users/stovp/ai-evolve/nyron-dev-plugin", "zone": "morda-ui+server+infra",
+  "branch": "wt-w2-session", "worktree": ".claude/worktrees/w2-session",
+  "tests_dir": "morda/tests", "test_cmd": "npm --prefix morda test",
+  "behavioral": true, "complexity": "СЛОЖНЫЙ",
+  "flag": "MORDA_WS (дефолт on; off → прежний поллинг); тикет на снос — STOVP-73",
+  "deps_new": ["ws", "node-pty", "@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-webgl"],
+  "files": ["morda/server.mjs (новый: http поверх build/handler.js + ws upgrade)", "morda/src/lib/server/ws.js (новый: authenticateUpgrade, term и session каналы)", "morda/vite.config.js (configureServer с тем же ws-модулем)", "morda/package.json", "morda/package-lock.json", "morda/install-launchd.sh", "morda/src/lib/TmuxPanel.svelte (фолбэк)", "morda/src/lib/Terminal.svelte (новый, xterm)", "morda/src/lib/KeyBar.svelte (новый, мобильный бар клавиш)", "morda/src/routes/s/[project]/[key]/+page.svelte", "morda/src/lib/server/runner.js", "morda/src/hooks.server.js (capabilities в overview)", "morda/src/routes/design/+page.svelte"],
+  "dod": [
+    "сырой режим: xterm.js на WS /ws/term/<name>, node-pty → tmux attach -t stovp-<name>; полный TUI-сценарий руками на десктопе (/model-пикер, стрелки, Esc, Ctrl-C) без единого «не дошло»; копипаст, скролл истории, resize",
+    "печать видна посимвольно на десктопе и на телефоне (375px, туннель); мобильный бар спецклавиш Esc · Tab · Ctrl · стрелки · Enter",
+    "UI-режим: лента и формы обновляются потоком по /ws/session/<project>/<key> (события из индекса STOVP-65), без 2-секундных скачков; ввод не теряется",
+    "обрыв WS — авто-reconnect с восстановлением экрана; поллинг сохраняется для ЛЮБОЙ сессии без подтверждённого session-WS (desktop/mirror без runner-записи — Sol п.6) и при MORDA_WS=off",
+    "безопасность (Sol п.2): upgrade проходит authenticateUpgrade — та же Basic-auth проверка, что hooks.server.js handle(), плюс проверка Origin/Host; имя — только из runner.json; чужие tmux не подключаются",
+    "npm start и install-launchd.sh запускают server.mjs; dev-режим (vite) даёт тот же WS",
+    "переключение режимов — таб в шапке окна (поверх табов STOVP-67); состояние не теряется; компоненты (терминал, бар клавиш) — на витрине /design"
+  ],
+  "how_to_test": [
+    "ws-клиент без auth → 401/закрытие; с auth но чужим Origin → 403; имя не из runner.json или не stovp-* → 403",
+    "живая stovp-сессия: байты input доходят до tmux (capture-pane содержит эхо), output приходит клиенту, resize меняет размер окна tmux",
+    "session-канал: append в .jsonl сессии → событие клиенту < 1 с",
+    "MORDA_WS=off → страница работает прежним поллингом, /ws/* не поднимается",
+    "руками: TUI-сценарий на десктопе; 375px через туннель — бар клавиш и посимвольная печать; перезапуск сервера → reconnect; запаркованная сессия → снимок без ошибок"
+  ]
+}

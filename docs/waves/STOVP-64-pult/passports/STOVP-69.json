@@ -1,0 +1,30 @@
+{
+  "ticket": "STOVP-69",
+  "wave": 1,
+  "order_in_wave": "после STOVP-65",
+  "repo": "/Users/stovp/ai-evolve/nyron-dev-plugin",
+  "zone": "morda-ui+server",
+  "branch": "wt-w1-speed",
+  "worktree": ".claude/worktrees/w1-speed",
+  "tests_dir": "morda/tests",
+  "test_cmd": "npm --prefix morda test",
+  "behavioral": true,
+  "complexity": "обычный",
+  "files": ["morda/src/routes/+page.svelte", "morda/src/lib/PickChip.svelte", "morda/src/lib/server/runner.js", "morda/src/lib/server/fleet.js", "morda/mcp/pult-mcp.mjs", "morda/src/routes/design/+page.svelte"],
+  "dod": [
+    "запуск с целью «…KAN-140…» без поля тикета встаёт в сайдбар под KAN-140 без действий человека",
+    "поле «тикет» формы сильнее парсинга цели",
+    "ticket переживает restart/resume/adopt записи и отдаётся через runnerOwned; toEpic берёт его первым; поле ticket в схеме pult_start",
+    "запуск обычной задачи — одно поле + Enter (пресет «Задача»: auto + строгий MCP + автослот)",
+    "пресеты «Волна/Диспетчер» (bypass + строгий + автослот + скилл-подсказка) и «Разовый вопрос» (auto, все серверы); прежние чипы — под шторкой «тонкая настройка»; у опций — подписи",
+    "новые UI-куски — компоненты дизайн-системы, на витрине /design; 375px: форма без горизонтального скролла"
+  ],
+  "how_to_test": [
+    "парсер ключа: «исполни STOVP-65 …» → STOVP-65; «…stovp-65…» (нижний регистр) → нет; два ключа → первый",
+    "start с полем ticket=STOVP-70 и целью про STOVP-65 → запись ticket=STOVP-70",
+    "resume/restart записи с ticket → ticket сохранён (мета мержится, не перезаписывается)",
+    "toEpic при наличии ticket в записи не парсит текст",
+    "негатив: цель без ключа → сессия «вне эпиков», как раньше",
+    "руками: пресет «Задача» + Enter → реестр показывает auto/строгий/автослот; шторка открывает прежние чипы; 375px"
+  ]
+}

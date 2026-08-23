@@ -1,0 +1,19 @@
+{
+  "ticket": "STOVP-71", "wave": 4, "order_in_wave": "первый", "conveyor": "лайт",
+  "repo": "/Users/stovp/ai-evolve/nyron-dev-plugin", "zone": "morda-ui",
+  "branch": "wt-w4-app", "worktree": ".claude/worktrees/w4-app",
+  "tests_dir": "morda/tests", "test_cmd": "npm --prefix morda test",
+  "behavioral": false, "complexity": "обычный",
+  "files": ["morda/static/manifest.webmanifest (новый)", "morda/static/sw.js (новый, минимальный: network-only для /api, /ws и страниц сессий; кэш только статических ассетов)", "morda/static/icons/* (по ДС)", "morda/src/app.html (link manifest, мета iOS, регистрация sw)"],
+  "dod": [
+    "manifest (имя, иконки, standalone, theme/background по токенам ДС) и sw отдаются с верным content-type",
+    "iPhone через туннель: «Добавить на Домой» → иконка → полный экран без адресной строки",
+    "мак Chrome/Safari — «установить приложение»; Lighthouse PWA installable зелёный",
+    "без офлайн-режима и web-push"
+  ],
+  "how_to_test": [
+    "curl /manifest.webmanifest и /sw.js → 200, content-type верный; JSON манифеста валиден",
+    "Lighthouse → installable без замечаний",
+    "руками: iPhone (туннель) и мак Chrome"
+  ]
+}

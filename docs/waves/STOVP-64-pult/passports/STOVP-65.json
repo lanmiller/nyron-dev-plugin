@@ -1,0 +1,26 @@
+{
+  "ticket": "STOVP-65",
+  "wave": 1,
+  "repo": "/Users/stovp/ai-evolve/nyron-dev-plugin",
+  "zone": "morda-server",
+  "branch": "wt-w1-speed",
+  "worktree": ".claude/worktrees/w1-speed",
+  "tests_dir": "morda/tests",
+  "test_cmd": "npm --prefix morda test",
+  "behavioral": true,
+  "complexity": "СЛОЖНЫЙ",
+  "files": ["hub/transcript.mjs", "morda/src/lib/server/fleet.js", "morda/src/lib/server/checkin.js", "morda/src/lib/server/runner.js"],
+  "dod": [
+    "GET /api/runner и главная < 1 с при 40 записях реестра и параллельном docker-прогоне (замер до/после в коммент)",
+    "поведение UI не меняется (статусы, свежесть, эпики как до правки)",
+    "повторный опрос без изменений на диске — 0 readdir/stat/read (счётчик через обёртку fs в тесте)",
+    "дописанная строка .jsonl / новый файл / удалённый файл отражаются в индексе < 1 с",
+    "индекс живёт в hub/transcript.mjs (metaCache развит, не продублирован в fleet.js); другие потребители transcript.mjs не сломаны"
+  ],
+  "how_to_test": [
+    "фикстурный каталог транскриптов: индекс строится один раз; второй запрос — 0 обращений к fs",
+    "append в .jsonl → lastActivity/заголовок обновились; новый файл появился; удалённый исчез",
+    "негатив: каталог недоступен/битый jsonl → индекс не падает, сессия помечена, сервер жив",
+    "руками: главная и окно сессии показывают то же, что до правки; замер time curl /api/runner и /api/overview до/после — в отчёт"
+  ]
+}

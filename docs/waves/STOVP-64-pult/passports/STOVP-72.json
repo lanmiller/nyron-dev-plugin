@@ -1,0 +1,20 @@
+{
+  "ticket": "STOVP-72", "wave": 4, "order_in_wave": "после STOVP-70",
+  "repo": "/Users/stovp/ai-evolve/nyron-dev-plugin", "zone": "mcp",
+  "branch": "wt-w4-app", "worktree": ".claude/worktrees/w4-app",
+  "tests_dir": "morda/tests", "test_cmd": "npm --prefix morda test",
+  "behavioral": true, "complexity": "обычный",
+  "files": ["morda/mcp/pult-mcp.mjs (tools/list с _meta.ui.resourceUri, resources/list и resources/read, structuredContent; Sol п.9)", "morda/mcp/dashboard.html (новый виджет, inline-токены ДС)", "morda/tests/pult-mcp.test.mjs"],
+  "dod": [
+    "тул pult_dashboard с App view (MCP Apps): resource ui://pult/dashboard.html (MIME text/html;profile=mcp-app), initialize объявляет resources, tools/list отдаёт _meta.ui.resourceUri, ответ — structuredContent из /api/runner",
+    "в новом окне Claude Desktop «покажи флот» открывает виджет: строки сессий с состояниями и меткой «ждут вас» обновляются",
+    "тап по сессии открывает её в пульте; кнопка «написать» доводит текст до очереди сессии через существующий тул pult_send; «судья» → pult_judge",
+    "read-only плюс безопасные ручки; никаких stop/merge из виджета; образец технологии — my-mcp-app на машине"
+  ],
+  "how_to_test": [
+    "stdio-прогон: initialize → capabilities.resources; tools/list содержит pult_dashboard с _meta.ui.resourceUri; resources/read отдаёт html с верным MIME; tools/call возвращает structuredContent из фикстурного /api/runner",
+    "рендер виджета из фикстуры: строки, состояния, «ждёт вас»; «написать» формирует вызов pult_send с name и text",
+    "негатив: пульт 4747 недоступен → тул отвечает понятной ошибкой, не падает",
+    "руками: Claude Desktop → «покажи флот» → виджет → тап → окно сессии; «написать» → очередь содержит текст"
+  ]
+}
