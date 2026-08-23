@@ -6,10 +6,15 @@
   import FileBrowser from '$lib/FileBrowser.svelte';
   import Icon from '$lib/Icon.svelte';
   import PickChip from '$lib/PickChip.svelte';
-  import { MODEL_OPTS, EFFORT_OPTS, MODE_OPTS, MCP_OPTS } from '$lib/composer-options.js';
+  import { MODEL_OPTS, EFFORT_OPTS, MODE_OPTS, MCP_OPTS, SLOT_AUTO,
+    LAUNCH_PRESETS, presetOf } from '$lib/composer-options.js';
+  import { groupSessions } from '$lib/session-tree.js';
   import { Button } from '$lib/ui/button/index.js';
   import { Badge } from '$lib/ui/badge/index.js';
+  import { Input } from '$lib/ui/input/index.js';
   import * as Card from '$lib/ui/card/index.js';
+  import * as Collapsible from '$lib/ui/collapsible/index.js';
+  import { PresetSwitch } from '$lib/ui/preset-switch/index.js';
   import { age } from '$lib/states.js';
 
   const st = getContext('morda');
@@ -30,13 +35,31 @@
   let launching = $state(false);
   let launchNote = $state(null);
   let launchError = $state(null);
-  // дефолты запуска — канон CTO: основной слот + Fable 5, Auto, high
+  // Дефолты запуска — пресет «Задача» (STOVP-69): auto + строгий MCP +
+  // автослот, модель/effort остаются каноном CTO (Fable 5, high). Слот по
+  // умолчанию больше не «основной»: выбор подписки — работа пульта
+  // (runner.js: slotPick), а не человека.
   let launchMode = $state('auto');
-  let launchMcp = $state('');   // '' = все серверы; strict = профиль под задачу
+  let launchMcp = $state('strict'); // '' = все серверы; strict = профиль под задачу
   let launchModel = $state('fable');
   let launchEffort = $state('high');
-  let launchSlot = $state('claude-main');
+  let launchSlot = $state('auto');
+  let launchTicket = $state('');    // ключ тикета, если его нет в тексте цели
   let claudeSlots = $state([]);
+  let tuneOpen = $state(false);     // шторка «тонкая настройка»
+  // Пресет — не отдельная память, а ВЫВОД из чипов: покрутил чип руками —
+  // переключатель гаснет («своя настройка»), значения чипов остаются.
+  let preset = $derived(presetOf({ mode: launchMode, mcp: launchMcp, slot: launchSlot }));
+  let presetDef = $derived(LAUNCH_PRESETS.find((p) => p.value === preset) || null);
+  function applyPreset(v) {
+    const p = LAUNCH_PRESETS.find((x) => x.value === v);
+    if (!p) return;
+    launchMode = p.set.mode; launchMcp = p.set.mcp; launchSlot = p.set.slot;
+  }
+  // варианты слота: «авто» первым, дальше живые подписки машины
+  let slotOpts = $derived([SLOT_AUTO, ...claudeSlots.map((sl) => ({
+    value: sl.id, label: sl.label, desc: sl.hint || sl.kind || null,
+  }))]);
   // Сводка флота на главной: пока её не было, «кто ждёт меня» и «кто работает»
   // я собирал руками через терминал (CTO 21.08 — голова должна видеть флот
   // одним экраном). Отдельного списка не заводим: место для ожидающих уже
@@ -49,8 +72,9 @@
       if (!project?.name) return;
       const r = await (await fetch(`/api/runner?project=${encodeURIComponent(project.name)}`)).json();
       claudeSlots = (r.slots || []).filter((s) => s.provider === 'claude');
-      if (!claudeSlots.some((s) => s.id === launchSlot) && claudeSlots[0])
-        launchSlot = claudeSlots[0].id;
+      // «авто» — не слот машины, а решение пульта: список его не отменяет
+      if (launchSlot !== 'auto' && !claudeSlots.some((s) => s.id === launchSlot))
+        launchSlot = 'auto';
       fleet = (r.sessions || []).filter((x) => x.alive);
     } catch {}
   }
@@ -67,6 +91,16 @@
   let working = $derived(fleet.filter((s) => s.busy && !s.stuck && !needsMe.includes(s)));
   const mins = (ms) => Math.round((ms || 0) / 60000);
   let idle = $derived(fleet.filter((s) => !s.busy && !needsMe.includes(s)));
+  // Флот раскладывается тем же деревом, что сайдбар (STOVP-69): эпик →
+  // тикет → сессии, а внутри группы прежний порядок «застряла → работает →
+  // не занята». Раскладку считает $lib/session-tree.js — второго парсера
+  // иерархии в пульте нет.
+  const KIND = { stuck: 'stuck', working: 'working', idle: 'idle' };
+  let fleetGroups = $derived(groupSessions([
+    ...stuck.map((s) => ({ ...s, kind: KIND.stuck })),
+    ...working.map((s) => ({ ...s, kind: KIND.working })),
+    ...idle.map((s) => ({ ...s, kind: KIND.idle })),
+  ]));
   const NEED_RU = { hitl: 'ждёт ответа на форму', permission: 'просит разрешения',
     needs_auth: 'нужен вход' };
   const href = (s) => `/s/${encodeURIComponent(s.project)}/${s.sessionId || 'n-' + s.name}`;
@@ -125,11 +159,14 @@
           mode: launchMode || undefined,
           mcp: launchMcp || undefined,
           slot: launchSlot || undefined,
+          // поле формы сильнее ключа из текста цели (runner.js: ticketOf)
+          ticket: launchTicket.trim() || undefined,
         }),
       });
       const out = await r.json();
       if (!r.ok) { launchError = out.error || `HTTP ${r.status}`; return; }
       goal = '';
+      launchTicket = '';
       attachments = [];
       // окно открываем СРАЗУ, не дожидаясь привязки транскрипта: ждать
       // молча на главной было непонятно (CTO 19.08). Ключ — имя записи
@@ -171,58 +208,85 @@
        со всеми скиллами и хуками. Низ — параметры запуска, как в Claude. -->
   <section class="launchpad">
     <div class="composer-box launch-box">
-      <!-- над полем: с какого аккаунта поедет сессия + чипы вложений -->
+      <!-- над полем: пресет запуска (три случая вместо шести чипов) и
+           чипы вложений -->
       <div class="launch-top">
-        {#if claudeSlots.length}
-          <PickChip bind:value={launchSlot} disabled={launching} icon="key-round"
-            title="Аккаунт, с которого поедет сессия"
-            options={claudeSlots.map((sl) => ({
-              value: sl.id, label: sl.label,
-              desc: sl.hint || sl.kind || null,
-            }))} />
-        {/if}
-        {#each attachments as a (a.path)}
-          <span class="att" title={a.path}>
-            <Icon name="paperclip" size={12} />
-            <span class="att-name">{a.name}</span>
-            <button class="att-x" aria-label="убрать файл"
-              onclick={() => (attachments = attachments.filter((x) => x.path !== a.path))}>
-              <Icon name="x" size={12} />
-            </button>
-          </span>
-        {/each}
+        <PresetSwitch value={preset} options={LAUNCH_PRESETS} disabled={launching}
+          label="Пресет запуска" onchange={applyPreset} />
       </div>
+      {#if attachments.length}
+        <div class="launch-top">
+          {#each attachments as a (a.path)}
+            <span class="att" title={a.path}>
+              <Icon name="paperclip" size={12} />
+              <span class="att-name">{a.name}</span>
+              <button class="att-x" aria-label="убрать файл"
+                onclick={() => (attachments = attachments.filter((x) => x.path !== a.path))}>
+                <Icon name="x" size={12} />
+              </button>
+            </span>
+          {/each}
+        </div>
+      {/if}
       <textarea rows="2" bind:value={goal} disabled={launching}
-        placeholder="Опиши задачу — запустится новая сессия в «{project.name}»…"
+        placeholder="{presetDef?.placeholder || 'Опиши задачу — запустится новая сессия'} в «{project.name}»…"
         onkeydown={(e) => {
           if (e.key !== 'Enter' || e.shiftKey) return;
           e.preventDefault(); launch();
         }}></textarea>
       <input type="file" multiple hidden bind:this={fileEl}
         onchange={(e) => addFiles([...e.currentTarget.files])} />
-      <div class="launch-bar">
-        <button class="plus" disabled={uploading || launching}
-          aria-label="приложить файл или фото" title="приложить файл или фото"
-          onclick={() => fileEl?.click()}>
-          <Icon name={uploading ? 'loader-circle' : 'plus'} size={16} />
-        </button>
-        <PickChip bind:value={launchModel} bind:subValue={launchEffort}
-          disabled={launching} title="Модель сессии" options={MODEL_OPTS}
-          subLabel="Effort" subIcon="gauge" subTitle="Усилие рассуждения"
-          subOptions={EFFORT_OPTS} />
-        <PickChip bind:value={launchMode} disabled={launching}
-          title="Как сессия спрашивает разрешения" options={MODE_OPTS} />
-        <PickChip bind:value={launchMcp} disabled={launching}
-          title="MCP-набор сессии: все серверы машины или строгий профиль под задачу"
-          options={MCP_OPTS} />
-        <span class="grow"></span>
-        <button class="send" disabled={launching || !goal.trim()} onclick={launch}
-          aria-label="запустить новую сессию (Enter)"
-          title="Enter — запустить новую сессию">
-          <Icon name="arrow-up" size={16} />
-        </button>
-      </div>
+      <!-- прежние чипы ушли под шторку: в один клик запускается пресет,
+           а крутить модель/режим/MCP/слот приходится редко (STOVP-69) -->
+      <Collapsible.Root bind:open={tuneOpen}>
+        <div class="launch-bar">
+          <button class="plus" disabled={uploading || launching}
+            aria-label="приложить файл или фото" title="приложить файл или фото"
+            onclick={() => fileEl?.click()}>
+            <Icon name={uploading ? 'loader-circle' : 'plus'} size={16} />
+          </button>
+          <Collapsible.Trigger>
+            {#snippet child({ props })}
+              <Button variant="ghost" size="xs" {...props}
+                title="модель, effort, режим, MCP, слот, ключ тикета">
+                <Icon name="sliders-horizontal" size={13} />
+                тонкая настройка
+                <Icon name="chevron-right" size={12} class="caret {tuneOpen ? 'open' : ''}" />
+              </Button>
+            {/snippet}
+          </Collapsible.Trigger>
+          <span class="grow"></span>
+          <button class="send" disabled={launching || !goal.trim()} onclick={launch}
+            aria-label="запустить новую сессию (Enter)"
+            title="Enter — запустить новую сессию">
+            <Icon name="arrow-up" size={16} />
+          </button>
+        </div>
+        <Collapsible.Content class="tune">
+          <PickChip bind:value={launchModel} bind:subValue={launchEffort}
+            disabled={launching} title="Модель сессии" options={MODEL_OPTS}
+            subLabel="Effort" subIcon="gauge" subTitle="Усилие рассуждения"
+            subOptions={EFFORT_OPTS} />
+          <PickChip bind:value={launchMode} disabled={launching}
+            title="Как сессия спрашивает разрешения" options={MODE_OPTS} />
+          <PickChip bind:value={launchMcp} disabled={launching}
+            title="MCP-набор сессии: все серверы машины или строгий профиль под задачу"
+            options={MCP_OPTS} />
+          <PickChip bind:value={launchSlot} disabled={launching} icon="key-round"
+            title="Аккаунт, с которого поедет сессия" options={slotOpts} />
+          <label class="tune-ticket">
+            <span class="quiet">тикет</span>
+            <Input bind:value={launchTicket} disabled={launching}
+              placeholder="STOVP-65 — если не хочешь писать ключ в цели" />
+          </label>
+        </Collapsible.Content>
+      </Collapsible.Root>
     </div>
+    <!-- подсказка пресета: что вообще писать в поле (волна ≠ диспетчер) -->
+    {#if presetDef?.hint}<p class="quiet launch-note">{presetDef.hint}</p>{/if}
+    {#if !preset}
+      <p class="quiet launch-note">своя настройка — пресет не выбран, чипы держат ваши значения</p>
+    {/if}
     {#if launchError}<p class="err">{launchError}</p>{/if}
     {#if launchNote && !launchError}<p class="quiet launch-note">{launchNote}</p>{/if}
   </section>
@@ -245,50 +309,74 @@
     {/each}
   </section>
 
+  {#snippet fleetRow(s)}
+    {#if s.kind === 'stuck'}
+      <div class="fleet-row need fleet-stuck">
+        <a class="fleet-core" href={href(s)}>
+          <Icon name="alert-triangle" size={14} class="text-hot flex-none" />
+          <b>{s.name}</b><span class="quiet">{s.project}</span>
+          <span class="fleet-what">
+            похоже, встала: счётчик идёт, а лента молчит {mins(s.quiet_ms)} мин
+          </span>
+        </a>
+        <!-- судья — прямой HTTP к внешней модели, НЕ Claude CLI: судья не
+             живёт в том же стеке, что подсудимые (вердикт CTO 22.08) -->
+        <Button variant="outline" size="xs" disabled={judging[s.name]}
+          onclick={() => judge(s)}>
+          {judging[s.name] ? 'сужу…' : 'разобраться'}
+        </Button>
+        {#if verdicts[s.name]}
+          <p class="verdict">{verdicts[s.name]}</p>
+        {:else if s.judge?.verdict}
+          <!-- автосудья (10-минутный цикл сервера) уже отсудил без кнопки -->
+          <p class="verdict">автосудья {mins(Date.now() - new Date(s.judge.at).getTime())} мин назад · {s.judge.verdict}</p>
+        {/if}
+      </div>
+    {:else if s.kind === 'working'}
+      <a class="fleet-row" href={href(s)}>
+        <Icon name="sparkles" size={14} class="text-primary flex-none" />
+        <b>{s.name}</b><span class="quiet">{s.project}</span>
+        <span class="fleet-what">
+          {s.pulse?.what || 'работает'}{s.pulse?.elapsed ? ` · ${s.pulse.elapsed}` : ''}{s.pulse?.tokens ? ` · ↓${s.pulse.tokens}` : ''}
+        </span>
+        {#if s.queue?.length}<Badge variant="outline">в очереди {s.queue.length}</Badge>{/if}
+        <Icon name="chevron-right" size={15} class="text-ink-4 flex-none" />
+      </a>
+    {:else}
+      <a class="fleet-row quiet-row" href={href(s)}>
+        <Icon name="circle-pause" size={14} class="text-ink-4 flex-none" />
+        <b>{s.name}</b><span class="quiet">{s.project}</span>
+        <span class="fleet-what">не занята — доложила или ждёт задачи</span>
+        <Icon name="chevron-right" size={15} class="text-ink-4 flex-none" />
+      </a>
+    {/if}
+  {/snippet}
+
   {#if working.length || idle.length || stuck.length}
     <section>
       <h2 class="eyebrow sect">Флот <Badge>{working.length + idle.length + stuck.length}</Badge></h2>
-      {#each stuck as s (s.name)}
-        <div class="fleet-row need fleet-stuck">
-          <a class="fleet-core" href={href(s)}>
-            <Icon name="alert-triangle" size={14} class="text-hot flex-none" />
-            <b>{s.name}</b><span class="quiet">{s.project}</span>
-            <span class="fleet-what">
-              похоже, встала: счётчик идёт, а лента молчит {mins(s.quiet_ms)} мин
-            </span>
-          </a>
-          <!-- судья — прямой HTTP к внешней модели, НЕ Claude CLI: судья не
-               живёт в том же стеке, что подсудимые (вердикт CTO 22.08) -->
-          <Button variant="outline" size="xs" disabled={judging[s.name]}
-            onclick={() => judge(s)}>
-            {judging[s.name] ? 'сужу…' : 'разобраться'}
-          </Button>
-          {#if verdicts[s.name]}
-            <p class="verdict">{verdicts[s.name]}</p>
-          {:else if s.judge?.verdict}
-            <!-- автосудья (10-минутный цикл сервера) уже отсудил без кнопки -->
-            <p class="verdict">автосудья {mins(Date.now() - new Date(s.judge.at).getTime())} мин назад · {s.judge.verdict}</p>
-          {/if}
+      <!-- те же группы, что в сайдбаре: эпик → тикет → сессии; внутри
+           группы порядок прежний (застряла → работает → не занята) -->
+      {#each fleetGroups as g (g.epic || 'вне')}
+        <div class="fgroup">
+          <h3 class="fgroup-head">
+            <Icon name="layers" size={12} class="text-ink-4 flex-none" />
+            <span class="fkey">{g.epic || 'вне эпиков'}</span>
+            {#if g.epic_title}<span class="ftitle">{g.epic_title}</span>{/if}
+            <span class="fnum">{g.all.length}</span>
+          </h3>
+          {#each g.tickets as t (t.ticket)}
+            <div class="ftick">
+              <div class="ftick-head">
+                <Icon name="ticket" size={12} class="text-ink-4 flex-none" />
+                <span class="fkey">{t.ticket}</span>
+                {#if t.ticket_title}<span class="ftitle">{t.ticket_title}</span>{/if}
+              </div>
+              {#each t.sessions as s (s.name)}{@render fleetRow(s)}{/each}
+            </div>
+          {/each}
+          {#each g.loose as s (s.name)}{@render fleetRow(s)}{/each}
         </div>
-      {/each}
-      {#each working as s (s.name)}
-        <a class="fleet-row" href={href(s)}>
-          <Icon name="sparkles" size={14} class="text-primary flex-none" />
-          <b>{s.name}</b><span class="quiet">{s.project}</span>
-          <span class="fleet-what">
-            {s.pulse?.what || 'работает'}{s.pulse?.elapsed ? ` · ${s.pulse.elapsed}` : ''}{s.pulse?.tokens ? ` · ↓${s.pulse.tokens}` : ''}
-          </span>
-          {#if s.queue?.length}<Badge variant="outline">в очереди {s.queue.length}</Badge>{/if}
-          <Icon name="chevron-right" size={15} class="text-ink-4 flex-none" />
-        </a>
-      {/each}
-      {#each idle as s (s.name)}
-        <a class="fleet-row quiet-row" href={href(s)}>
-          <Icon name="circle-pause" size={14} class="text-ink-4 flex-none" />
-          <b>{s.name}</b><span class="quiet">{s.project}</span>
-          <span class="fleet-what">не занята — доложила или ждёт задачи</span>
-          <Icon name="chevron-right" size={15} class="text-ink-4 flex-none" />
-        </a>
       {/each}
     </section>
   {/if}
@@ -364,6 +452,23 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
 
+  /* группа флота: заголовок эпика, под ним тикеты со своими строками.
+     Уровни — отступом на ступень шкалы, а не «на глаз». */
+  .fgroup { margin-bottom: var(--sp-5); }
+  .fgroup-head, .ftick-head {
+    display: flex; align-items: center; gap: var(--sp-2);
+    margin: 0 0 var(--sp-2); font-weight: 500; min-width: 0;
+  }
+  .fgroup-head { color: var(--text-3); font-size: var(--fs-xs); }
+  .ftick-head { color: var(--text-3); font-size: var(--fs-micro); }
+  .fgroup .fkey { flex: none; font-variant-numeric: tabular-nums; }
+  .fgroup .ftitle {
+    color: var(--text-4); min-width: 0; flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .fgroup .fnum { color: var(--text-4); flex: none; }
+  .ftick { padding-left: var(--sp-5); }
+
   /* надзаголовок секции: класс .eyebrow даёт вид, здесь — только ритм */
   .sect { margin: var(--sp-8) 0 var(--sp-5); display: flex; align-items: center; gap: var(--sp-4); }
   /* Заголовок-переключатель проекта: тот же вес, что h1, стрелка рядом —
@@ -384,6 +489,18 @@
      витрина /design) — здесь только локальный ритм страницы. */
   .launchpad { margin-top: var(--sp-6); }
   .launch-note { font-size: var(--fs-xs); margin-top: var(--sp-2); }
+  /* шторка «тонкая настройка»: те же чипы, что стояли в ряду, плюс поле
+     тикета — переносятся, на 375 не выезжают за край */
+  :global(.tune) {
+    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    padding-top: var(--sp-3); margin-top: var(--sp-3);
+    border-top: 1px solid var(--border-soft);
+  }
+  .tune-ticket {
+    display: flex; align-items: center; gap: var(--sp-3);
+    flex: 1 1 220px; min-width: 0;
+  }
+  .tune-ticket .quiet { font-size: var(--fs-xs); flex: none; }
   /* Шина — плотный список: карточка на реплику превратила бы её в стену
      плашек, а это фон работы, а не решения. */
   .feed { list-style: none; padding: 0; margin: 0; }

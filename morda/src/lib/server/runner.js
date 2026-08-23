@@ -17,7 +17,9 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { rootByName, tmuxCandidates, paneProcessTree, MORDA_ROOT,
   CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents, sessionMeta, ticketOf,
+  toEpic, epicTitle,
   RUNNER_STATE_FILE as STATE_FILE, transcriptQuietMs } from './fleet.js';
+import { jiraNames, jiraIssue } from './jira.js';
 import { parseDialog, parsePermission } from './tui.js';
 import { passportQuick, passportGate, strictMcpProfile } from './passport.js';
 
@@ -549,7 +551,28 @@ function runnerListRaw(project) {
       quiet_ms: quiet, stuck: quiet != null && quiet > STUCK_MS,
       pulse: busy ? parsePulse(visible(name)) : null });
   }
-  return out.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+  return withEpics(out).sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+}
+
+/** Эпик и названия строк флота (STOVP-69): секция «Флот» главной строит те
+ *  же группы «эпик → тикет», что сайдбар, а в реестре лежит только ключ
+ *  тикета. Второго парсера не заводим — эпик это toEpic(ticket), названия
+ *  берёт тот же кэш трекера, что дерево сессий (одно обращение на опрос). */
+function withEpics(rows) {
+  for (const r of rows) {
+    const epic = toEpic(r.ticket || null);
+    // сам эпик тикетом не считается — иначе он висел бы сам под собой
+    r.epic = epic;
+    r.ticket = r.ticket && r.ticket !== epic ? r.ticket : null;
+  }
+  const keys = rows.flatMap((r) => [r.ticket, r.epic]).filter(Boolean);
+  const names = jiraNames(keys);                 // только кэш — вызов синхронный
+  for (const k of keys) if (!names.has(k)) jiraIssue(k);  // остальное — в очередь
+  for (const r of rows) {
+    r.ticket_title = (r.ticket && names.get(r.ticket)) || null;
+    r.epic_title = (r.epic && (epicTitle(r.epic) || names.get(r.epic))) || null;
+  }
+  return rows;
 }
 
 // Кэш опроса: список стоит десятки синхронных вызовов tmux (по вызову на

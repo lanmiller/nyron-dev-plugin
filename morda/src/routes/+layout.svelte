@@ -17,6 +17,7 @@
   import * as Sheet from '$lib/ui/sheet/index.js';
   import * as DropdownMenu from '$lib/ui/dropdown-menu/index.js';
   import * as Collapsible from '$lib/ui/collapsible/index.js';
+  import { groupSessions } from '$lib/session-tree.js';
   import '../app.css';
 
   let { children } = $props();
@@ -47,56 +48,18 @@
   const live = (ss) => (ss || []).filter(isLive);
   const done = (ss) => (ss || []).filter((s) => !isLive(s));
 
-  // Работа — иерархия «эпик → диспетчер → его волны», а список сессий плоский
-  // (жалоба CTO 12.08: 22 строки вперемешку, не видно кто чей). Раскладываем:
-  // эпик берём с сервера, волну к диспетчеру привязываем по метке волны.
-  function byEpic(list) {
-    const map = new Map();
-    for (const src of list) {
-      const k = src.epic || '';
-      if (!map.has(k))
-        map.set(k, { epic: src.epic, title: src.epic_title, all: [], disp: [], waves: [], other: [] });
-      const g = map.get(k);
-      // копия, а не правка исходной сессии: список пришёл из $state, и правка
-      // на месте роняет рендер (state_unsafe_mutation). Ключ эпика в каждой
-      // строке — шум, он уже в заголовке группы, поэтому режем его в копии.
-      const s = { ...src, short: (src.epic ? src.title.replaceAll(src.epic, '') : src.title)
-        .replace(/^[\s:—-]+/, '').trim() || src.title };
-      g.all.push(s);
-      (s.role === 'dispatcher' ? g.disp : s.role === 'wave' ? g.waves : g.other).push(s);
-    }
-    for (const g of map.values()) {
-      // волны под своим диспетчером. Имя сессии диспетчера и его имя в будке
-      // часто разные («DEV-1210 Блок 2 диспетчер» ↔ «disp-block2»), поэтому
-      // связываем по номеру блока: он есть и в метке волны, и в заголовке.
-      // ключ блока — БУКВА и цифра вместе: «Ф2» это фронтовая волна, а не
-      // второй блок, и по голой цифре она липла к чужому диспетчеру.
-      const block = (s) => {
-        const g = String(s.group || '').match(/^(?:block|б|b)?\s*(\d+)/i);
-        if (g) return `Б${g[1]}`;
-        const ti = String(s.title || '');
-        const d = ti.match(/блок\s*(\d+)/i);
-        if (d) return `Б${d[1]}`;
-        const w = ti.match(/(?:волна|wave)\s*([А-ЯA-Z])?\s*(\d+)/i);
-        if (!w) return null;
-        // «В1»/«W1» — это просто «волна номер 1», то есть блок 1; «Ф2» —
-        // фронтовая волна, отдельная ветка именования, к блоку 2 не относится
-        const letter = (w[1] || 'Б').toUpperCase();
-        return /^[ВBW]$/.test(letter) ? `Б${w[2]}` : `${letter}${w[2]}`;
-      };
-      g.rows = g.disp.map((d) => ({
-        head: d,
-        kids: g.waves.filter((w) => block(w) && block(w) === block(d)),
-      }));
-      const taken = new Set(g.rows.flatMap((r) => r.kids.map((k) => k.key)));
-      g.loose = [...g.waves.filter((w) => !taken.has(w.key)), ...g.other];
-    }
-    // эпики вперёд по числу живых сессий, «вне эпика» — всегда последним
-    return [...map.values()].sort((a, b) =>
-      (!a.epic) - (!b.epic) || b.all.length - a.all.length);
-  }
+  // Работа — иерархия «эпик → тикет → сессии» (STOVP-69). Раскладку считает
+  // $lib/session-tree.js: её же берёт секция «Флот» главной. Прежняя
+  // эвристика «волны под диспетчером по номеру блока» удалена — её роль
+  // взял тикет записи раннера (факт вместо догадки по тексту заголовка).
   let epicOpen = $state({});
   const epicIsOpen = (k) => epicOpen[k] !== false;   // по умолчанию раскрыт
+  let ticketOpen = $state({});
+  const ticketIsOpen = (k) => ticketOpen[k] !== false;
+  // роль строки — пометкой, а не вложением: диспетчер и волна теперь стоят
+  // под своим тикетом, и отличать их надо глазом
+  const ROLE_ICON = { dispatcher: 'radio-tower', wave: 'waves' };
+  const ROLE_RU = { dispatcher: 'диспетчер', wave: 'волна' };
 
   // выдвижная навигация на узком экране; закрывается при переходе
   let navOpen = $state(false);
@@ -208,8 +171,11 @@
   {@const [label, color] = STATE_RU[s.state] || ['', 'var(--text-4)']}
   <a href="/s/{encodeURIComponent(proj)}/{s.key}"
      class:active={page.params?.key === s.key}
-     title="{s.title} · {label || 'вне надзора'}">
+     title="{s.title} · {label || 'вне надзора'}{s.role ? ` · ${ROLE_RU[s.role]}` : ''}">
     <i class="dot" style="background:{color}"></i>
+    {#if ROLE_ICON[s.role]}
+      <Icon name={ROLE_ICON[s.role]} size={12} class="text-ink-4" />
+    {/if}
     <span class="t">{s.short || s.title}</span>
     {#if s.open_asks}<Badge>{s.open_asks}</Badge>{/if}
     <span class="age">{age(s.mtime)}</span>
@@ -256,25 +222,39 @@
                 <Icon name="git-branch" size={12} class="text-ink-4" />
                 <span class="t">git</span>
               </a>
-              {#each byEpic(ls) as g (g.epic || 'вне')}
+              {#each groupSessions(ls) as g (g.epic || 'вне')}
                 {@const ek = `${p.name}|${g.epic || 'вне'}`}
                 <div class="epic">
                   <button class="epic-head" onclick={() => (epicOpen = { ...epicOpen, [ek]: !epicIsOpen(ek) })}
-                    title={g.title || (g.epic ? g.epic : 'сессии без эпика')}>
+                    title={g.epic_title || (g.epic ? g.epic : 'сессии без эпика')}>
                     <Icon name="chevron-right" size={12} class="caret {epicIsOpen(ek) ? 'open' : ''}" />
                     <span class="ekey">{g.epic || 'вне эпиков'}</span>
-                    {#if g.title}<span class="etitle">{g.title}</span>{/if}
+                    {#if g.epic_title}<span class="etitle">{g.epic_title}</span>{/if}
                     <span class="age">{g.all.length}</span>
                   </button>
                   {#if epicIsOpen(ek)}
-                    {#each g.rows as r (r.head.key)}
-                      {@render sessionRow(p.name, r.head)}
-                      {#if r.kids.length}
-                        <div class="waves">
-                          {#each r.kids as w (w.key)}{@render sessionRow(p.name, w)}{/each}
-                        </div>
-                      {/if}
+                    <!-- тикет — свой уровень: сессии одной задачи стоят
+                         вместе, кто из них диспетчер, а кто волна — видно
+                         по иконке роли, а не по вложению -->
+                    {#each g.tickets as t (t.ticket)}
+                      {@const tk = `${ek}|${t.ticket}`}
+                      <div class="tick">
+                        <button class="tick-head"
+                          onclick={() => (ticketOpen = { ...ticketOpen, [tk]: !ticketIsOpen(tk) })}
+                          title={t.ticket_title || t.ticket}>
+                          <Icon name="chevron-right" size={11} class="caret {ticketIsOpen(tk) ? 'open' : ''}" />
+                          <span class="ekey">{t.ticket}</span>
+                          {#if t.ticket_title}<span class="etitle">{t.ticket_title}</span>{/if}
+                          <span class="age">{t.sessions.length}</span>
+                        </button>
+                        {#if ticketIsOpen(tk)}
+                          <div class="tick-body">
+                            {#each t.sessions as s (s.key)}{@render sessionRow(p.name, s)}{/each}
+                          </div>
+                        {/if}
+                      </div>
                     {/each}
+                    <!-- сессии эпика без тикета: диспетчер эпика и прочее -->
                     {#each g.loose as s (s.key)}{@render sessionRow(p.name, s)}{/each}
                   {/if}
                 </div>
@@ -452,8 +432,8 @@
   }
   .dslink:hover { color: var(--accent); }
   /* Эпик — средний уровень дерева: ключ ведущий, название приглушено и
-     обрезается, счётчик справа как у проекта. Волны — отступом под своим
-     диспетчером, чтобы «кто чей» читалось без чтения заголовков. */
+     обрезается, счётчик справа как у проекта. Под ним тикет, под тикетом
+     его сессии — «кто над чем» читается по ключам, а не по заголовкам. */
   .epic { margin-bottom: var(--sp-2); }
   .epic-head {
     display: flex; align-items: center; gap: var(--sp-2); width: 100%;
@@ -468,9 +448,20 @@
     color: var(--text-4); overflow: hidden; text-overflow: ellipsis;
     white-space: nowrap; min-width: 0; flex: 1;
   }
-  .epic .waves { margin-left: var(--sp-5); border-left: 1px solid var(--line-2); }
+  /* тикет — третий уровень: тот же заголовок, кеглем ниже и с отступом на
+     ступень шкалы; сессии под ним — ещё ступень плюс тонкая линия связи */
+  .tick-head {
+    display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+    background: none; border: 0; text-align: left; font: inherit;
+    color: var(--text-4); font-size: var(--fs-micro);
+    padding: var(--sp-1) var(--sp-5) var(--sp-1) var(--sp-7);
+    min-height: var(--tap);
+  }
+  .tick-head:hover { color: var(--text-2); }
+  .tick-body { margin-left: var(--sp-7); border-left: 1px solid var(--border-soft); }
   @media (pointer: fine) {
     .epic-head { min-height: 0; padding: var(--sp-1) var(--sp-5); }
+    .tick-head { min-height: 0; }
   }
 
   .done-head {

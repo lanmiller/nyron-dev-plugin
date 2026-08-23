@@ -4,6 +4,9 @@
   // рисовать стили заново в каждом файле (аудит 11.08 — 42/100).
   import Icon from '$lib/Icon.svelte';
   import PickChip from '$lib/PickChip.svelte';
+  import { LAUNCH_PRESETS, MODE_OPTS, MCP_OPTS, SLOT_AUTO } from '$lib/composer-options.js';
+  import { groupSessions } from '$lib/session-tree.js';
+  import { PresetSwitch } from '$lib/ui/preset-switch/index.js';
 
   // Компоненты shadcn, приведённые к локу (волна 2). На витрине они стоят
   // рядом со старыми кирпичами намеренно: если пара выглядит по-разному —
@@ -81,6 +84,30 @@
   ];
   const SPACE = [['--sp-1', 2], ['--sp-2', 4], ['--sp-3', 6], ['--sp-4', 8],
     ['--sp-5', 10], ['--sp-6', 14], ['--sp-7', 20], ['--sp-8', 28]];
+
+  // --- STOVP-69: пресеты запуска и дерево «эпик → тикет → сессии» ---
+  let preset = $state('task');
+  let tune = $state(false);
+  let demoMode = $state('auto');
+  let demoMcp = $state('strict');
+  let demoSlot = $state('auto');
+  let demoTicket = $state('');
+  // фикстура дерева: та же форма строк, что отдаёт /api/tree
+  const TREE_DEMO = [
+    { key: 'd1', title: 'STOVP-64 диспетчер блока 1', role: 'dispatcher', open_asks: 2,
+      epic: 'STOVP-64', epic_title: 'Пульт отвечает мгновенно', ticket: null },
+    { key: 'w1', title: 'STOVP-69 форма запуска', role: 'wave',
+      epic: 'STOVP-64', epic_title: 'Пульт отвечает мгновенно',
+      ticket: 'STOVP-69', ticket_title: 'Запуски: пресеты, тикет, дерево' },
+    { key: 'w2', title: 'STOVP-69 ревью правок', role: 'wave',
+      epic: 'STOVP-64', ticket: 'STOVP-69' },
+    { key: 'w3', title: 'STOVP-65 индекс сессий', role: 'wave',
+      epic: 'STOVP-64', ticket: 'STOVP-65', ticket_title: 'Индекс сессий' },
+    { key: 'x1', title: 'разбор почты', role: null, epic: null, ticket: null },
+  ];
+  const TREE_GROUPS = groupSessions(TREE_DEMO);
+  const ROLE_ICON = { dispatcher: 'radio-tower', wave: 'waves' };
+  let demoEpicOpen = $state(true);
 </script>
 
 <svelte:head><title>Дизайн-система — STOVP</title></svelte:head>
@@ -657,6 +684,165 @@
 </section>
 
 <section>
+  <h2 class="eyebrow">Пресеты запуска (STOVP-69)</h2>
+  <div class="demo demo-col">
+    <!-- Компонент $lib/ui/preset-switch: три случая запуска вместо шести
+         чипов. Выбранного нет — это состояние «своя настройка», человек
+         покрутил чипы в шторке руками. -->
+    <div>
+      <p class="quiet note" style="margin-top:0">выбран пресет</p>
+      <PresetSwitch bind:value={preset} options={LAUNCH_PRESETS} label="Пресет запуска" />
+    </div>
+    <div>
+      <p class="quiet note">своя настройка — ни один не выбран</p>
+      <PresetSwitch value={null} options={LAUNCH_PRESETS} label="Пресет запуска" />
+    </div>
+    <div>
+      <p class="quiet note">недоступен — идёт запуск</p>
+      <PresetSwitch value="task" options={LAUNCH_PRESETS} disabled label="Пресет запуска" />
+    </div>
+
+    <!-- Шторка «тонкая настройка»: прежние чипы и ключ тикета. Свёрнута по
+         умолчанию — в один клик запускается пресет, а крутить параметры
+         приходится редко. -->
+    <div class="composer-box launch-box">
+      <div class="launch-top">
+        <PresetSwitch bind:value={preset} options={LAUNCH_PRESETS} label="Пресет запуска" />
+      </div>
+      <textarea rows="2" placeholder="Опиши задачу — запустится новая сессия…"></textarea>
+      <Collapsible.Root bind:open={tune}>
+        <div class="launch-bar">
+          <button class="plus" aria-label="приложить файл"><Icon name="plus" size={16} /></button>
+          <Collapsible.Trigger>
+            {#snippet child({ props })}
+              <Button variant="ghost" size="xs" {...props}>
+                <Icon name="sliders-horizontal" size={13} />тонкая настройка
+                <Icon name="chevron-right" size={12} class="caret {tune ? 'open' : ''}" />
+              </Button>
+            {/snippet}
+          </Collapsible.Trigger>
+          <span style="flex:1"></span>
+          <button class="send" aria-label="отправить"><Icon name="arrow-up" size={16} /></button>
+        </div>
+        <Collapsible.Content class="tune-demo">
+          <PickChip bind:value={demoMode} title="Как сессия спрашивает разрешения" options={MODE_OPTS} />
+          <PickChip bind:value={demoMcp} title="MCP-набор сессии" options={MCP_OPTS} />
+          <PickChip bind:value={demoSlot} icon="key-round" title="Аккаунт сессии"
+            options={[SLOT_AUTO, { value: 'stovp3tt', label: 'stovp3tt', desc: 'подписка флота' }]} />
+          <label class="tune-ticket">
+            <span class="quiet">тикет</span>
+            <Input bind:value={demoTicket} placeholder="STOVP-65 — если не хочешь писать ключ в цели" />
+          </label>
+        </Collapsible.Content>
+      </Collapsible.Root>
+    </div>
+  </div>
+  <p class="quiet note">
+    Пресет — не отдельная память, а вывод из чипов (<b class="mono">presetOf</b>
+    в $lib/composer-options.js): ручная правка чипа гасит выбор, значения
+    остаются. Клавиатура — стрелками по сегментам, роль
+    <b class="mono">radiogroup</b>. На узком экране подписи прячутся,
+    названия остаются.
+  </p>
+</section>
+
+<section>
+  <h2 class="eyebrow">Дерево сессий: эпик → тикет → сессии (STOVP-69)</h2>
+  <div class="panels">
+    <article class="panel">
+      <header><h3>Развёрнуто</h3></header>
+      <div class="body flush">
+        <div class="tdemo">
+          {#each TREE_GROUPS as g (g.epic || 'вне')}
+            <div class="tdemo-epic">
+              <div class="tdemo-head">
+                <Icon name="chevron-right" size={12} class="caret open" />
+                <span class="tkey">{g.epic || 'вне эпиков'}</span>
+                {#if g.epic_title}<span class="ttitle">{g.epic_title}</span>{/if}
+                <span class="tnum">{g.all.length}</span>
+              </div>
+              {#each g.tickets as t (t.ticket)}
+                <div class="tdemo-head sub">
+                  <Icon name="chevron-right" size={11} class="caret open" />
+                  <span class="tkey">{t.ticket}</span>
+                  {#if t.ticket_title}<span class="ttitle">{t.ticket_title}</span>{/if}
+                  <span class="tnum">{t.sessions.length}</span>
+                </div>
+                <div class="tdemo-body">
+                  {#each t.sessions as s (s.key)}
+                    <div class="row">
+                      <i class="dot" style="background: var(--ok)"></i>
+                      {#if ROLE_ICON[s.role]}<Icon name={ROLE_ICON[s.role]} size={12} class="text-ink-4" />{/if}
+                      <span class="grow">{s.short}</span>
+                      {#if s.open_asks}<Badge>{s.open_asks}</Badge>{/if}
+                      <span class="trail">3 мин</span>
+                    </div>
+                  {/each}
+                </div>
+              {/each}
+              {#each g.loose as s (s.key)}
+                <div class="row">
+                  <i class="dot" style="background: var(--warn)"></i>
+                  {#if ROLE_ICON[s.role]}<Icon name={ROLE_ICON[s.role]} size={12} class="text-ink-4" />{/if}
+                  <span class="grow">{s.short}</span>
+                  {#if s.open_asks}<Badge>{s.open_asks}</Badge>{/if}
+                  <span class="trail">1 мин</span>
+                </div>
+              {/each}
+            </div>
+          {/each}
+        </div>
+      </div>
+    </article>
+
+    <article class="panel">
+      <header>
+        <h3>Свёрнуто</h3>
+        <div class="tools">
+          <Button variant="outline" size="xs" onclick={() => (demoEpicOpen = !demoEpicOpen)}>
+            {demoEpicOpen ? 'свернуть эпик' : 'развернуть эпик'}
+          </Button>
+        </div>
+      </header>
+      <div class="body flush">
+        <div class="tdemo">
+          {#each TREE_GROUPS as g (g.epic || 'вне')}
+            <div class="tdemo-epic">
+              <div class="tdemo-head">
+                <Icon name="chevron-right" size={12} class="caret {demoEpicOpen ? 'open' : ''}" />
+                <span class="tkey">{g.epic || 'вне эпиков'}</span>
+                {#if g.epic_title}<span class="ttitle">{g.epic_title}</span>{/if}
+                <span class="tnum">{g.all.length}</span>
+              </div>
+              {#if demoEpicOpen}
+                {#each g.tickets as t (t.ticket)}
+                  <div class="tdemo-head sub">
+                    <Icon name="chevron-right" size={11} class="caret" />
+                    <span class="tkey">{t.ticket}</span>
+                    {#if t.ticket_title}<span class="ttitle">{t.ticket_title}</span>{/if}
+                    <span class="tnum">{t.sessions.length}</span>
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </div>
+    </article>
+  </div>
+  <p class="quiet note">
+    Раскладку считает <b class="mono">groupSessions</b>
+    ($lib/session-tree.js) — один модуль на двух потребителей: сайдбар и
+    секцию «Флот» главной. Уровень задаёт факт (поле <b class="mono">ticket</b>
+    записи раннера), а не разбор текста заголовка: прежняя привязка «волна к
+    диспетчеру по номеру блока» врала на разных ветках именования. Роль
+    (диспетчер · <Icon name="radio-tower" size={12} />, волна ·
+    <Icon name="waves" size={12} />) осталась пометкой строки. Эпик и тикет
+    сворачиваются, по умолчанию раскрыты; «вне эпиков» — всегда последним.
+  </p>
+</section>
+
+<section>
   <h2 class="eyebrow">Чек-лист верификатора — паспорт проекта (STOVP-59)</h2>
   <div class="demo demo-col">
     <!-- .checklist/.check-row (app.css): пункт = проверка фактом; красный
@@ -978,4 +1164,28 @@
   .cbx.on { background: var(--accent); border-color: var(--accent); }
   .opt-col b { display: block; }
   .opt-col > span { display: block; color: var(--text-3); font-size: var(--fs-xs); }
+
+  /* STOVP-69: шторка «тонкая настройка» и дерево «эпик → тикет → сессии» */
+  :global(.tune-demo) {
+    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    padding-top: var(--sp-3); margin-top: var(--sp-3);
+    border-top: 1px solid var(--border-soft);
+  }
+  .tune-ticket { display: flex; align-items: center; gap: var(--sp-3); flex: 1 1 220px; min-width: 0; }
+  .tune-ticket .quiet { font-size: var(--fs-xs); flex: none; }
+  .tdemo { display: flex; flex-direction: column; gap: 1px; padding: var(--sp-3) 0; }
+  .tdemo-epic { margin-bottom: var(--sp-2); }
+  .tdemo-head {
+    display: flex; align-items: center; gap: var(--sp-2);
+    color: var(--text-3); font-size: var(--fs-xs);
+    padding: var(--sp-1) var(--sp-5);
+  }
+  .tdemo-head.sub { color: var(--text-4); font-size: var(--fs-micro); padding-left: var(--sp-7); }
+  .tdemo .tkey { flex: none; font-variant-numeric: tabular-nums; }
+  .tdemo .ttitle {
+    color: var(--text-4); flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tdemo .tnum { color: var(--text-4); flex: none; }
+  .tdemo-body { margin-left: var(--sp-7); border-left: 1px solid var(--border-soft); }
 </style>
