@@ -6,6 +6,7 @@
  * Кейсы: свежесть берёт максимум по лентам; живой CLI не прикрывает
  * тишину дольше порога (тупик psylia 21.08); пишущий фоновый агент
  * держит «работает»; вердикты сторожа кроме «working» не трогаются;
+ * Ожидание свежести нужно из-за асинхронного индекса на fs.watch (STOVP-65).
  * порог читается из ключа конфига; карточка «застряла» встаёт в будку
  * один раз на эпизод (дедуп) и не плодится на древних сессиях.
  *
@@ -29,7 +30,17 @@ const touch = (p, ageMs) => {
   fs.utimesSync(p, t, t);
 };
 
-test('lastActivityMs: максимум по трём лентам', () => {
+async function дождаться(проверка, сообщение) {
+  const край = Date.now() + 1500;
+  while (Date.now() <= край) {
+    const результат = проверка();
+    if (результат) return результат;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.fail(сообщение);
+}
+
+test('lastActivityMs: максимум по трём лентам', async () => {
   const projDir = tmp();               // каталог-слаг с транскриптами
   const base = tmp();                  // корень скретчпадов (tasks)
   const key = 'sess-1';
@@ -44,12 +55,18 @@ test('lastActivityMs: максимум по трём лентам', () => {
 
   // фоновый агент писал 3 минуты назад → он и есть свежесть
   touch(path.join(projDir, key, 'subagents', 'agent-a1.jsonl'), 3 * MIN);
-  act = lastActivityMs(file, key, mtime, { tmpBase: base });
+  act = await дождаться(() => {
+    const значение = lastActivityMs(file, key, mtime, { tmpBase: base });
+    return Math.abs(значение - (now - 3 * MIN)) < 2000 && значение;
+  }, 'lastActivityMs не заметил файл субагента за 1,5 с');
   assert.ok(Math.abs(act - (now - 3 * MIN)) < 2000);
 
   // фоновая команда дописала вывод минуту назад → свежесть ещё новее
   touch(path.join(base, path.basename(projDir), key, 'tasks', 'abc.output'), 1 * MIN);
-  act = lastActivityMs(file, key, mtime, { tmpBase: base });
+  act = await дождаться(() => {
+    const значение = lastActivityMs(file, key, mtime, { tmpBase: base });
+    return Math.abs(значение - (now - 1 * MIN)) < 2000 && значение;
+  }, 'lastActivityMs не заметил файл задачи за 1,5 с');
   assert.ok(Math.abs(act - (now - 1 * MIN)) < 2000);
 });
 
