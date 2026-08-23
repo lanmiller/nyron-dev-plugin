@@ -622,6 +622,32 @@ export function session(project, key) {
     ...hub.asks({ session: key, status: 'acknowledged' }).asks.slice(-3),
   ];
   const { file, ...rest } = r; // абсолютный путь клиенту не нужен
+  // Живость фоновых команд — фактом, не по ленте: живой фон держит открытым
+  // свой файл вывода (lsof), мёртвый — нет. Уведомление о конце в ленту
+  // приходит не всегда (убитые перезапуском), и «в фоне · 19 ч» висело
+  // вечно (факт 23.08). Отдаём список живых id — окно скрывает мёртвых.
+  try {
+    const cand = [];
+    for (const it of rest.items || []) {
+      if (it.kind !== 'tool' || it.name !== 'Bash') continue;
+      const res = String(it.result || '');
+      const id = res.match(/running in background with ID: (\w+)/)?.[1];
+      const out = res.match(/written to: (\/[^\s]+\.output)/)?.[1];
+      if (id && out) cand.push({ id, out });
+    }
+    if (cand.length) {
+      let heldPaths = new Set();
+      try {
+        // один вызов на все файлы: -F n печатает строки «n<путь>» для
+        // каждого открытого — чей путь в выводе, тот фон и жив
+        const out = execFileSync('lsof', ['-F', 'n', '--', ...cand.map((c) => c.out)],
+          { timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+        heldPaths = new Set(out.split('\n')
+          .filter((l) => l.startsWith('n')).map((l) => l.slice(1)));
+      } catch { /* никто не держит — все мертвы */ }
+      rest.bg_alive = cand.filter((c) => heldPaths.has(c.out)).map((c) => c.id);
+    } else rest.bg_alive = [];
+  } catch { /* без списка окно живёт по старым правилам */ }
   // имя сессии знает список (он его выводит из первой реплики), а чтение
   // одной сессии — нет: окно писало «(без названия)» там, где сайдбар в той
   // же секунде показывал имя (факт 21.08). Берём из того же списка.

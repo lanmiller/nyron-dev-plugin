@@ -77,6 +77,8 @@
       const id = String(it.result || '').match(/running in background with ID: (\w+)/)?.[1];
       if (!id) return;
       if (cutoff && new Date(it.ts).getTime() < cutoff) return;
+      // сервер проверил живость фактом (lsof файла вывода): мёртвых не рисуем
+      if (Array.isArray(data?.bg_alive) && !data.bg_alive.includes(id)) return;
       const done = items.slice(idx + 1).some((n) =>
         String(n.text || '').includes(id) && /<status>\s*(completed|failed|killed)/.test(String(n.text || '')));
       if (done) return;
@@ -604,7 +606,7 @@
   let openAsks = $derived((data?.asks || []).filter((a) => a.status === 'open'));
   let openCount = $derived(openAsks.length + (data?.pending_hitl ? 1 : 0)
     + (data?.runner?.alive && data.runner.screen === 'permission' ? 1 : 0));
-  // в доке — только живое: открытые и ответы в пути; подтверждённое своё
+  // в доке — только живое: открытые и сейчас работает на сессию; подтверждённое своё
   // отработало и чат не перекрывает (CTO 10.08)
   let recentDecided = $derived((data?.asks || [])
     .filter((a) => ['answered', 'delivered'].includes(a.status)).slice(-2));
@@ -911,7 +913,7 @@
           aria-expanded={sheet} onclick={() => (sheet = !sheet)}>
           {#if openCount}<Badge>{openCount}</Badge>{/if}
           <span class="flex-1 text-left">
-            {sheet ? 'свернуть' : openCount ? 'вопросы ждут решения' : 'ответы в пути'}
+            {sheet ? 'свернуть' : openCount ? 'вопросы ждут решения' : 'сейчас работает на сессию'}
           </span>
           <Icon name={sheet ? 'chevron-down' : 'chevron-up'} size={14} class="text-ink-4" />
         </Button>
