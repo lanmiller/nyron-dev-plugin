@@ -89,8 +89,14 @@ const tools = {
     async handler(a) {
       // без слота — автовыбор подписки: человек не должен думать, где лимит
       const s = await api('POST', '/api/runner', { action: 'start', slot: 'auto', ...a });
-      return { started: s.name, state: s.state, slot: s.slot || 'основной',
+      const out = { started: s.name, state: s.state, slot: s.slot || 'основной',
         slot_pick: s.slot_pick || null, passport_warning: s.passport_warning || null };
+      // режим не задан — сессия стартует С ДИАЛОГАМИ разрешений: для волн и
+      // диспетчеров это простой на первом же запросе (факт 23.08 — волны
+      // nyron поднялись без bypass). Говорим вызывающему прямо в ответе.
+      if (!a.mode) out.warning =
+        'режим не задан — сессия будет спрашивать разрешения; для волны/диспетчера передавай mode:"bypass" (+mcp:"strict")';
+      return out;
     },
   },
 
