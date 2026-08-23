@@ -141,6 +141,10 @@ function metaOf(full, name, root, st) {
     title: title || '(без названия)',
     entrypoint,
   };
+  // Ни одной разобранной строки — лента битая (или ещё не дописана): без
+  // пометки такой файл неотличим от честной сессии без заголовка. Поле
+  // ставим ТОЛЬКО когда true, чтобы не менять форму меты у нормальных лент.
+  if (!events.length) meta.broken = true;
   metaCache.set(full, { mtimeMs: st.mtimeMs, size: st.size, meta });
   // наружу — копия: кэшированный объект правит только этот модуль
   return { ...meta };
@@ -151,17 +155,29 @@ function metaOf(full, name, root, st) {
 function updateFile(dir, name, root, files) {
   const full = path.join(dir, name);
   let st;
-  try { st = fs.statSync(full); } catch { files.delete(name); return; }
+  try { st = fs.statSync(full); } catch (e) {
+    // файла действительно нет — снимаем; прочая ошибка (EACCES/EIO) —
+    // временная слепота, прежнюю мету не выбрасываем (ревью Sol S5)
+    if (e?.code === 'ENOENT' || e?.code === 'ENOTDIR') files.delete(name);
+    return;
+  }
   if (!st.isFile()) { files.delete(name); return; } // подкаталоги субагентов — не сессии
   const meta = metaOf(full, name, root, st);
   if (meta) files.set(name, meta); else files.delete(name);
 }
 
-/** Сессии ОДНОГО каталога слага: Map(имя файла → мета). */
-function scanDir(dir, root) {
+/** Сессии ОДНОГО каталога слага: Map(имя файла → мета).
+ *  prev — прежняя карта того же каталога (для индекса): если каталог
+ *  ВРЕМЕННО нечитаем (EACCES/EIO/EMFILE), пустой картой его подменять
+ *  нельзя — сессии исчезали бы из пульта до следующей удачи. Возврат того
+ *  же объекта prev означает «не сканировали, повторить позже». */
+function scanDir(dir, root, prev) {
+  let names;
+  try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch (e) {
+    if (e?.code === 'ENOENT' || e?.code === 'ENOTDIR') return new Map(); // каталога нет — сессий нет
+    return prev ?? new Map();
+  }
   const files = new Map();
-  let names = [];
-  try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { return files; }
   for (const f of names) updateFile(dir, f, root, files);
   return files;
 }
@@ -424,15 +440,18 @@ function cap(s, n) {
  * лентам субагентов и фоновых команд на каждую сессию. Диск отвечал
  * секундами, сервер вставал (факты 22–23.08). Индекс переворачивает схему:
  * диск читается, только когда файловая система сказала, что он изменился
- * (fs.watch), а редкий ресинк (RESYNC_MS) страхует от потерянных событий —
- * fs.watch «не 100% консистентен между платформами» (док Node), а на macOS
+ * (fs.watch), а редкий обход-страховка идёт ТАЙМЕРОМ в фоне — fs.watch
+ * «не 100% консистентен между платформами» (док Node), а на macOS
  * пересозданный каталог получает новый inode, за которым вотчер не идёт.
+ *
+ * Главное правило слоя: в пути запроса (list/lastActivity) допустимы только
+ * точечные чтения того, о чём сказали события. Всё слепое — в фон.
  */
 
-const RESYNC_MS = 10_000;   // страховка: как часто перечитывать вслепую
+const RESYNC_MS = 10_000;   // страховка: как часто обходить диск фоном
 const RETRY_MS = 100;       // как часто пробовать поднять упавший вотчер
-const SETTLE_MS = 150;      // слепое окно вотчера при подъёме (см. watchDir)
-const OBS_CAP = 1024;       // потолок наблюдателей — не копить память
+const SETTLE_MS = 150;      // слепое окно вотчера при подъёме (см. treeOf)
+const SWEEP_CHUNK = 200;    // сколько лент за одну порцию фонового обхода
 
 // Корень скретчпадов сессий (<base>/<слаг>/<key>/tasks). На маке /tmp —
 // симлинк на /private/tmp, os.tmpdir() НЕ годится (там /var/folders, CLI
@@ -453,25 +472,77 @@ function maxMtime(dir) {
   return best;
 }
 
+/*
+ * Фоновый обход-страховка: перечитать то, о чём события могли не сказать.
+ *
+ * Раньше он жил ВНУТРИ list() и стоил 2833 statSync в обработчике HTTP на
+ * большом проекте (замер 23.08) — ровно та беда, ради которой затевался
+ * индекс. Теперь это ОДИН таймер на модуль (unref, процесс не держит):
+ * задания даёт каждый индекс и каждый наблюдатель, порция ограничена
+ * SWEEP_CHUNK лент, между порциями цикл событий свободен, результат
+ * применяется по мере обхода. Потребителей у механизма два с рождения:
+ * индексы (состав каталогов и лент) и наблюдатели чек-ина (свежесть
+ * фоновых лент там, где вотчер не поднялся).
+ */
+let sweepTimer = null;
+let sweeping = false;
+let sweepAgain = false;     // просили обойти раньше срока прямо во время обхода
+
+function sweepArm(ms) {
+  if (sweepTimer) clearTimeout(sweepTimer);
+  sweepTimer = setTimeout(sweepRun, ms);
+  sweepTimer.unref?.();
+}
+/** Завести таймер, если он ещё не заведён (новый индекс/наблюдатель). */
+function sweepEnsure() { if (!sweepTimer && !sweeping) sweepArm(RESYNC_MS); }
+/** Обойти раньше срока: поднялся вотчер (слепое окно FSEvents) или умер. */
+function sweepSoon() { if (sweeping) sweepAgain = true; else sweepArm(0); }
+
+function* sweepJobs() {
+  for (const idx of [...indexes.values()]) yield* idx.sweepJobs();
+  for (const o of [...observers.values()]) yield* o.sweepJobs();
+}
+function sweepRun() {
+  sweepTimer = null;
+  sweeping = true;
+  sweepAgain = false;
+  sweepStep(sweepJobs());
+}
+// Задание возвращает свою цену в лентах (оценка числа обращений к диску) —
+// по ней и режется порция.
+function sweepStep(jobs) {
+  let budget = SWEEP_CHUNK;
+  while (budget > 0) {
+    const { value, done } = jobs.next();
+    if (done) {
+      sweeping = false;
+      if (indexes.size || observers.size) sweepArm(sweepAgain ? 0 : RESYNC_MS);
+      return;
+    }
+    try { budget -= Math.max(1, value()); } catch { budget -= 1; }
+  }
+  setTimeout(() => sweepStep(jobs), 0).unref?.();
+}
+
 // fs.watch падает на отсутствующем каталоге (ENOENT) и на исчерпании
 // дескрипторов (EMFILE) — сервер от этого падать не должен: возвращаем null,
-// наверху живёт ресинк. unref/persistent:false — чтобы вотчер не держал
-// процесс (иначе не завершится ни тест, ни CLI-скрипт).
+// наверху живёт обход-страховка. unref/persistent:false — чтобы вотчер не
+// держал процесс (иначе не завершится ни тест, ни CLI-скрипт).
 //
-// FSEvents на macOS поднимает поток асинхронно и события первых миллисекунд
-// жизни вотчера теряет. Поэтому через SETTLE_MS один раз зовём обработчик
-// без имени файла — «что-то могло измениться, перечитай»: это тот же путь,
-// что для события без filename, которое Node не гарантирует в принципе.
-function watchDir(dir, recursive, onEvent) {
+// Ошибка и закрытие делают FSWatcher непригодным («no longer usable», док
+// Node): глотать error молча нельзя — событий больше не будет, а наверху
+// вотчер числится живым, и страховка выключена навсегда (ревью Sol S4).
+function watchDir(dir, recursive, onEvent, onDead) {
+  let w;
   try {
-    const w = fs.watch(dir, { recursive, persistent: false }, (_e, name) => {
+    w = fs.watch(dir, { recursive, persistent: false }, (_e, name) => {
       try { onEvent(name); } catch {}
     });
-    w.on('error', () => {});
-    w.unref?.();
-    setTimeout(() => { try { onEvent(null); } catch {} }, SETTLE_MS).unref?.();
-    return w;
   } catch { return null; }
+  w.on('error', () => { onDead(w); try { w.close(); } catch {} });
+  w.on('close', () => onDead(w));
+  w.unref?.();
+  return w;
 }
 
 /*
@@ -480,42 +551,79 @@ function watchDir(dir, recursive, onEvent) {
  * каталогов слага под тысячу (корень + worktree-копии), и вотчер на
  * каждый — это тысяча потоков FSEvents и тысяча подписок ради того же
  * потока событий. Подписчик приходит с именем своей ветки, событие
- * разводится по первому сегменту пути.
+ * разводится по первому сегменту пути; branch === null — подписка на всё
+ * дерево (индекс ждёт появления новых каталогов слага; каталог слага вне
+ * projects сам себе дерево).
  */
-const trees = new Map(); // каталог → { w, at, byName: Map(имя → Set), all: Set }
+const trees = new Map(); // каталог → { w, at, gen, byName: Map(имя → Set), all: Set }
 function treeOf(dir) {
   let rec = trees.get(dir);
-  if (!rec) { rec = { w: null, at: 0, byName: new Map(), all: new Set() }; trees.set(dir, rec); }
+  if (!rec) {
+    // gen — номер подъёма вотчера: по его смене подписчики понимают, что
+    // было слепое окно и их данные надо перечитать один раз (см. sweepJobs)
+    rec = { w: null, at: 0, gen: 0, byName: new Map(), all: new Set() };
+    trees.set(dir, rec);
+  }
   if (!rec.w && Date.now() - rec.at >= RETRY_MS) {
-    // каталога может ещё не быть (первая сессия проекта, первая фоновая
-    // команда машины) — пробуем поднять вотчер коротким повтором
+    // Каталога может ещё не быть (пульт из launchd поднялся раньше первой
+    // сессии CLI — корня скретчпадов на машине нет вовсе) — пробуем поднять
+    // коротким повтором ПОКА не поднимется: попытка идёт из sync(),
+    // activity() и фонового обхода, то есть из любого живого пути.
     rec.at = Date.now();
-    rec.w = watchDir(dir, true, (name) => {
-      if (!name) {
-        for (const set of rec.byName.values()) for (const s of set) s.treeEvent(null);
-        for (const s of rec.all) s.treeEvent(null);
-        return;
-      }
-      const i = name.indexOf(path.sep);
-      const set = rec.byName.get(i < 0 ? name : name.slice(0, i));
-      if (set) for (const s of set) s.treeEvent(name);
-      for (const s of rec.all) s.treeEvent(name);
+    rec.w = watchDir(dir, true, (name) => treeFanout(rec, name), (w) => {
+      if (trees.get(dir) !== rec || rec.w !== w) return;   // закрыли сами
+      rec.w = null;
+      rec.at = Date.now();
+      treeFanout(rec, null);    // событий больше не будет — всё грязное
+      sweepSoon();              // и страховка обходит диск, не дожидаясь срока
     });
+    // FSEvents поднимает поток асинхронно и события первых миллисекунд
+    // теряет. Окно закрываем фоновым обходом, а НЕ грязными флагами: иначе
+    // ближайший list() платит полным сканом за изменение, которого не было
+    // (DoD 3 — «повтор без изменений не читает диск», ревью Sol S1).
+    if (rec.w) {
+      rec.gen += 1;
+      setTimeout(() => { if (trees.get(dir) === rec) sweepSoon(); }, SETTLE_MS).unref?.();
+    }
   }
   return rec;
 }
+function treeFanout(rec, name) {
+  if (name === null) {
+    for (const set of rec.byName.values()) for (const s of set) s.treeEvent(null);
+    for (const s of rec.all) s.treeEvent(null);
+    return;
+  }
+  const i = name.indexOf(path.sep);
+  const set = rec.byName.get(i < 0 ? name : name.slice(0, i));
+  if (set) for (const s of set) s.treeEvent(name);
+  for (const s of rec.all) s.treeEvent(name);
+}
 function treeJoin(dir, branch, sub) {
   const rec = treeOf(dir);
+  if (branch === null) { rec.all.add(sub); return rec; }
   let set = rec.byName.get(branch);
   if (!set) { set = new Set(); rec.byName.set(branch, set); }
   set.add(sub);
   return rec;
 }
 function treeLeave(dir, branch, sub) {
-  const set = trees.get(dir)?.byName.get(branch);
-  if (!set) return;
-  set.delete(sub);
-  if (!set.size) trees.get(dir).byName.delete(branch);
+  const rec = trees.get(dir);
+  if (!rec) return;
+  if (branch === null) rec.all.delete(sub);
+  else {
+    const set = rec.byName.get(branch);
+    if (set) { set.delete(sub); if (!set.size) rec.byName.delete(branch); }
+  }
+  // Дерево без подписчиков закрываем: иначе рекурсивный FSEvents на каталог
+  // projects жил бы до конца процесса даже после close() индекса (замер
+  // критика: 5 вотчеров до close → 5 после).
+  if (!rec.byName.size && !rec.all.size) {
+    trees.delete(dir);
+    const w = rec.w;
+    rec.w = null;
+    try { w?.close(); } catch {}
+  }
 }
 
 /**
@@ -530,12 +638,21 @@ const observers = new Map(); // слаг + корень скретчпадов �
 function observeSlug(slugDir, scratchBase) {
   const ck = `${slugDir}\t${scratchBase}`;
   const have = observers.get(ck);
-  if (have) { have.used = Date.now(); have.ensure(); return have; }
+  if (have) { have.ensure(); return have; }
 
-  const parent = path.dirname(slugDir);
   const slugName = path.basename(slugDir);
+  // Каталог слага почти всегда лежит в projects — тогда события берём из
+  // общего дерева projects. Но чек-ин морды знает путь ФАЙЛА, а не корень
+  // проекта, и каталог может оказаться где угодно (в тестах — mkdtemp в
+  // /var/folders). Рекурсивный вотчер на РОДИТЕЛЯ такого каталога — это
+  // подписка на весь временный каталог машины, и снять её нечем (ревью A3):
+  // чужой каталог слага наблюдаем сам, рекурсивно (ленты субагентов лежат
+  // в <slugDir>/<key>/subagents/).
+  const inProjects = path.dirname(slugDir) === projectsDir();
+  const txDir = inProjects ? projectsDir() : slugDir;
+  const txBranch = inProjects ? slugName : null;
   const o = {
-    slugDir, scratchBase, slugName, used: Date.now(),
+    slugDir, scratchBase, slugName,
     act: new Map(),       // key → { sub, tasks, subDirty, tasksDirty }
     dirSubs: new Set(),   // подписки списка: { dirDirty, names:Set }
   };
@@ -551,44 +668,38 @@ function observeSlug(slugDir, scratchBase) {
     touchDir();
     for (const a of o.act.values()) { a.subDirty = true; a.tasksDirty = true; }
   };
-  // Слепой ресинк: состав каталога перечитываем всегда (readdir + stat), а
-  // свежесть фоновых лент — только там, где вотчера НЕТ. Иначе страховка
-  // стоит по два readdir на КАЖДУЮ сессию: на большом проекте это 2800
-  // сессий и 5600 системных вызовов раз в десять секунд.
-  o.resync = () => {
-    touchDir();
-    const noTx = !trees.get(parent)?.w;
-    const noTasks = !trees.get(scratchBase)?.w;
-    if (!noTx && !noTasks) return;
-    for (const a of o.act.values()) {
-      if (noTx) a.subDirty = true;
-      if (noTasks) a.tasksDirty = true;
-    }
+  // Путь события внутри каталога слага: из дерева projects имя приходит с
+  // веткой (<слаг>/…), из собственного дерева — уже без неё.
+  const relOf = (name) => {
+    if (!inProjects) return name;
+    const i = name.indexOf(path.sep);
+    return i < 0 ? '' : name.slice(i + 1);
   };
   // <слаг>/<key>.jsonl — лента сессии, <слаг>/<key>/subagents/… — лента
   // субагента. Имя файла в событии не гарантировано (док Node) — без него
   // считаем грязным всё.
   o.txSub = { treeEvent: (name) => {
-    if (!name) { o.markAll(); return; }
-    const i = name.indexOf(path.sep);
-    if (i < 0) { touchDir(); return; }        // сам каталог слага
-    const rest = name.slice(i + 1);
-    const j = rest.indexOf(path.sep);
-    if (j < 0) { rest.endsWith('.jsonl') ? touchFile(rest) : touchDir(); return; }
-    entry(rest.slice(0, j)).subDirty = true;
+    if (name === null) { o.markAll(); return; }
+    const rel = relOf(name);
+    if (!rel) { touchDir(); return; }          // сам каталог слага
+    const j = rel.indexOf(path.sep);
+    if (j < 0) { rel.endsWith('.jsonl') ? touchFile(rel) : touchDir(); return; }
+    entry(rel.slice(0, j)).subDirty = true;
   } };
   // <слаг>/<key>/tasks/… — вывод фоновой команды
   o.taskSub = { treeEvent: (name) => {
-    if (!name) { for (const a of o.act.values()) a.tasksDirty = true; return; }
+    if (name === null) { for (const a of o.act.values()) a.tasksDirty = true; return; }
     const parts = name.split(path.sep);
     if (parts.length > 1) entry(parts[1]).tasksDirty = true;
   } };
   o.ensure = () => {
-    treeJoin(parent, slugName, o.txSub);
+    treeJoin(txDir, txBranch, o.txSub);
     treeJoin(scratchBase, slugName, o.taskSub);
   };
+  const deaf = () => !trees.get(txDir)?.w || !trees.get(scratchBase)?.w;
   o.activity = (key) => {
     if (!KEY_RE.test(key)) return 0;   // ключ идёт в путь — обход запрещён
+    if (deaf()) o.ensure();            // вотчер не встал/умер — пробуем поднять
     const a = entry(key);
     if (a.subDirty) {
       a.sub = maxMtime(path.join(o.slugDir, key, 'subagents'));
@@ -600,6 +711,35 @@ function observeSlug(slugDir, scratchBase) {
     }
     return Math.max(a.sub, a.tasks);
   };
+  // Страховка наблюдателя: пока вотчеры живы и не перезапускались, событий
+  // достаточно и обходить нечего. Перечитываем свежесть фоновых лент, если
+  // (а) вотчер не поднялся — событий не будет вовсе, либо (б) он только что
+  // поднялся: FSEvents теряет события первых миллисекунд, и запись, сделанная
+  // в это окно, иначе не видна до следующей (гонка теста чек-ина, 1 из 10).
+  // Делаем это ЗДЕСЬ, а не в list(): иначе на большом проекте это 2 readdir ×
+  // 2831 сессию прямо в обработчике запроса (ревью Sol S2/S3).
+  o.txGen = 0;
+  o.taskGen = 0;
+  o.sweepJobs = function* () {
+    o.ensure();
+    const tx = trees.get(txDir);
+    const tasks = trees.get(scratchBase);
+    const doTx = !tx?.w || tx.gen !== o.txGen;
+    const doTasks = !tasks?.w || tasks.gen !== o.taskGen;
+    if (!doTx && !doTasks) return;
+    o.txGen = tx?.gen ?? 0;
+    o.taskGen = tasks?.gen ?? 0;
+    for (const key of [...o.act.keys()]) yield () => {
+      const a = o.act.get(key);
+      if (!a) return 1;
+      if (doTx) { a.sub = maxMtime(path.join(o.slugDir, key, 'subagents')); a.subDirty = false; }
+      if (doTasks) {
+        a.tasks = maxMtime(path.join(o.scratchBase, slugName, key, 'tasks'));
+        a.tasksDirty = false;
+      }
+      return 2;
+    };
+  };
   /** Подписка списка на изменения каталога (у каждого индекса своя: один
    *  каталог слага виден из двух проектов, если один вложен в другой). */
   o.follow = () => {
@@ -609,18 +749,13 @@ function observeSlug(slugDir, scratchBase) {
   };
   o.unfollow = (sub) => o.dirSubs.delete(sub);
   o.close = () => {
-    treeLeave(parent, slugName, o.txSub);
+    treeLeave(txDir, txBranch, o.txSub);
     treeLeave(scratchBase, slugName, o.taskSub);
     observers.delete(ck);
   };
   observers.set(ck, o);
   o.ensure();
-  if (observers.size > OBS_CAP) {
-    let old = null;
-    for (const x of observers.values())
-      if (x !== o && !x.dirSubs.size && (!old || x.used < old.used)) old = x;
-    old?.close();
-  }
+  sweepEnsure();
   return o;
 }
 
@@ -635,8 +770,14 @@ export function activityOf(file, key, { scratchBase } = {}) {
 /**
  * sessionIndex(root, { scratchBase }) → { list, lastActivity, close }.
  * Синглтон на пару «каталог projects + корень проекта»: вотчеры и кэш
- * общие для всех потребителей морды. close() снимает подписки и убирает
- * индекс из реестра (следующий вызов соберёт новый).
+ * общие для всех потребителей морды. close() снимает подписки, закрывает
+ * осиротевших наблюдателей и вотчеры деревьев, на которых не осталось
+ * подписчиков, и убирает индекс из реестра (следующий вызов соберёт новый).
+ *
+ * scratchBase действует ТОЛЬКО при создании индекса для root: повторный
+ * вызов отдаёт уже собранный индекс и опцию молча игнорирует (так и
+ * зафиксировано тестом «синглтон до close»). Сменить корень скретчпадов
+ * можно лишь через close().
  *
  * list() → то же, что listSessions(root), плюс lastActivity — максимум по
  * трём лентам (транскрипт, субагенты, выводы фоновых команд).
@@ -651,6 +792,19 @@ export function sessionIndex(root, { scratchBase } = {}) {
   return idx;
 }
 
+// Сравнение состава каталога по видимым полям: пересканирование строит
+// новые объекты меты, и без сверки список пересобирался бы (сортировка
+// тысяч сессий) на каждый фоновый обход, хотя на диске ничего не менялось.
+function sameFiles(a, b) {
+  if (a === b) return true;
+  if (a.size !== b.size) return false;
+  for (const [name, m] of a) {
+    const n = b.get(name);
+    if (!n || n.mtime !== m.mtime || n.size !== m.size || n.title !== m.title) return false;
+  }
+  return true;
+}
+
 function createIndex(root, scratchBase, ck) {
   const prefix = slugPrefix(root);
   const dirs = new Map();       // slugDir → { files: Map(имя → мета), obs, sub }
@@ -659,59 +813,62 @@ function createIndex(root, scratchBase, ck) {
   let cached = [];              // мета без lastActivity, в порядке выдачи
   let byKey = new Map();
   let emptyAt = 0;
-  let resyncAt = Date.now();    // первый list всё равно читает диск
 
   // Появление НОВОГО каталога слага (сессия в worktree, первый запуск в
   // проекте) — событие того же дерева: своего вотчера индексу не нужно.
   const treeSub = { treeEvent: (name) => {
-    if (!name) { dirsDirty = true; return; }
+    if (name === null) { dirsDirty = true; return; }
     const i = name.indexOf(path.sep);
     const slug = i < 0 ? name : name.slice(0, i);
     if (slug.startsWith(prefix) && !dirs.has(path.join(projectsDir(), slug)))
       dirsDirty = true;
   } };
 
-  function sync() {
-    const now = Date.now();
-    if (now - resyncAt >= RESYNC_MS) {
-      // Страховка от потерянных событий: перечитать состав каталогов.
-      // Отдельной «сигнатуры каталога» не держим — её syscalls (readdir +
-      // stat) те же, что у пересканирования, а разбор изменившихся файлов
-      // и так отсекает пофайловый metaCache: второго механизма ради того
-      // же не заводим.
-      resyncAt = now;
-      dirsDirty = true;
-      for (const rec of dirs.values()) rec.obs.resync();
+  /** Состав каталогов слага проекта (корень + worktree-копии). */
+  function recompose() {
+    dirsDirty = false;
+    const found = transcriptDirs(root);
+    for (const [d, rec] of dirs) {
+      if (found.includes(d)) continue;
+      rec.obs.unfollow(rec.sub);
+      if (!rec.obs.dirSubs.size) rec.obs.close();
+      dirs.delete(d);
+      listStale = true;
     }
+    for (const d of found) {
+      if (dirs.has(d)) continue;
+      const obs = observeSlug(d, scratchBase);
+      dirs.set(d, { files: new Map(), obs, sub: obs.follow() });
+    }
+    return found.length + 1;
+  }
+
+  /** Полное перечитывание каталога слага. Полный скан старше точечных
+   *  флагов — гасим их, чтобы list() не читал тот же каталог второй раз. */
+  function rescan(rec) {
+    const fresh = scanDir(rec.obs.slugDir, root, rec.files);
+    if (fresh === rec.files) return 1;      // каталог временно нечитаем — повторим
+    rec.sub.dirDirty = false;
+    rec.sub.names.clear();
+    if (!sameFiles(rec.files, fresh)) { rec.files = fresh; listStale = true; }
+    return fresh.size + 1;
+  }
+
+  function sync() {
     // Пока у проекта нет ни одного каталога слага, перечитываем projects на
     // каждый опрос: это ОДИН readdir, а не обход лент. Событие о появлении
     // каталога macOS теряет в первые миллисекунды жизни вотчера, и первая
-    // сессия проекта иначе ждала бы ресинка (10 с).
+    // сессия проекта иначе ждала бы фонового обхода (10 с).
+    const now = Date.now();
     if (!dirs.size && now - emptyAt >= RETRY_MS) { emptyAt = now; dirsDirty = true; }
-    treeOf(projectsDir()).all.add(treeSub);
-    if (dirsDirty) {
-      dirsDirty = false;
-      const found = transcriptDirs(root);
-      for (const [d, rec] of dirs) {
-        if (found.includes(d)) continue;
-        rec.obs.unfollow(rec.sub);
-        dirs.delete(d);
-        listStale = true;
-      }
-      for (const d of found) {
-        if (dirs.has(d)) continue;
-        const obs = observeSlug(d, scratchBase);
-        dirs.set(d, { files: new Map(), obs, sub: obs.follow() });
-      }
-    }
+    // заодно повтор подъёма вотчера дерева projects, если он не встал
+    treeJoin(projectsDir(), null, treeSub);
+    if (dirsDirty) recompose();
     for (const rec of dirs.values()) {
       const { sub } = rec;
       if (sub.dirDirty) {
         // состав каталога мог измениться (новый файл, удаление) — readdir
-        sub.dirDirty = false;
-        sub.names.clear();
-        rec.files = scanDir(rec.obs.slugDir, root);
-        listStale = true;
+        rescan(rec);
       } else if (sub.names.size) {
         // тронули конкретные ленты — перечитываем ровно их (одна активная
         // сессия стоит одного stat, а не обхода каталога)
@@ -737,6 +894,7 @@ function createIndex(root, scratchBase, ck) {
     return Math.max(new Date(s.mtime).getTime() || 0, obs.activity(s.key));
   };
 
+  sweepEnsure();
   return {
     list() {
       sync();
@@ -748,9 +906,19 @@ function createIndex(root, scratchBase, ck) {
       const s = byKey.get(key);
       return s ? actOf(s) : 0;
     },
+    /** Внутреннее: работа для фонового обхода-страховки (см. sweepStep).
+     *  Состав каталогов и лент перечитывается ЗДЕСЬ, вне пути запроса. */
+    * sweepJobs() {
+      yield () => recompose();
+      for (const rec of dirs.values()) yield () => rescan(rec);
+    },
     close() {
-      trees.get(projectsDir())?.all.delete(treeSub);
-      for (const rec of dirs.values()) rec.obs.unfollow(rec.sub);
+      treeLeave(projectsDir(), null, treeSub);
+      for (const rec of dirs.values()) {
+        rec.obs.unfollow(rec.sub);
+        // наблюдатель без подписчиков держал бы вотчеры деревьев вечно
+        if (!rec.obs.dirSubs.size) rec.obs.close();
+      }
       dirs.clear();
       indexes.delete(ck);
     },
