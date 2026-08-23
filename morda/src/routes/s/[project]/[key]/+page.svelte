@@ -67,10 +67,16 @@
   let bgRunning = $derived.by(() => {
     const items = data?.items || [];
     const out = [];
+    // мёртвое по определению: фон не переживает ни ребут машины, ни
+    // перезапуск сессии резюмом — уведомление о конце уже не придёт,
+    // и строка висела вечно («в фоне · 20 ч», факт 23.08)
+    const cutoff = Math.max(data?.boot_at || 0,
+      data?.runner?.startedAt ? new Date(data.runner.startedAt).getTime() : 0);
     items.forEach((it, idx) => {
       if (it.kind !== 'tool' || it.name !== 'Bash') return;
       const id = String(it.result || '').match(/running in background with ID: (\w+)/)?.[1];
       if (!id) return;
+      if (cutoff && new Date(it.ts).getTime() < cutoff) return;
       const done = items.slice(idx + 1).some((n) =>
         String(n.text || '').includes(id) && /<status>\s*(completed|failed|killed)/.test(String(n.text || '')));
       if (done) return;
