@@ -768,7 +768,19 @@ export function runnerOwned() {
   }
   return out;
 }
-export function liveAgents() {
+// `claude agents --json` — синхронный и НЕ дешёвый (поднимает CLI, до 8 с),
+// а зовётся по разу на каждый дом подписки на каждый опрос: сервер вставал
+// на десятки секунд даже без нагрузки (факт 23.08 — висящий дочерний
+// процесс держал весь пульт). Кэш 10 с: живые агенты меняются медленнее.
+let liveAgentsCache = { at: 0, out: null };
+export function liveAgents(...a) {
+  if (liveAgentsCache.out && Date.now() - liveAgentsCache.at < 10_000)
+    return liveAgentsCache.out;
+  const out = liveAgentsRaw(...a);
+  liveAgentsCache = { at: Date.now(), out };
+  return out;
+}
+function liveAgentsRaw() {
   // Слоты с отдельным конфиг-каталогом (CLAUDE_CONFIG_DIR) — свои сессии:
   // без обхода каталогов сессия слота не привязывалась и окно вечно ждало
   // (факт 20.08, слот «Мариха»).
@@ -784,7 +796,7 @@ export function liveAgents() {
     try {
       const env = home ? { ...SPAWN_ENV, CLAUDE_CONFIG_DIR: home } : SPAWN_ENV;
       const rows = JSON.parse(execFileSync(CLAUDE_BIN, ['agents', '--json'],
-        { timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'], env }).toString());
+        { timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], env }).toString());
       for (const r of rows) {
         if (seen.has(r.sessionId)) continue;
         seen.add(r.sessionId);
