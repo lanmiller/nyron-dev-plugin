@@ -77,6 +77,7 @@ const tools = {
         project: { type: 'string', description: 'проект пульта: psylia, nyron, stovp…' },
         name: { type: 'string', description: 'имя сессии: строчные латиница/цифры/дефис' },
         goal: { type: 'string', description: 'задача первым сообщением' },
+        ticket: { type: 'string', description: 'ключ тикета, например STOVP-65; сильнее ключа из цели — сессия встанет под свой эпик в дереве пульта' },
         mode: { type: 'string', description: 'auto | acceptEdits | plan | bypass (bypass — только за забором, его ставит раннер)' },
         mcp: { type: 'string', description: "'strict' — только серверы паспорта + аккаунтные канона; пусто — все серверы машины" },
         model: { type: 'string', description: 'fable | opus | sonnet | haiku (пусто — дефолт)' },

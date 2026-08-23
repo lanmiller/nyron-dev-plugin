@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { rootByName, tmuxCandidates, paneProcessTree, MORDA_ROOT,
-  CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents, sessionMeta,
+  CLAUDE_BIN, TMUX_BIN, SPAWN_ENV, liveAgents, sessionMeta, ticketOf,
   RUNNER_STATE_FILE as STATE_FILE, transcriptQuietMs } from './fleet.js';
 import { parseDialog, parsePermission } from './tui.js';
 import { passportQuick, passportGate, strictMcpProfile } from './passport.js';
@@ -35,6 +35,30 @@ function saveReg(reg) {
   const tmp = STATE_FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(reg, null, 2));
   fs.renameSync(tmp, STATE_FILE);
+}
+
+// Ключ тикета сессии — читалка одна на пульт (fleet.js), но контракт
+// раннера обещает её здесь: реестр — его хозяйство.
+export { ticketOf };
+
+// Мета записи: чем сессия ЯВЛЯЕТСЯ (проект, тикет, параметры запуска), в
+// отличие от её текущего состояния. Незаданное поле нового запуска берётся
+// из прежней записи — рестарт, резюм и усыновление не должны терять тикет и
+// параметры, которые человек задал один раз (факт: retune «стоп+резюм»
+// стирал цель, потому что переносился только явный список полей).
+const META = ['project', 'root', 'goal', 'sessionId', 'model', 'mode',
+  'effort', 'slot', 'mcp', 'ticket', 'passport_warning'];
+
+/** Чистая сборка записи реестра: мета мержем поверх прежней, состояние —
+ *  всегда стартовое. prev === null — запись с нуля. */
+export function registryRecord(prev, fields = {}) {
+  const out = {};
+  for (const k of META) {
+    const v = fields[k];
+    out[k] = v === undefined || v === null ? (prev?.[k] ?? null) : v;
+  }
+  return { ...out, goalSent: false, startedAt: new Date().toISOString(),
+    state: 'starting', stoppedAt: null };
 }
 
 // Пуллеры стартующих сессий — в globalThis: Vite HMR пересоздаёт модуль,
@@ -320,7 +344,7 @@ function guardSettingsFile() {
  *  Имя — только [a-z0-9-]: оно станет именем tmux-сессии.
  *  workdir (опция, только с сервера) — родной каталог сессии при резюме;
  *  обязан лежать в корне проекта (fail-closed, как openFileOutside). */
-export function runnerStart({ project, goal, name, resumeId, workdir,
+export function runnerStart({ project, goal, name, resumeId, workdir, ticket,
   model, mode, effort, slot, mcp }, opts = {}) {
   const root = rootByName(project); // бросит на чужом имени — allowlist
   if (!NAME_RE.test(name || '')) throw new Error('имя: строчные латиница/цифры/дефис');
@@ -383,17 +407,19 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
   targs.push('-e', 'NYRON_RUNNER=1');
   targs.push('-c', dir, CLAUDE_BIN + args);
   execFileSync(TMUX_BIN, targs, { timeout: 5000, env: SPAWN_ENV });
-  reg.sessions[name] = {
-    project, root: dir, goal: goal || null, goalSent: false,
-    sessionId: resumeId || null,
-    model: model || null, mode: mode || null,
-    effort: effort || null, slot: slot || null, mcp: mcp || null,
-    startedAt: new Date().toISOString(), state: 'starting',
-    stoppedAt: null,
-    // предупреждение гейта («паспорта нет») — в записи, чтобы было видно
-    // по факту запуска, а не потеряно в ответе одного вызова
-    passport_warning: pgate.warning || null,
-  };
+  reg.sessions[name] = registryRecord(prev, {
+    project, root: dir, goal, sessionId: resumeId,
+    model, mode, effort, slot, mcp,
+    // поле формы сильнее ключа из цели; в реестре тикет живёт дальше сам
+    ticket: ticketOf({ ticket, goal }),
+  });
+  // предупреждение гейта («паспорта нет») — в записи, чтобы было видно по
+  // факту запуска, а не потеряно в ответе одного вызова; вердикт ВСЕГДА
+  // свежий, прошлое предупреждение к этому запуску отношения не имеет
+  reg.sessions[name].passport_warning = pgate.warning || null;
+  // запуск без новой цели (резюм, рестарт) — старую НЕ переотправляем: она
+  // уже ушла в прошлой жизни сессии, а в записи лежит ради тикета и подписи
+  if (!goal) reg.sessions[name].goalSent = true;
   saveReg(reg);
   startPoller(name);
   // имя — ключ реестра, внутри записи его нет; вызывающему оно нужно, чтобы
@@ -466,6 +492,7 @@ export function runnerResume({ name, goal }) {
     workdir: s.root,              // родной каталог записи, не корень проекта
     model: s.model || null, mode: s.mode || null,
     effort: s.effort || null, slot: s.slot || null, mcp: s.mcp || null,
+    ticket: s.ticket || null,
   });
 }
 

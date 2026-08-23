@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { lastActivityMs, checkinMs, checkinState, stalledCard } from './checkin.js';
+import { jiraIssue, jiraNames } from './jira.js';
 import { MORDA_ROOT, PLUGIN_HUB, T } from './plugin-hub.js';
 
 export { MORDA_ROOT };
@@ -310,9 +311,27 @@ function epics() {
   epicsAt = Date.now();
   return epicsCache;
 }
-function toEpic(ticket) {
+// Ключ тикета парсили тремя местами (заголовок сессии, цель записи раннера,
+// поле запуска) — одна читалка на всех: явное поле сильнее текста, из текста
+// берётся ПЕРВЫЙ ключ. Регистр не нормализуем: «stovp-65» — не ключ.
+// Живёт здесь, а не в runner.js: runner.js импортирует fleet.js, обратный
+// импорт замкнул бы модули в цикл (fleet.js — с верхнеуровневым await).
+const TICKET_RE = /^[A-Z][A-Z0-9]+-\d+$/;
+export function ticketOf({ ticket, goal } = {}) {
+  const t = String(ticket ?? '').trim();
+  if (TICKET_RE.test(t)) return t;
+  return String(goal ?? '').match(/\b[A-Z][A-Z0-9]+-\d+\b/)?.[0] || null;
+}
+
+/** Эпик тикета: локальная карта (её пишет человек) → кэш трекера (родитель,
+ *  а сам эпик — сам себе эпик) → сам ключ, если про него никто не знает. */
+export function toEpic(ticket) {
   if (!ticket) return null;
-  return epics().tickets?.[ticket] || ticket;
+  const local = epics().tickets?.[ticket];
+  if (local) return local;
+  const j = jiraIssue(ticket);
+  if (j?.isEpic) return ticket;
+  return j?.parent || ticket;
 }
 export function epicTitle(ticket) {
   return epics().epics?.[ticket] || null;
@@ -394,11 +413,11 @@ export function sessions(project) {
   // список берём ОДИН раз на запрос: он копирует по объекту на сессию
   // (тысячи на большом проекте), а звался дважды — здесь и в starting()
   const list = sessionList(root);
-  return list
+  const rows = list
     .map(({ file, lastActivity, ...s }) => {
       const r = roles.get(normLabel(s.title)) || null;
-      // заголовок сессии — второй источник: «DEV-1210 Блок 1 диспетчер»
-      const named = String(s.title || '').match(/\b([A-Z]{2,10}-\d+)\b/)?.[1] || null;
+      // заголовок сессии — последний источник: «DEV-1210 Блок 1 диспетчер»
+      const named = ticketOf({ goal: s.title });
       // раннерская и заглушенная = запаркована: это сильнее свежести
       // mtime (транскрипт дописан секунду назад самой парковкой) и сильнее
       // старого вердикта сторожа
@@ -430,8 +449,9 @@ export function sessions(project) {
           ? 'CLI закрыт, транскрипт цел — поднимется от сообщения или кнопкой «резюм»'
           : ck?.reason || null,
         open_asks: open.get(s.key) || 0,
-        epic: toEpic(r?.epic || named),
-        epic_title: epicTitle(toEpic(r?.epic || named)),
+        // тикет записи раннера сильнее будки и заголовка: его задал человек
+        // в форме запуска, он переживает рестарт и не зависит от текста цели
+        ...ticketFields(owned.get(s.key)?.ticket || r?.epic || named),
         group: r?.group || null,
         role: r?.role
           || (/диспетч|dispatch/i.test(s.title || '') ? 'dispatcher'
@@ -446,6 +466,28 @@ export function sessions(project) {
       && s.title === '(без названия)' && !s.open_asks))
     .slice(0, 60)
     .concat(starting(project, new Set(list.map((s) => s.key))));
+  return withTitles(rows);
+}
+
+/** Тикет и эпик строки дерева: сам эпик тикетом не считается (иначе в
+ *  сайдбаре он висел бы сам под собой). */
+function ticketFields(tick) {
+  const epic = toEpic(tick);
+  return { ticket: tick && tick !== epic ? tick : null, epic, epic_title: epicTitle(epic) };
+}
+
+/** Названия тикетов и эпиков — ОДНИМ обращением к кэшу трекера на опрос:
+ *  локальная карта epics.json остаётся сильнее, трекер добирает остальное
+ *  (незнакомые ключи встанут в очередь и приедут следующим опросом). */
+function withTitles(rows) {
+  const keys = rows.flatMap((r) => [r.ticket, r.epic]).filter(Boolean);
+  const names = jiraNames(keys);                 // только кэш — опрос синхронный
+  for (const k of keys) if (!names.has(k)) jiraIssue(k);  // остальное — в очередь
+  return rows.map((r) => ({
+    ...r,
+    ticket_title: (r.ticket && names.get(r.ticket)) || null,
+    epic_title: r.epic_title || (r.epic && names.get(r.epic)) || null,
+  }));
 }
 
 // Свежезапущенная сессия раннера до первой записи ленты была невидимкой в
@@ -462,7 +504,7 @@ function starting(project, seen) {
       if (rec.project !== project) continue;
       if (rec.state === 'stopped' || rec.state === 'died_on_start') continue;
       if (rec.sessionId && seen.has(rec.sessionId)) continue;
-      const tick = String(rec.goal || '').match(/\b([A-Z]{2,10}-\d+)\b/)?.[1] || null;
+      const tick = rec.ticket ?? ticketOf({ goal: rec.goal });
       const live = rec.state === 'running' || rec.state === 'goal_sent';
       const brief = String(rec.goal || '').replace(/\s+/g, ' ').slice(0, 60);
       out.push({
@@ -472,7 +514,7 @@ function starting(project, seen) {
         state: live ? 'working' : 'starting',
         reason: live ? 'работает под слотом подписки — лента в каталоге слота'
           : 'сессия поднимается, лента ещё не создана',
-        open_asks: 0, epic: toEpic(tick), epic_title: epicTitle(toEpic(tick)),
+        open_asks: 0, ...ticketFields(tick),
         group: null,
         role: /^disp/.test(name) ? 'dispatcher' : /^wave/.test(name) ? 'wave' : null,
       });
@@ -759,7 +801,7 @@ export const RUNNER_STATE_FILE = process.env.MORDA_RUNNER_STATE
 // «застряла», «закончилась» от тишины не меняются.
 
 export function runnerOwned() {
-  const out = new Map(); // sessionId → { name, alive }
+  const out = new Map(); // sessionId → { name, alive, ticket }
   let reg;
   try { reg = JSON.parse(fs.readFileSync(RUNNER_STATE_FILE, 'utf8')); }
   catch { return out; }
@@ -770,7 +812,8 @@ export function runnerOwned() {
       .toString().trim().split('\n'));
   } catch { /* tmux не поднят — все мертвы */ }
   for (const [name, s] of Object.entries(reg.sessions || {})) {
-    if (s.sessionId) out.set(s.sessionId, { name, alive: live.has('stovp-' + name) });
+    if (s.sessionId) out.set(s.sessionId,
+      { name, alive: live.has('stovp-' + name), ticket: s.ticket ?? null });
   }
   return out;
 }
