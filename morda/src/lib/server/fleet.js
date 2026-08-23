@@ -757,10 +757,18 @@ export function transcriptQuietMs(project, key) {
 }
 
 export function sessionMeta(project, key) {
-  const r = withSlotDir(key, () => T.readSession(rootByName(project), key, { maxBytes: 64 * 1024 }));
+  const root = rootByName(project);
+  const r = withSlotDir(key, () => T.readSession(root, key, { maxBytes: 64 * 1024 }));
+  if (!r) return null;
   // title нужен усыновлению (runner.js: resumeForInput) — ключ тикета
-  // исходной сессии берётся из её заголовка, не из нового сообщения
-  return r ? { cwd: r.cwd, cwd_alive: r.cwd_alive, entrypoint: r.entrypoint, title: r.title } : null;
+  // исходной сессии берётся из её заголовка, не из нового сообщения.
+  // Заголовок берём из ИНДЕКСА: readSession знает только custom-title, а у
+  // обычной сессии его нет (title === null) — усыновление уезжало «вне
+  // эпиков». Индекс даёт тот же заголовок, что сайдбар: custom-title, а
+  // фолбэком — первую реплику человека. Индекс держится в памяти, это дёшево
+  // (тот же приём, что в sessionWindow).
+  const title = sessionList(root).find((s) => s.key === key)?.title ?? r.title;
+  return { cwd: r.cwd, cwd_alive: r.cwd_alive, entrypoint: r.entrypoint, title };
 }
 
 // ---------- ввод в чат (спека, этап 4: tmux — мгновенно; Desktop — зеркало) ----------
