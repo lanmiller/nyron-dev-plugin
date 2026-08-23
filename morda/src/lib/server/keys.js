@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { rootByName } from './fleet.js';
+import { MORDA_ROOT } from './plugin-hub.js';
 
 const FILE = 'env';                       // одна ключница на проект (решение CTO 19.08)
 const NAME_RE = /^[A-Z][A-Z0-9_]*$/;
@@ -62,6 +63,18 @@ function write(root, pairs) {
   const tmp = fileOf(root) + '.tmp';
   fs.writeFileSync(tmp, body, { mode: 0o600 });
   fs.renameSync(tmp, fileOf(root));
+}
+
+/** Ключница САМОГО пульта (рядом с morda/) — объектом KEY→VALUE для
+ *  серверных потребителей: судья (judge.js) и трекер (jira.js). Разбор тот
+ *  же, что у ручек человека, — второй читалки формата у пульта быть не
+ *  должно. Наружу значения не отдаются никогда, только читаются кодом.
+ *  Файла нет — пустой объект: потребитель обязан жить без ключей. */
+export function keysEnv() {
+  try {
+    return Object.fromEntries(parsePairs(
+      fs.readFileSync(fileOf(path.resolve(MORDA_ROOT, '..')), 'utf8')).pairs);
+  } catch { return {}; }
 }
 
 /** Что в ключнице — ТОЛЬКО имена. Значения наружу не отдаются никогда. */

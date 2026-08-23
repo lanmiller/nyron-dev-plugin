@@ -18,19 +18,7 @@ import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { MORDA_ROOT, TMUX_BIN, SPAWN_ENV, transcriptQuietMs, session as readSession } from './fleet.js';
 import { checkinMs } from './checkin.js';
-
-function keysEnv() {
-  const out = {};
-  try {
-    const f = path.join(MORDA_ROOT, '..', '.secrets', 'env');
-    for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
-      const i = line.indexOf('=');
-      if (i > 0 && !line.trim().startsWith('#'))
-        out[line.slice(0, i).trim()] = line.slice(i + 1).trim();
-    }
-  } catch {}
-  return out;
-}
+import { keysEnv } from './keys.js';
 
 export function judgeReady() {
   const k = keysEnv();
