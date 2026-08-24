@@ -177,6 +177,43 @@ nyron-dev (гриль → гипотеза → эпик → волны → QA �
 - Отличие от игрушечного конца ($99-сегмента): честный ресёрч ДО сборки и
   честный вердикт ПОСЛЕ замера — то, что нельзя дать за час и $99.
 
+## Внутренние активы для стадии «Идея» (проверено по базам 25.08.2026)
+
+Методологическая начинка передней части цикла уже существует в продуктах
+evolve/nyron — её надо пакетировать, не писать с нуля:
+
+- **prod2 (evolve), Mongo `templates` — 56 шаблонов**, ядро DTBD-цепочки:
+  DTBD Canvas (48 исп.), DTBD Ladder — лестница задач клиента, Interview
+  Coach, «Гипотезы», «Упаковка гипотез (AAARRR)», The One Idea Test
+  Playbook, 90-Day Execution Sprint, воркшопы продуктового/growth-мышления.
+- **nyron прод, Mongo — 407 шаблонов**, покрывают весь путь идеи:
+  Business Opportunity Map (поиск ниши), Positioning Strategy, карта
+  конкурентов (+методика `competitor-map` в Nyron MCP), JTBD Canvas from
+  Interviews / **from Social Listening**, Find the Killer Feature with
+  JTBD (первичные фичи), PRD, Design a Business Model, Unit Economics
+  Calculator, бэклоги экспериментов (revenue / pricing / positioning /
+  feature adoption / привлечение), Judge Panels (ревю стратегии/питча).
+- Сборка конвейера «Идея»: ниша (Opportunity Map) → карта рынка и
+  конкуренты → лестница задач (DTBD Ladder) → образ продукта
+  (Positioning + Killer Feature + PRD) → юнит-экономика → гипотеза +
+  бэклог экспериментов. Всё — существующие плейбуки, задача — точная
+  пакетовка в один пайп.
+
+**Инструменты ресёрча для LLM (слой данных под методики), рынок СНГ:**
+- Уже есть коннекторами (hyperfx MCP на машине): Google Trends, Google
+  Search/SERP, hyperseo (частотка, конкуренты доменов, keyword ideas),
+  скраперы Instagram / X / Reddit / YouTube-каналов, Meta Ad Library
+  (реклама конкурентов!).
+- Дописать для СНГ: Яндекс Вордстат (официальный API есть), парсинг
+  VK/Telegram-сообществ, Яндекс.Маркет/отзовики для Product Opportunities
+  from Reviews.
+- Синтетический кастдев: генерация персоналий → интервью-симуляции →
+  DTBD Canvas. Правило: персоны генерятся из спарсенных РЕАЛЬНЫХ данных
+  (social listening, отзывы, треды), а не из воздуха; статус результата —
+  черновик гипотезы, истина — только замер рекламой (иначе повторяем
+  «валидировал идею, а не бизнес»). Шаблон «JTBD Canvas from Social
+  Listening» на nyron уже есть — это ровно этот паттерн.
+
 ## Открытые вопросы (вне ресёрча — решения и действия)
 
 - Обкатка первой версии: на своих идеях (dogfood: betzo, psylia,
