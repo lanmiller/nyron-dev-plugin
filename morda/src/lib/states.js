@@ -22,3 +22,9 @@ export function hhmm(ts) {
   try { return new Date(ts).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }); }
   catch { return ''; }
 }
+
+// Служебная карточка чек-ина («Сессия молчит») — не вопрос человеку: её
+// разбирает постановщик (pult_asks) и триаж судьи. В «Ждут вас» и в
+// оранжевые счётчики не попадает (CTO 25.08: индикация должна означать
+// одно — «от вас ждут решения»).
+export const isServiceAsk = (a) => String(a?.question || '').startsWith('Сессия молчит');

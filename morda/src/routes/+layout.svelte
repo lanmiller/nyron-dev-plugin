@@ -10,7 +10,7 @@
   import { onMount, setContext } from 'svelte';
   import { page } from '$app/state';
   import { afterNavigate } from '$app/navigation';
-  import { STATE_RU, age } from '$lib/states.js';
+  import { STATE_RU, age, isServiceAsk } from '$lib/states.js';
   import Icon from '$lib/Icon.svelte';
   import { Button } from '$lib/ui/button/index.js';
   import { Badge } from '$lib/ui/badge/index.js';
@@ -118,7 +118,7 @@
     return null;
   });
   let totalOpen = $derived((st.overview?.projects || [])
-    .reduce((n, p) => n + (p.asks?.filter((a) => a.status === 'open').length || 0), 0));
+    .reduce((n, p) => n + (p.asks?.filter((a) => a.status === 'open' && !isServiceAsk(a)).length || 0), 0));
 
   // раскрытые проекты: активный всегда, остальные — по клику человека
   let opened = $state({});
@@ -198,7 +198,7 @@
     return m ? m[1] : 'Claude';
   }
   function openCount(p) {
-    return p.asks?.filter((a) => a.status === 'open').length || 0;
+    return p.asks?.filter((a) => a.status === 'open' && !isServiceAsk(a)).length || 0;
   }
 </script>
 

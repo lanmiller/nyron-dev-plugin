@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile, execFileSync } from 'node:child_process';
 import { lastActivityMs, checkinMs, checkinState, stalledCard } from './checkin.js';
+import { isServiceAsk } from '../states.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Модуль переезжает между dev (morda/src/lib/server), сборкой
@@ -442,8 +443,10 @@ export function sessions(project) {
   const hub = hubFor(root);
   const watch = new Map(hub.watchStates().map((w) => [w.key, w]));
   const open = new Map();
-  for (const a of hub.asks({ status: 'open' }).asks)
+  for (const a of hub.asks({ status: 'open' }).asks) {
+    if (isServiceAsk(a)) continue; // «Сессия молчит» — не вопрос человеку
     open.set(a.session, (open.get(a.session) || 0) + 1);
+  }
   const dayAgo = Date.now() - 48 * 3600 * 1000;
   const roles = rolesFromHub(hub, trackerFor(root)?.keys?.[0] || null);
   const owned = runnerOwned();
@@ -468,13 +471,11 @@ export function sessions(project) {
         aliveOwned: owned.get(s.key)?.alive, thresholdMs,
       });
       if (ck?.state === 'stalled') {
-        const card = stalledCard(hub, { key: s.key, title: s.title, reason: ck.reason,
+        // карточка уходит в будку для постановщика/триажа; в оранжевый
+        // счётчик человека не попадает — застрявшесть видна цветом точки
+        stalledCard(hub, { key: s.key, title: s.title, reason: ck.reason,
           quietMs: Date.now() - lastAct, thresholdMs,
           aliveOwned: owned.get(s.key)?.alive });
-        // свежая карточка — в счётчик ЭТОГО же опроса: бейдж не отставал бы
-        // на опрос (долг cross-review STOVP-60 r4, закрыт 22.08)
-        if (card && card.deduped === false)
-          open.set(s.key, (open.get(s.key) || 0) + 1);
       }
       return {
         ...s,

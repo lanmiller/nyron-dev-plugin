@@ -10,18 +10,16 @@
   import { Button } from '$lib/ui/button/index.js';
   import { Badge } from '$lib/ui/badge/index.js';
   import * as Card from '$lib/ui/card/index.js';
-  import { age } from '$lib/states.js';
+  import { age, isServiceAsk } from '$lib/states.js';
 
   const st = getContext('morda');
   const active = getContext('morda-project');
 
   let project = $derived(st.overview?.projects?.find((p) => p.name === active.name));
   let showFiles = $state(false);
-  // «Сессия молчит» — служебные карточки чек-ина: их разбирает постановщик
-  // (pult_asks) и триаж судьи, а застрявшие и так видны во флоте ниже —
-  // человеку в «Ждут вас» это шум без действий (CTO 25.08: «бесполезны»)
-  let humanAsks = $derived((project?.asks || [])
-    .filter((a) => !String(a.question || '').startsWith('Сессия молчит')));
+  // служебные карточки чек-ина разбирает постановщик (pult_asks) и триаж
+  // судьи, застрявшие видны во флоте ниже — человеку в «Ждут вас» это шум
+  let humanAsks = $derived((project?.asks || []).filter((a) => !isServiceAsk(a)));
   let openAsks = $derived(humanAsks.filter((a) => a.status === 'open'));
   let pendingAsks = $derived(humanAsks.filter((a) => a.status !== 'open'));
 
@@ -252,7 +250,9 @@
 
   {#if working.length || idle.length || stuck.length}
     <section>
-      <h2 class="eyebrow sect">Флот <Badge>{working.length + idle.length + stuck.length}</Badge></h2>
+      <!-- нейтральный счёт живых: оранжевый бейдж зарезервирован за «от вас
+           ждут решения» — счёт флота им путал (CTO 25.08: «6 чего ждут?») -->
+      <h2 class="eyebrow sect">Флот <Badge variant="outline">{working.length + idle.length + stuck.length}</Badge></h2>
       {#each stuck as s (s.name)}
         <div class="fleet-row need fleet-stuck">
           <a class="fleet-core" href={href(s)}>
