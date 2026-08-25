@@ -17,8 +17,13 @@
 
   let project = $derived(st.overview?.projects?.find((p) => p.name === active.name));
   let showFiles = $state(false);
-  let openAsks = $derived((project?.asks || []).filter((a) => a.status === 'open'));
-  let pendingAsks = $derived((project?.asks || []).filter((a) => a.status !== 'open'));
+  // «Сессия молчит» — служебные карточки чек-ина: их разбирает постановщик
+  // (pult_asks) и триаж судьи, а застрявшие и так видны во флоте ниже —
+  // человеку в «Ждут вас» это шум без действий (CTO 25.08: «бесполезны»)
+  let humanAsks = $derived((project?.asks || [])
+    .filter((a) => !String(a.question || '').startsWith('Сессия молчит')));
+  let openAsks = $derived(humanAsks.filter((a) => a.status === 'open'));
+  let pendingAsks = $derived(humanAsks.filter((a) => a.status !== 'open'));
 
   // Этап 2 STOVP-58: сессия рождается из композера — «сделаем фичу X» /
   // «закрой эпик DEV-NNN». Референс — композер Claude Desktop (CTO 17.08):
