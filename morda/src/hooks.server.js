@@ -150,6 +150,23 @@ if (!globalThis.__mordaAutoJudge) {
   globalThis.__mordaAutoJudge.unref?.();
 }
 
+// Эскалатор (мандат CTO 25.08): новые вопросы будок и HITL-экраны пинком
+// уезжают в Desktop-сессию постановщика — курьер claude -p с ListAgents+
+// SendMessage (постановщик и курьер живут на основной подписке; события
+// со всех подписок собираются через будку/пульт, поэтому доставка не
+// зависит от того, под каким слотом работала сессия-автор).
+import { escalatorScan } from '$lib/server/escalator.js';
+const ESCALATOR_EVERY = 5 * 60 * 1000;
+if (!globalThis.__mordaEscalator) {
+  globalThis.__mordaEscalator = setInterval(() => {
+    try {
+      const n = escalatorScan();
+      if (n) console.log(`[escalator] пачек к доставке: ${n}`);
+    } catch (e) { console.log(`[escalator] ${e.message}`); }
+  }, ESCALATOR_EVERY);
+  globalThis.__mordaEscalator.unref?.();
+}
+
 // Толкач финала (STOVP-57, план 22.08 п.9): «закончила, ветка не влита» —
 // живой пинок в промпт, мёртвой — карточка. Правило кодом; мерж руками
 // пульта — никогда. Частота пинков ограничена внутри finisherScan (4 часа).
