@@ -147,8 +147,13 @@ function classify(text) {
   if (/Enter to select|keys to navigate|Esc to cancel|Ready to submit your answers|Review your answers/i
     .test(text)) return 'hitl';
   // футер промпта разный по режимам: «? for shortcuts» (manual),
-  // «shift+tab to cycle» (bypass ⏵⏵, plan и др.) — признаём оба (факт 17.08)
-  if (/❯/.test(text) && /\? for shortcuts|shift\+tab to cycle/.test(text)) return 'prompt';
+  // «shift+tab to cycle» (bypass ⏵⏵, plan и др.) — признаём оба (факт 17.08).
+  // Бейджи «1 shell / ← for agents / ↓ to manage» вытесняют подсказку из
+  // футера — тогда промпт узнаём по «⏵⏵ bypass permissions on» или маркерам
+  // бейджей при видимом ❯ (факт 25.08: очередь kan164-waves не дожималась —
+  // экран с готовым промптом классифицировался как booting)
+  if (/❯/.test(text) && /\? for shortcuts|shift\+tab to cycle|⏵⏵ bypass permissions on|← for agents|↓ to manage/
+    .test(text)) return 'prompt';
   return 'booting';
 }
 
