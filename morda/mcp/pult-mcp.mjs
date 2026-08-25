@@ -81,7 +81,7 @@ const tools = {
         mcp: { type: 'string', description: "'strict' — только серверы паспорта + аккаунтные канона; пусто — все серверы машины" },
         model: { type: 'string', description: 'fable | opus | sonnet | haiku (пусто — дефолт)' },
         effort: { type: 'string', description: 'low | medium | high | xhigh | max (пусто — дефолт)' },
-        slot: { type: 'string', description: 'id слота подписки из pult_fleet; ПУСТО — пульт сам возьмёт наименее занятую по /usage и объяснит выбор (slot_pick в ответе — перескажи его человеку)' },
+        slot: { type: 'string', description: 'id слота подписки из pult_fleet; ПУСТО — пульт выберет сам по /usage (сначала догружает начатую подписку до 50% сессии, потом ровняет по наименее занятой) и объяснит выбор (slot_pick в ответе — перескажи его человеку)' },
       },
       required: ['project', 'name', 'goal'],
       additionalProperties: false,
@@ -153,7 +153,29 @@ rl.on('line', async (line) => {
       send({ jsonrpc: '2.0', id, result: {
         protocolVersion: params?.protocolVersion || '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'pult', version: '0.1.0' },
+        serverInfo: { name: 'pult', version: '0.2.0' },
+        // Канон постановщика — приезжает В ЛЮБОЙ клиент с этим коннектором
+        // (Claude Desktop в т.ч.): у Desktop нет SessionStart-хуков Claude
+        // Code, поэтому оркестратор-контекст он получает только отсюда.
+        instructions: [
+          'Ты — постановщик: флотом CLI-сессий на этой машине владеет пульт',
+          '(веб: http://127.0.0.1:4747, страница проекта — /?p=<имя>). С',
+          'человеком думаешь и решаешь, работу ИСПОЛНЯЮТ сессии пульта.',
+          '',
+          '- Кодовые задачи сам не делай — поднимай сессию через pult_start.',
+          '  Эпик — ОДИН диспетчер со скиллом nyron-waves (mode:"bypass",',
+          '  mcp:"strict"); волны дальше плодит он сам /goal-чипами.',
+          '- Подписку пульт выбирает сам (slot_pick в ответе — перескажи',
+          '  человеку): сначала догружает начатую до 50% сессионного лимита,',
+          '  потом ровняет нагрузку по чуть-чуть по наименее занятой.',
+          '- ДОВЕДЕНИЕ ДО КОНЦА: обратного пуша в этот чат нет — пока работа',
+          '  идёт, периодически сам опрашивай pult_fleet (кто жив/застрял,',
+          '  ждёт ли человека), спорную сессию смотри pult_screen и суди',
+          '  pult_judge, вопросы сессии закрывай ответом через pult_send.',
+          '  Финал — по факту в pult_fleet/Jira, не по обещанию сессии.',
+          '- Мержи и снос веток — не твои руки: это сессии по merge_rights',
+          '  или человек кнопками git-панели пульта.',
+        ].join('\n'),
       } });
     } else if (method === 'notifications/initialized' || method === 'initialized') {
       // notification — ответа не требует

@@ -1113,9 +1113,12 @@ export function slotUsage({ id }) {
 }
 
 /** Автовыбор подписки (CTO 22.08: «не хочу думать, в какой подписке
- *  поднимать»): обойти claude-слоты, снять /usage, взять наименее занятую
- *  по 5-часовому окну (при равенстве — по неделе). Лимиты меняются
- *  медленно — кеш 10 минут, чтобы старт сессии не ждал три /usage подряд.
+ *  поднимать»; политика распределения — CTO 25.08): сначала ДОГРУЖАЕМ уже
+ *  начатую подписку до 50% сессионного лимита — берём самую занятую из тех,
+ *  что ещё ниже 50% (нетронутые 5-часовые окна не будим раньше времени);
+ *  когда все перевалили 50% — распределяем по чуть-чуть: наименее занятая
+ *  по сессии, при равенстве — по неделе. Лимиты меняются медленно — кеш
+ *  10 минут, чтобы старт сессии не ждал три /usage подряд.
  *  Возвращает и объяснение выбора — оркестратор говорит его человеку. */
 const usagePickCache = new Map(); // slot id → { at, usage }
 export function slotPick() {
@@ -1134,11 +1137,20 @@ export function slotPick() {
   }
   if (!scored.length)
     throw new Error(`ни один слот не отдал лимиты: ${failed.join('; ') || 'слотов нет'}`);
-  scored.sort((a, b) => a.session_pct - b.session_pct || a.week_pct - b.week_pct);
-  const pick = scored[0];
+  const below50 = scored.filter((x) => x.session_pct < 50);
+  let pick, rule;
+  if (below50.length) {
+    below50.sort((a, b) => b.session_pct - a.session_pct || a.week_pct - b.week_pct);
+    pick = below50[0];
+    rule = 'догружаю начатую до 50% сессии';
+  } else {
+    scored.sort((a, b) => a.session_pct - b.session_pct || a.week_pct - b.week_pct);
+    pick = scored[0];
+    rule = 'все выше 50% — ровняю по наименее занятой';
+  }
   const why = scored.map((x) => `${x.label} — сессия ${x.session_pct}%, неделя ${x.week_pct}%`)
     .join('; ') + (failed.length ? `; без ответа: ${failed.join('; ')}` : '');
-  return { id: pick.id, label: pick.label, why: `выбран «${pick.label}» (${why})`, scored };
+  return { id: pick.id, label: pick.label, why: `выбран «${pick.label}» (${rule}; ${why})`, scored };
 }
 
 // Codex: панель /status. «% left» нормализуем в «использовано», как у
