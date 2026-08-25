@@ -608,14 +608,17 @@ export function queueRemove({ name, id }) {
   return { queued: s.queue.length };
 }
 
-/** Отдать очередь, если сессия освободилась. Зовётся с каждым опросом
- *  окна и тикером — так очередь уходит даже с закрытой вкладкой. */
+/** Отдать очередь. Зовётся с каждым опросом окна и тикером — так очередь
+ *  уходит даже с закрытой вкладкой. Правило то же, что у injectSend (CTO
+ *  25.08 «надо прям чтоб писало»): печатаем и в ЗАНЯТУЮ сессию — текст
+ *  входит мид-тёрн; держим только открытые диалоги и недопднятый CLI. */
 export function queueFlush(name) {
   const reg = loadReg();
   const s = reg.sessions[name];
   if (!s?.queue?.length || !tmuxAlive(name)) return;
-  const screen = visible(name);
-  if (isBusy(screen) || classify(screen) !== 'prompt') return;  // ещё занята
+  const vis = visible(name);
+  const screen = classify(vis);
+  if (DIALOG_SCREENS.has(screen) || (screen === 'booting' && !isBusy(vis))) return;
   const [next, ...rest] = s.queue;
   try { sendLine(name, next.text); } catch { return; }
   s.queue = rest;
