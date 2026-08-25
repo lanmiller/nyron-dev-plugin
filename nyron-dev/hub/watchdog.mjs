@@ -228,7 +228,10 @@ for (const v of res.verdicts.slice(0, 500)) {
   }
   states.push({ key: s.key, state, reason });
   if (state === 'waiting_silent' && typeof v.question === 'string' && v.question.trim()) {
-    stubs.push({ session: s.key, question: v.question.trim().slice(0, 300) });
+    stubs.push({
+      session: s.key, question: v.question.trim().slice(0, 300),
+      gist: typeof v.gist === 'string' ? v.gist.trim().slice(0, 400) : '',
+    });
   }
 }
 
@@ -265,7 +268,11 @@ for (const st of stubs) {
       session: st.session,
       question: st.question,
       type: 'text',
-      context: '[заглушка надзирателя] Сессия задала вопрос в чате, но ask не оформила — состояние снято с хвоста транскрипта. Ответ доедет pull-ом или подъёмом новой сессии.',
+      // суть из хвоста транскрипта — вперёд, служебное примечание — хвостом:
+      // человек должен понять вопрос из карточки, не открывая сессию
+      // (разбор CTO 25.08: заглушки «нехуя не понятны»)
+      context: (st.gist ? st.gist + '\n' : '')
+        + '[надзиратель: сессия задала вопрос в чате, но ask не оформила — снято с хвоста транскрипта. Ответ доедет pull-ом или подъёмом новой сессии.]',
       wave: 'watchdog-inferred',
       urgency: 'blocking',
     });

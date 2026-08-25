@@ -7,9 +7,12 @@
  * Zero-deps, каркас — nyron-dev/hub/server.mjs (вторую реализацию
  * JSON-RPC-цикла не заводим, этот — его прямой форк под async-тулы).
  *
- * ГРАНИЦЫ РУК (разбор 22.08, принято CTO):
+ * ГРАНИЦЫ РУК (разбор 22.08, принято CTO; расширено 25.08):
  *  - смотреть (флот, экран), поднимать (через раннер — с гейтом паспорта),
  *    писать сессии (очередь), судить — ДА;
+ *  - разбирать очередь вопросов будок (pult_asks) и отвечать/уточнять/
+ *    снимать (pult_answer) — ДА (мандат CTO 25.08: постановщик осознаёт
+ *    каждый вопрос, до человека доходят только понятные);
  *  - stop, резюм чужих, мерж — НЕТ: это право человека и сессий по
  *    merge_rights, модели через коннектор такие руки не выдаются;
  *  - в канон коннектор НЕ вносится аккаунтным: строгие сессии (волны,
@@ -119,6 +122,63 @@ const tools = {
     async handler({ name, lines }) { return api('POST', '/api/runner', { action: 'screen', name, lines }); },
   },
 
+  pult_asks: {
+    description:
+      'Очередь «ждут человека»: открытые вопросы будок по всем проектам пульта (+ недоставленные решения). Постановщик разбирает её регулярно: осознай каждый вопрос, реши сам через pult_answer или донеси человеку понятным — с ссылкой на карточку в пульте.',
+    inputSchema: { type: 'object', properties: {
+      project: { type: 'string', description: 'имя проекта пульта; пусто — все' },
+    }, additionalProperties: false },
+    async handler({ project }) {
+      const d = await api('GET', '/api/overview');
+      const projects = (d.projects || [])
+        .filter((p) => !project || p.name === project)
+        .map((p) => ({
+          project: p.name,
+          link: `http://127.0.0.1:4747/?p=${encodeURIComponent(p.name)}`,
+          asks: (p.asks || [])
+            .filter((a) => a.status === 'open' || a.status === 'answered' || a.status === 'delivered')
+            .map((a) => ({
+              id: a.id, status: a.status, urgency: a.urgency || null, ts: a.ts,
+              question: a.question, context: String(a.context || '').slice(0, 400) || null,
+              options: a.options || null,
+              author: a.session_title || a.session || null, session: a.session || null,
+              ticket: a.ticket || null,
+            })),
+          // ответы сессий человеку (например на встречный вопрос) — тоже входящие
+          inbox: (p.inbox || []).slice(0, 10),
+        }))
+        .filter((p) => p.asks.length || (p.inbox && p.inbox.length));
+      return { projects, note: 'status open — ждёт решения; answered/delivered — решение есть, но автор ещё не подтвердил' };
+    },
+  },
+
+  pult_answer: {
+    description:
+      'Действие по вопросу из pult_asks: mode "answer" — дать решение (текст или номер варианта; уедет автору и продублируется диспетчеру), "clarify" — встречный вопрос автору (вопрос непонятен — доуточни, карточка остаётся открытой), "cancel" — снять протухший вопрос (причина обязательна).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'проект из pult_asks' },
+        ask_id: { type: 'string', description: 'id вопроса из pult_asks' },
+        mode: { type: 'string', description: 'answer | clarify | cancel' },
+        text: { type: 'string', description: 'решение / встречный вопрос / причина снятия' },
+        by: { type: 'string', description: 'кто отвечает (пусто — «постановщик@pult-mcp»)' },
+      },
+      required: ['project', 'ask_id', 'mode', 'text'],
+      additionalProperties: false,
+    },
+    async handler({ project, ask_id, mode, text, by }) {
+      const who = by || 'постановщик@pult-mcp';
+      if (mode === 'answer')
+        return api('POST', '/api/decide', { project, ask_id, decision: text, by: who });
+      if (mode === 'clarify')
+        return api('POST', '/api/ask-author', { project, ask_id, text, by: who });
+      if (mode === 'cancel')
+        return api('POST', '/api/decide', { project, ask_id, action: 'cancel', reason: text, by: who });
+      throw new Error(`неизвестный mode: ${mode} (answer | clarify | cancel)`);
+    },
+  },
+
   pult_judge: {
     description:
       'Вердикт независимого судьи (deepseek) по сессии: встала / работает / ждёт человека, с причиной и действием. Зови при подозрении, что сессия залипла.',
@@ -171,8 +231,17 @@ rl.on('line', async (line) => {
           '- ДОВЕДЕНИЕ ДО КОНЦА: обратного пуша в этот чат нет — пока работа',
           '  идёт, периодически сам опрашивай pult_fleet (кто жив/застрял,',
           '  ждёт ли человека), спорную сессию смотри pult_screen и суди',
-          '  pult_judge, вопросы сессии закрывай ответом через pult_send.',
-          '  Финал — по факту в pult_fleet/Jira, не по обещанию сессии.',
+          '  pult_judge. Финал — по факту в pult_fleet/Jira, не по обещанию.',
+          '- ВОПРОСЫ (мандат CTO 25.08): ты контролируешь диспетчеров и весь',
+          '  поток. Регулярно разбирай pult_asks и ОСОЗНАЙ каждый вопрос:',
+          '  знаешь ответ в рамках уже принятых решений — отвечай сам',
+          '  (pult_answer mode:"answer"); непонятен — доуточни у автора',
+          '  (mode:"clarify") и добейся внятной формулировки; протух —',
+          '  снимай с причиной (mode:"cancel"). До человека доноси ТОЛЬКО',
+          '  понятные вопросы: перескажи суть своими словами + дай ссылку',
+          '  на карточку (link из pult_asks). Огрызок «как есть» человеку',
+          '  не пересылать. Новые решения бизнеса/архитектуры сам не выдумывай',
+          '  — это как раз вопросы человеку.',
           '- Мержи и снос веток — не твои руки: это сессии по merge_rights',
           '  или человек кнопками git-панели пульта.',
         ].join('\n'),
