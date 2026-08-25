@@ -62,7 +62,7 @@ function collect(p, st) {
 
 /** Курьер: headless-голова находит живую Desktop-сессию постановщика и
  *  вручает ей пачку. Сам ничего не решает — только доставка. */
-function courier(project, link, lines, onDone) {
+function courier(project, slug, link, lines, onDone) {
   const payload = [
     `[эскалация пульта · проект ${project}] Новые события «ждут человека»:`,
     ...lines,
@@ -73,7 +73,9 @@ function courier(project, link, lines, onDone) {
   const prompt = [
     'Ты — курьер эскалаций пульта. Твоя единственная задача — доставить пачку событий постановщику.',
     '1. Вызови ListAgents. Постановщик — интерактивная сессия БЕЗ пометки tmux в строке;',
-    `   предпочти имя, начинающееся с «${project}-»; среди подходящих бери САМУЮ СТАРШУЮ`,
+    // имена сессий — слаг РАБОЧЕЙ ПАПКИ (basename корня), не имя проекта
+    // пульта: у «nyron» корень ai-evolve → сессии зовутся ai-evolve-*
+    `   предпочти имя, начинающееся с «${slug}-»; среди подходящих бери САМУЮ СТАРШУЮ`,
     '   по старту (постановщик живёт долго, свежесозданные чаще оказываются чьими-то субагентами).',
     '   Если НИ ОДНОЙ интерактивной сессии без tmux нет — заверши работу молча, ничего не отправляя.',
     '2. Отправь выбранной сессии SendMessage ОДНИМ сообщением ровно этот текст:',
@@ -100,7 +102,9 @@ export function escalatorScan() {
     if (baseline) { st.asks.push(...freshAsks.map((a) => a.id)); continue; }
     if (!lines.length) continue;
     sent++;
-    courier(p.name, link, lines, (err, out) => {
+    let slug = p.name;
+    try { slug = path.basename(rootByName(p.name)); } catch {}
+    courier(p.name, slug, link, lines, (err, out) => {
       if (err) { console.log(`[escalator] ${p.name}: курьер не доставил — ${err.message}`); return; }
       console.log(`[escalator] ${p.name}: доставлено ${lines.length} событий (${out.split('\n')[0]})`);
     });
