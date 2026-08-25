@@ -113,6 +113,28 @@ const tools = {
     async handler({ name, text }) { return api('POST', '/api/runner', { action: 'inject', name, text }); },
   },
 
+  pult_form: {
+    description:
+      'Ответить в открытый диалог/пикер сессии (HITL-форма, разрешение, выбор): digit — выбрать вариант 1–9, key — клавиша (Enter/Escape/Up/Down/Tab/BTab…), text — свой текст в поле формы. ОДНО нажатие за вызов; ответ возвращает свежий экран — сверяй его перед следующим нажатием. Сначала посмотри форму pult_screen. Многовкладочная форма: ответ на вкладке сам переводит к следующей, финал — выбор «Submit answers». Это рука для форм, в которые pult_send не печатает.',
+    inputSchema: { type: 'object', properties: {
+      name: { type: 'string', description: 'имя сессии из pult_fleet' },
+      digit: { type: 'string', description: 'выбрать вариант формы: «1»–«9»' },
+      key: { type: 'string', description: 'клавиша: Enter | Escape | Up | Down | Left | Right | Tab | BTab | Space | BSpace' },
+      times: { type: 'number', description: 'повтор клавиши (для key), 1–8' },
+      text: { type: 'string', description: 'текст в поле формы (обычно после digit свободного ответа)' },
+    }, required: ['name'], additionalProperties: false },
+    async handler({ name, digit, key, times, text }) {
+      let pressed;
+      if (key) pressed = await api('POST', '/api/runner', { action: 'key', name, key, times });
+      else if (digit || text) pressed = await api('POST', '/api/runner',
+        { action: 'type', name, digit, text, enter: !text || undefined });
+      else throw new Error('нужно одно из: digit | key | text');
+      await new Promise((r) => setTimeout(r, 1200));
+      const s = await api('POST', '/api/runner', { action: 'screen', name, lines: 24 });
+      return { pressed, screen: s.screen };
+    },
+  },
+
   pult_screen: {
     description: 'Живой экран tmux сессии — что она видит прямо сейчас (последние строки терминала).',
     inputSchema: { type: 'object', properties: {
