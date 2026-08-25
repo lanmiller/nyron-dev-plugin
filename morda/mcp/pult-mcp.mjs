@@ -105,12 +105,12 @@ const tools = {
 
   pult_send: {
     description:
-      'Написать сессии: текст встаёт в очередь пульта и доставляется, когда её промпт готов (занятую не сбивает, диалоги не ломает).',
+      'Написать сессии: печатает ПРЯМО в её CLI — доезжает сразу, даже когда сессия занята (входит в текущий ход, как сообщение человека). Исключение: на экране открыт диалог/пикер — тогда текст встаёт в очередь пульта и уходит после закрытия (ответ скажет, что случилось).',
     inputSchema: { type: 'object', properties: {
       name: { type: 'string', description: 'имя сессии из pult_fleet' },
       text: { type: 'string', description: 'сообщение' },
     }, required: ['name', 'text'], additionalProperties: false },
-    async handler({ name, text }) { return api('POST', '/api/runner', { action: 'queue_add', name, text }); },
+    async handler({ name, text }) { return api('POST', '/api/runner', { action: 'inject', name, text }); },
   },
 
   pult_screen: {

@@ -617,6 +617,40 @@ export function queueFlush(name) {
   saveReg(reg);
 }
 
+/** Прямая доставка в CLI (решение CTO 25.08: «надо прям чтоб писало» —
+ *  очередь-до-промпта как дефолт признана неудачной). Claude CLI принимает
+ *  ввод И ВО ВРЕМЯ РАБОТЫ: напечатанное доезжает мид-тёрн, как сообщение
+ *  человека в занятую сессию — ровно тот же канал send-keys, что fleet.say.
+ *  tmux локален, границ подписок у него нет.
+ *
+ *  Единственное «нельзя» — открытый диалог (пикер HITL, разрешение, форма,
+ *  логин): там текст уйдёт в форму и сломает её. Такой экран → текст встаёт
+ *  в очередь пульта (queueAdd) и уходит после закрытия диалога; вызывающему
+ *  честно говорим, почему. Экран booting без промпта — туда же: ввод в
+ *  недопднятый CLI теряется молча. */
+const DIALOG_SCREENS = new Set(['hitl', 'permission', 'dialog', 'mcp_consent',
+  'trust', 'browser_consent', 'bypass_warning', 'onboarding', 'login_flow',
+  'needs_auth']);
+export function injectSend({ name, text }) {
+  const reg = loadReg();
+  const s = reg.sessions[name];
+  if (!s) throw new Error(`нет записи ${name}`);
+  if (!String(text || '').trim()) throw new Error('пустое сообщение');
+  if (!tmuxAlive(name))
+    throw new Error(`сессия ${name} не живёт в tmux — печатать некуда, подними резюмом`);
+  const vis = visible(name);
+  const screen = classify(vis);
+  const busy = isBusy(vis);
+  if (DIALOG_SCREENS.has(screen) || (screen === 'booting' && !busy)) {
+    queueAdd({ name, text });
+    return { queued: true, screen,
+      note: `на экране ${screen} печатать нельзя (сломает форму/потеряется) — встало в очередь пульта, уйдёт после закрытия` };
+  }
+  sendLine(name, String(text));
+  return { delivered: name,
+    mode: busy ? 'мид-тёрн: сессия занята, сообщение вошло в текущий ход' : 'в свободный промпт' };
+}
+
 // фоновый тикер: очередь уходит, даже если пульт никто не открывал
 const flusher = (globalThis.__mordaQueueFlusher ??= setInterval(() => {
   try {

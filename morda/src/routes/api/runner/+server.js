@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import { runnerList, runnerStart, runnerStop, runnerResume, runnerApprove,
   runnerRetune, runnerKey, runnerType, runnerScreen, auditStart,
   slotScreen, slotKey, slotType, slotSync,
-  queueAdd, queueRemove,
+  queueAdd, queueRemove, injectSend,
   slotList, slotAdd, slotRemove, slotConnect, slotCode, slotUsage,
   providerList } from '$lib/server/runner.js';
 import { projectAdd, projectRemove } from '$lib/server/fleet.js';
@@ -41,6 +41,7 @@ const ACTIONS = {
   slot_sync: slotSync,
   queue_add: queueAdd,
   queue_remove: queueRemove,
+  inject: injectSend,
   type: runnerType,
   audit_start: auditStart,
   slot_probe: () => ({ slots: slotList({ probe: true }) }),
