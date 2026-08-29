@@ -10,7 +10,7 @@
   // так и оставался схлопнутым — действия просто не показывались.
   import { onMount, getContext, tick } from 'svelte';
   import { page } from '$app/state';
-  import { replaceState } from '$app/navigation';
+  import { goto } from '$app/navigation';
   import Transcript from '$lib/Transcript.svelte';
   import AskCard from '$lib/AskCard.svelte';
   import FileBrowser from '$lib/FileBrowser.svelte';
@@ -136,7 +136,11 @@
           const l = await (await fetch(`/api/runner?project=${encodeURIComponent(project)}`)).json();
           const e = l.sessions?.find((x) => x.name === starting);
           if (e?.sessionId) {
-            return replaceState(`/s/${encodeURIComponent(project)}/${e.sessionId}`, {});
+            // goto, НЕ replaceState: shallow-роутинг меняет только адресную
+            // строку, page.params остаются «n-…» — заглушка висела до ручной
+            // перезагрузки («пока не рестартну», факт CTO 30.08)
+            return goto(`/s/${encodeURIComponent(project)}/${e.sessionId}`,
+              { replaceState: true });
           }
           if (e?.state === 'needs_auth')
             startError = 'CLI не авторизован — подключи копию подписки в настройках';

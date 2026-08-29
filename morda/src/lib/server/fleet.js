@@ -520,7 +520,12 @@ function starting(project) {
       const live = rec.state === 'running' || rec.state === 'goal_sent';
       const brief = String(rec.goal || '').replace(/\s+/g, ' ').slice(0, 60);
       out.push({
-        key: 'n-' + name, file: null, mtime: rec.startedAt, size: 0,
+        // сессия под слотом подписки живёт тут ПОСТОЯННО (её лента — в
+        // каталоге слота, в transcript-список проекта она не попадает):
+        // ключ обязан быть настоящим sessionId, иначе ссылка вечно ведёт
+        // на заглушку «поднимаю…» без композера — «написать не могу»,
+        // факт CTO 30.08; «n-имя» остаётся только до привязки sessionId
+        key: rec.sessionId || 'n-' + name, file: null, mtime: rec.startedAt, size: 0,
         title: brief ? `${name} — ${brief}` : `${name} — стартует…`,
         entrypoint: 'cli',
         state: live ? 'working' : 'starting',
