@@ -49,6 +49,9 @@ function brief(s) {
     goal: String(s.goal || '').slice(0, 160) || null,
     mode: s.mode, mcp: s.mcp, slot: s.slot || 'основной',
     quiet_min: s.quiet_ms != null ? Math.round(s.quiet_ms / 60000) : null,
+    // набранный, но не отправленный текст в инпуте (симптом потерянного
+    // Enter, KAN-209 29.08) — пульт дожмёт сам, но эпизод должен быть виден
+    typed: s.typed || null,
     pulse: s.pulse || null, queue: (s.queue || []).length,
     judge: s.judge?.verdict ? String(s.judge.verdict).split('\n')[0] : null,
     sessionId: s.sessionId || null,
@@ -272,6 +275,12 @@ rl.on('line', async (line) => {
           '  — это как раз вопросы человеку.',
           '- Мержи и снос веток — не твои руки: это сессии по merge_rights',
           '  или человек кнопками git-панели пульта.',
+          '- НОЧЬ: человек уходит при живых волнах → ДО ухода сними с него',
+          '  human-гейты (значения в ключницу, OAuth, DNS, оплаты — список',
+          '  обязан собрать диспетчер на старте эпика, стребуй его). Мак от',
+          '  сна пульт держит сам (caffeinate, пока флот жив), но крышку не',
+          '  закрывать и питание в сети; молчащие вопросы ночью дожимает',
+          '  эскалатор автопинком «продолжай по своей роли».',
         ].join('\n'),
       } });
     } else if (method === 'notifications/initialized' || method === 'initialized') {

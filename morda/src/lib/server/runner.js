@@ -88,7 +88,33 @@ function captureEsc(name, lines = 40) {
     return tmux(['capture-pane', '-t', pane(name), '-p', '-e', '-S', String(-lines)]);
   } catch { return ''; }
 }
+// Панель в copy-mode (кто-то скроллил экран) съедает send-keys: буквы дёргают
+// биндинги copy-mode, Enter лишь выходит из него — ввод «доставлен», но до
+// CLI не дошёл. Перед любым вводом выходим из режима; вне режима tmux на
+// -X cancel отвечает ошибкой — она безвредна.
+function exitCopyMode(name) {
+  try { tmux(['send-keys', '-t', pane(name), '-X', 'cancel']); } catch {}
+}
+
+/** Набранный, но НЕ отправленный текст в строке ввода CLI: строка «❯ …» в
+ *  нижней части экрана. Пустой промпт («❯»), опция диалога («❯ 1. Yes») и
+ *  список агентов («❯ ⏺ main») текстом не считаются. */
+function typedInputFrom(vis) {
+  const lines = String(vis || '').split('\n')
+    .map((l) => l.replace(/[│╭╮╰╯]/g, ' ').replace(/\s+$/, ''));
+  for (let i = lines.length - 1; i >= 0 && i > lines.length - 12; i--) {
+    const m = lines[i].match(/^\s*❯\s+(\S.*)$/u);
+    if (!m) continue;
+    const t = m[1].trim();
+    if (/^\d+\.\s/.test(t)) return null;   // опция диалога «❯ 1. Yes»
+    if (/^[⏺◯]/u.test(t)) return null;     // список агентов внизу экрана
+    return t;
+  }
+  return null;
+}
+
 function sendLine(name, text) {
+  exitCopyMode(name);
   // -l: литеральный текст (без интерпретации ; и клавиш), Enter отдельно —
   // тот же проверенный канал, что fleet.say
   execFileSync(TMUX_BIN, ['send-keys', '-t', pane(name), '-l', text], { timeout: 3000 });
@@ -100,6 +126,21 @@ function sendLine(name, text) {
     execFileSync('sleep', ['0.4']);
     execFileSync(TMUX_BIN, ['send-keys', '-t', pane(name), 'Enter'], { timeout: 3000 });
   }
+  // Подтверждение отправки фактом: CLI распознаёт быстрый ввод как вставку,
+  // и Enter, пришедший внутри окна вставки, становится переводом строки —
+  // команда остаётся НАБРАННОЙ в инпуте, снаружи это неотличимо от «ушло»
+  // (инцидент KAN-209 29.08: диспетчер и волна часами стояли с готовым
+  // текстом в строке ввода). Смотрим экран и дожимаем Enter, не веря вслепую.
+  const probe = String(text).split('\n')[0].trim().slice(0, 24);
+  if (!probe) return;
+  for (let i = 0; i < 3; i++) {
+    execFileSync('sleep', ['0.5']);
+    const typed = typedInputFrom(visible(name));
+    if (!typed || !typed.includes(probe.slice(0, 16))) return;   // ушло
+    if (i === 2) break;   // не дожалось — дожмёт фоновый strandedSweep
+    execFileSync(TMUX_BIN, ['send-keys', '-t', pane(name), 'Enter'], { timeout: 3000 });
+  }
+  console.log(`[sendLine] ${name}: Enter не дожал ввод — текст остался в строке, дожмёт фоновый дожим`);
 }
 
 // ---------- привязка панель → sessionId ----------
@@ -358,8 +399,10 @@ export function runnerStart({ project, goal, name, resumeId, workdir,
   const prev = reg.sessions[name];
   if (prev && prev.state !== 'stopped' && prev.state !== 'died_on_start' && tmuxAlive(name))
     throw new Error(`запись ${name} уже в реестре`);
-  // Гейт паспорта (STOVP-61): красный паспорт закрывает запуск в любом
-  // режиме, отсутствие паспорта — только bypass (остальным предупреждение);
+  // Гейт паспорта (STOVP-61; смягчён по KAN-209 29.08): ЖЁСТКАЯ краснота
+  // (безопасность: ключница/секреты/забор) закрывает запуск в любом режиме;
+  // незаполненный ключ реестра — предупреждение, не стоп всего проекта;
+  // отсутствие паспорта — блок только bypass (остальным предупреждение);
   // решение — passportGate, здесь только исполнение. passportlessOk —
   // СЛУЖЕБНЫЙ второй аргумент (клиент API передаёт только первый): аудитор
   // запускается ДО паспорта, его работа паспорт и собрать — но пропускается
@@ -525,6 +568,10 @@ function runnerListRaw(project) {
     const quiet = busy && s.sessionId ? transcriptQuietMs(s.project, s.sessionId) : null;
     out.push({ name, ...s, tmux: TMUX_PREFIX + name, alive, screen, busy,
       quiet_ms: quiet, stuck: quiet != null && quiet > STUCK_MS,
+      // «набрано, но не отправлено» на свободном промпте — симптом
+      // потерянного Enter (KAN-209 29.08); видимость до того, как дожмёт
+      // strandedSweep, чтобы эпизоды не проходили незамеченными
+      typed: alive && screen === 'prompt' && !busy ? typedInputFrom(visible(name)) : null,
       pulse: busy ? parsePulse(visible(name)) : null });
   }
   return out.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
@@ -668,6 +715,54 @@ const flusher = (globalThis.__mordaQueueFlusher ??= setInterval(() => {
   } catch { /* следующий тик дотянется */ }
 }, 3000));
 
+// Дожим «набрано, но не отправлено» (инцидент KAN-209 29.08: у диспетчера и
+// волны в строке ввода часами лежал готовый текст, сессии молча стояли).
+// Две ступени по факту с живого экрана (снято 29.08 после выката):
+//   1) Enter — на случай текста, реально оставшегося в буфере ввода
+//      (потерянный в окне вставки Enter, copy-mode панели);
+//   2) текст в инпуте ТУСКЛЫЙ и Enter не помог — это очередь самого CLI:
+//      сообщение легло в очередь занятой сессии, ход завершился, но при
+//      живом фоновом shell CLI очередь не отправляет; Enter по пустому
+//      буферу — no-op (потому «pult_form Enter не сработал»), очередь
+//      уходит только вместе с НОВЫМ сообщением — шлём текстовый пинок.
+// На пустом промпте Enter безвреден; полудиктовку человека защищает
+// требование стабильности текста ≥60с.
+const STRANDED_MS = 60 * 1000;
+const strandedSeen = (globalThis.__mordaStranded ??= new Map()); // name → {text, since, entered}
+const strandedTimer = (globalThis.__mordaStrandedTimer ??= setInterval(() => {
+  try {
+    for (const name of aliveSet()) {
+      const vis = visible(name);
+      if (classify(vis) !== 'prompt' || isBusy(vis)) { strandedSeen.delete(name); continue; }
+      const text = typedInputFrom(vis);
+      if (!text || /^Try ["«]/.test(text)) { strandedSeen.delete(name); continue; }
+      const prev = strandedSeen.get(name);
+      if (!prev || prev.text !== text) {
+        strandedSeen.set(name, { text, since: Date.now(), entered: false });
+        continue;
+      }
+      if (Date.now() - prev.since < STRANDED_MS) continue;
+      exitCopyMode(name);
+      try {
+        if (!prev.entered) {
+          execFileSync(TMUX_BIN, ['send-keys', '-t', pane(name), 'Enter'], { timeout: 3000 });
+          prev.entered = true;
+          console.log(`[stranded] ${name}: дожал Enter — в инпуте лежало «${text.slice(0, 80)}»`);
+        } else {
+          // Enter не помог → застрявшая очередь CLI: только новое сообщение
+          // утаскивает её в ход (именно так инцидент чинили руками)
+          sendLine(name, '[пульт] дожим: сообщение выше висело в очереди неотправленным — обработай его и продолжай по своей роли');
+          console.log(`[stranded] ${name}: Enter не помог — текстовый пинок очереди («${text.slice(0, 80)}»)`);
+          strandedSeen.delete(name);
+        }
+      } catch {}
+    }
+    // сессий больше нет — записи о них не копим
+    for (const name of strandedSeen.keys())
+      if (!aliveSet().has(name)) strandedSeen.delete(name);
+  } catch { /* следующий тик дотянется */ }
+}, 30_000));
+
 /** Экран и клавиши служебной сессии СЛОТА (карточка подписки): тот же
  *  терминал под рукой, что у рабочих сессий (CTO 20.08) — посмотреть, что
  *  происходит при входе, и дожать стрелками с телефона. */
@@ -769,6 +864,9 @@ export function runnerKey({ name, key, times = 1 }) {
   if (!tmuxAlive(name)) throw new Error(`нет живой tmux-сессии ${name}`);
   if (KEYS_DENIED.has(key)) throw new Error(KEYS_DENIED.get(key));
   if (!DIALOG_KEYS.has(key)) throw new Error(`клавиша: ${[...DIALOG_KEYS].join('|')}`);
+  // copy-mode панели глотает клавиши (Enter в нём лишь выходит из режима —
+  // вероятная механика «pult_form Enter не отправил», KAN-209 29.08)
+  exitCopyMode(name);
   const n = Math.min(Math.max(Number(times) || 1, 1), 8); // прыжок по табам
   for (let i = 0; i < n; i++) {
     tmux(['send-keys', '-t', pane(name), key]);
@@ -782,6 +880,7 @@ export function runnerKey({ name, key, times = 1 }) {
  *  между нажатиями не влез поллинг. */
 export function runnerType({ name, digit, text, enter = true }) {
   if (!tmuxAlive(name)) throw new Error(`нет живой tmux-сессии ${name}`);
+  exitCopyMode(name);
   if (digit !== undefined && digit !== null) {
     if (!/^[1-9]$/.test(String(digit))) throw new Error('digit: 1–9');
     tmux(['send-keys', '-t', pane(name), String(digit)]);

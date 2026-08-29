@@ -12,16 +12,25 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { projects, hubForJudge, rootByName, MORDA_ROOT, CLAUDE_BIN, SPAWN_ENV }
   from './fleet.js';
-import { runnerList } from './runner.js';
+import { runnerList, injectSend } from './runner.js';
 
 const STATE = path.join(MORDA_ROOT, 'escalator.json');
 // экраны, на которых CLI-сессия ждёт человека (та же семантика, что у
 // сводки «ждут вас» на главной)
 const HITL_SCREENS = new Set(['hitl', 'permission', 'needs_auth']);
+// Автопинок висящего вопроса (KAN-209 29.08: карточка «сессия молчит» от
+// 11:02 разобрана в 14:11 — пассивная карточка никого не будит): вопрос
+// открыт дольше порога → постановщик недоступен или не дошли руки → автор
+// получает стандартный пинок «продолжай по своей роли». Один пинок на ask.
+const NUDGE_MS = (Number(process.env.MORDA_NUDGE_MIN) >= 5
+  ? Number(process.env.MORDA_NUDGE_MIN) : 30) * 60_000;
 
 function loadState() {
-  try { return JSON.parse(fs.readFileSync(STATE, 'utf8')); }
-  catch { return { asks: [], hitl: {} }; }
+  try {
+    const s = JSON.parse(fs.readFileSync(STATE, 'utf8'));
+    s.nudged ??= {};
+    return s;
+  } catch { return { asks: [], hitl: {}, nudged: {} }; }
 }
 function saveState(s) {
   // память доставленного ограничена: старые id уходят, дедуп будки всё
@@ -57,7 +66,39 @@ function collect(p, st) {
   // заход на тот же экран снова даст пинок
   for (const k of Object.keys(st.hitl))
     if (k.startsWith(p.name + '/') && !hitlNow.has(k)) delete st.hitl[k];
-  return { lines, link, freshAsks };
+  return { lines, link, freshAsks, openAsks: asks, rows };
+}
+
+/** Автопинок автора висящего вопроса: постановщика пнули, но вопрос открыт
+ *  дольше NUDGE_MS — значит, человека нет (ночь) или руки не дошли. Автору
+ *  уходит стандартное «продолжай по своей роли» прямым вводом в CLI (в
+ *  занятую — мид-тёрн; открытый диалог injectSend сам переведёт в очередь) +
+ *  пометка в ленту будки. Один пинок на ask — дальше решает человек. */
+function nudgeStale(p, st, openAsks, rows) {
+  let sent = 0;
+  for (const a of openAsks) {
+    if (st.nudged[a.id]) continue;
+    const age = Date.now() - new Date(a.ts || 0).getTime();
+    if (!(age > NUDGE_MS)) continue;
+    const s = rows.find((r) => r.alive
+      && (r.sessionId === a.session || r.name === a.session));
+    st.nudged[a.id] = Date.now();   // и при неудаче: второй заход не нужен
+    if (!s) continue;
+    const min = Math.round(age / 60000);
+    try {
+      injectSend({ name: s.name, text:
+        `[эскалатор] Твой вопрос «${String(a.question || '').slice(0, 160)}» висит без ответа ${min} мин — постановщик недоступен. `
+        + 'Продолжай по своей роли и мандату: решение в рамках уже принятых — прими сам и зафиксируй комментом; '
+        + 'настоящий блокер — оформи блокером в тикет и возьми следующую работу. Не стой на промпте молча.' });
+      sent++;
+      try {
+        hubForJudge(rootByName(p.name)).post({ from: 'эскалатор',
+          text: `автопинок «${s.name}» (ask ${a.id}): вопрос без ответа ${min} мин, послано «продолжай по своей роли»` });
+      } catch { /* лента недоступна — пинок важнее пометки */ }
+      console.log(`[escalator] ${p.name}: автопинок ${s.name} по ask ${a.id} (${min} мин)`);
+    } catch (e) { console.log(`[escalator] ${p.name}: автопинок ${s.name} не ушёл — ${e.message}`); }
+  }
+  return sent;
 }
 
 /** Курьер: headless-голова находит живую Desktop-сессию постановщика и
@@ -97,9 +138,12 @@ export function escalatorScan() {
   const baseline = !fs.existsSync(STATE);
   const st = loadState();
   let sent = 0;
+  const allOpenIds = new Set();
   for (const p of projects() || []) {
-    const { lines, link, freshAsks } = collect(p, st);
+    const { lines, link, freshAsks, openAsks, rows } = collect(p, st);
+    openAsks.forEach((a) => allOpenIds.add(a.id));
     if (baseline) { st.asks.push(...freshAsks.map((a) => a.id)); continue; }
+    nudgeStale(p, st, openAsks, rows);
     if (!lines.length) continue;
     sent++;
     let slug = p.name;
@@ -112,6 +156,10 @@ export function escalatorScan() {
     // потерянный при упавшем курьере — карточка всё равно висит в пульте
     st.asks.push(...freshAsks.map((a) => a.id));
   }
+  // память пинков не растёт вечно: закрытые вопросы выпадают (сверка — по
+  // открытым ВСЕХ проектов, иначе проекты стирали бы метки друг друга)
+  for (const id of Object.keys(st.nudged))
+    if (!allOpenIds.has(id)) delete st.nudged[id];
   saveState(st);
   return sent;
 }

@@ -150,6 +150,33 @@ if (!globalThis.__mordaAutoJudge) {
   globalThis.__mordaAutoJudge.unref?.();
 }
 
+// Ночной держатель (KAN-209, ночь 29.08: мак уснул — у оркестратора умерли
+// таймеры и вотчеры, tmux-волны молча стояли 6.5 часов): пока во флоте есть
+// живая сессия, пульт держит систему от idle-сна caffeinate'ом сам, а не
+// памятью человека «запустить перед уходом». Закрытую крышку caffeinate не
+// спасает — это остаётся строкой ночного чек-листа оркестратора.
+import { spawn } from 'node:child_process';
+const CAFFEINATE_EVERY = 60 * 1000;
+if (!globalThis.__mordaCaffeinate) {
+  const st = (globalThis.__mordaCaffeinate = { child: null, timer: null });
+  st.timer = setInterval(() => {
+    try {
+      const anyAlive = runnerList().some((s) => s.alive);
+      if (anyAlive && !st.child) {
+        st.child = spawn('caffeinate', ['-i'], { stdio: 'ignore' });
+        st.child.on('exit', () => { st.child = null; });
+        st.child.on('error', () => { st.child = null; });
+        console.log('[caffeinate] флот жив — держу мак от idle-сна');
+      } else if (!anyAlive && st.child) {
+        st.child.kill();
+        st.child = null;
+        console.log('[caffeinate] живых сессий нет — отпускаю сон');
+      }
+    } catch { /* следующий тик дотянется */ }
+  }, CAFFEINATE_EVERY);
+  st.timer.unref?.();
+}
+
 // Эскалатор (мандат CTO 25.08): новые вопросы будок и HITL-экраны пинком
 // уезжают в Desktop-сессию постановщика — курьер claude -p с ListAgents+
 // SendMessage (постановщик и курьер живут на основной подписке; события

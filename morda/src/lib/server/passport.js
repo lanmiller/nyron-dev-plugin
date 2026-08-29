@@ -134,45 +134,57 @@ function guardAnswers(input) {
 //
 // Дешёвые проверки без MCP-смоуков — зовётся раннером ПЕРЕД стартом
 // сессии (с STOVP-61 — в любом режиме, не только bypass).
-// Возвращает: null — паспорта нет; [] — зелёный; [строки] — проблемы.
-// Отличие «нет» от «зелёный» ввёл челлендж Sol по STOVP-57: отсутствующий
-// паспорт числился зелёным, и bypass-волны шли мимо гейта.
+// Возвращает: null — паспорта нет; { hard, keys } — проблемы двумя классами:
+//   hard — безопасность (ключница не в игноре, секреты в git, забора нет):
+//          глушит запуск ЛЮБОЙ сессии проекта;
+//   keys — ключ реестра без файла/значения: это human-гейт конкретной
+//          работы, а не авария всего проекта.
+// Разделение — инцидент KAN-209 (ночь 29.08): новый ключ без значения
+// покраснел в 04:00 и паспорт-гейт закрыл запуск ВСЕХ сессий проекта —
+// стоп конвейера без возможности разбудить человека. Отличие «нет» от
+// «зелёный» ввёл челлендж Sol по STOVP-57: отсутствующий паспорт числился
+// зелёным, и bypass-волны шли мимо гейта.
 export function passportQuick(root) {
   let pp = null;
   try { pp = JSON.parse(fs.readFileSync(path.join(root, '.claude', 'passport.json'), 'utf8')); }
   catch { return null; }
-  const problems = [];
+  const hard = [], keys = [];
   const dir = path.join(root, '.secrets');
   if (!secretsIgnored(root))
-    problems.push('.secrets не в git-игноре');
+    hard.push('.secrets не в git-игноре');
   for (const [file, vars] of Object.entries(pp.keys || {})) {
     const full = path.join(dir, file);
-    if (!fs.existsSync(full)) { problems.push(`нет ключа ${file}`); continue; }
+    if (!fs.existsSync(full)) { keys.push(`нет ключа ${file}`); continue; }
     const have = readEnvFile(full);
     for (const name of Object.keys(vars))
-      if (!have[name]) problems.push(`${file}: не задана ${name}`);
+      if (!have[name]) keys.push(`${file}: не задана ${name}`);
   }
   const tracked = git(root, ['ls-files', '.secrets']);
-  if (tracked) problems.push('в git закоммичено из .secrets — вынеси и ротируй');
+  if (tracked) hard.push('в git закоммичено из .secrets — вынеси и ротируй');
   if (pp.guard && !fs.existsSync(path.join(MORDA_ROOT, 'guard', 'pretooluse-guard.mjs')))
-    problems.push('файла забора нет');
-  return problems;
+    hard.push('файла забора нет');
+  return { hard, keys };
 }
 
-/** Решение гейта по паспорту (STOVP-61, решение постановщика 22.08):
- *  красный паспорт закрывает запуск в ЛЮБОМ режиме; отсутствие паспорта
- *  закрывает только bypass (решение №7 гриля 16.08: запрет «нет паспорта —
- *  не стартуем» не должен остановить единственный живой проект до его
- *  аттестации), остальным режимам — предупреждение в ответе.
- *  problems — выход passportQuick (null | [] | [строки]). */
+/** Решение гейта по паспорту (STOVP-61, решение постановщика 22.08;
+ *  смягчено по KAN-209 29.08): ЖЁСТКАЯ краснота (безопасность) закрывает
+ *  запуск в ЛЮБОМ режиме; незаполненный ключ — предупреждение, не стоп:
+ *  блокируется только работа, которой ключ нужен (это human-гейт, его
+ *  снимает пре-флайт диспетчера), остальные сессии проекта живут.
+ *  Отсутствие паспорта закрывает только bypass (решение №7 гриля 16.08:
+ *  запрет «нет паспорта — не стартуем» не должен остановить единственный
+ *  живой проект до его аттестации), остальным режимам — предупреждение.
+ *  problems — выход passportQuick (null | { hard, keys }). */
 export function passportGate(problems, mode) {
   if (problems === null) {
     if (mode === 'bypass')
       return { block: 'паспорта проекта нет — bypass закрыт: собери паспорт кнопкой «проверить готовность» в настройках', warning: null };
     return { block: null, warning: 'паспорта проекта нет — собери его кнопкой «проверить готовность» в настройках' };
   }
-  if (problems.length)
-    return { block: `паспорт проекта красный — запуск закрыт: ${problems.join('; ')} (почини через «проверить готовность» в настройках)`, warning: null };
+  if (problems.hard.length)
+    return { block: `паспорт проекта красный — запуск закрыт: ${problems.hard.join('; ')} (почини через «проверить готовность» в настройках)`, warning: null };
+  if (problems.keys.length)
+    return { block: null, warning: `в ключнице не всё: ${problems.keys.join('; ')} — работа, которой эти ключи нужны, упрётся в human-гейт; остальным можно` };
   return { block: null, warning: null };
 }
 
