@@ -177,6 +177,24 @@ if (!globalThis.__mordaCaffeinate) {
   st.timer.unref?.();
 }
 
+// Дежурный-постановщик (решение CTO 29.08: «Desktop-сессия не оркестрирует
+// как положено» — чат исполняется только в момент хода, между сообщениями
+// у него нет ни таймеров, ни вотчеров). Пульт держит постоянную сессию
+// дежурного живой; пачки эскалатора идут ей напрямую, Desktop — только
+// дайджест человеку. Отключение: MORDA_DUTY=0.
+import { dutyEnsure } from '$lib/server/duty.js';
+const DUTY_EVERY = 5 * 60 * 1000;
+if (!globalThis.__mordaDuty) {
+  globalThis.__mordaDuty = setInterval(() => {
+    try { dutyEnsure(); } catch (e) { console.log(`[duty] ${e.message}`); }
+  }, DUTY_EVERY);
+  globalThis.__mordaDuty.unref?.();
+  // первый подъём — вскоре после старта пульта, не через 5 минут
+  setTimeout(() => {
+    try { dutyEnsure(); } catch (e) { console.log(`[duty] ${e.message}`); }
+  }, 20_000).unref?.();
+}
+
 // Эскалатор (мандат CTO 25.08): новые вопросы будок и HITL-экраны пинком
 // уезжают в Desktop-сессию постановщика — курьер claude -p с ListAgents+
 // SendMessage (постановщик и курьер живут на основной подписке; события

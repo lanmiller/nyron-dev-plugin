@@ -13,6 +13,7 @@ import { execFile } from 'node:child_process';
 import { projects, hubForJudge, rootByName, MORDA_ROOT, CLAUDE_BIN, SPAWN_ENV }
   from './fleet.js';
 import { runnerList, injectSend } from './runner.js';
+import { dutyDeliver } from './duty.js';
 
 const STATE = path.join(MORDA_ROOT, 'escalator.json');
 // экраны, на которых CLI-сессия ждёт человека (та же семантика, что у
@@ -146,6 +147,20 @@ export function escalatorScan() {
     nudgeStale(p, st, openAsks, rows);
     if (!lines.length) continue;
     sent++;
+    // Первый адресат — ДЕЖУРНЫЙ (решение CTO 29.08: Desktop-чат исполняется
+    // только в момент хода и оркестрировать не может): пачка уходит прямым
+    // вводом в его CLI, доставку дожимает strandedSweep. Дежурного нет —
+    // фолбэк на курьера в Desktop, как жило до дежурного.
+    const dutyPack = [
+      `[эскалация пульта · проект ${p.name}] Новые события «ждут человека»:`,
+      ...lines,
+      `Разбери по мандату дежурного. Карточки: ${link}`,
+    ].join('\n');
+    if (dutyDeliver(dutyPack)) {
+      console.log(`[escalator] ${p.name}: доставлено дежурному ${lines.length} событий`);
+      st.asks.push(...freshAsks.map((a) => a.id));
+      continue;
+    }
     let slug = p.name;
     try { slug = path.basename(rootByName(p.name)); } catch {}
     courier(p.name, slug, link, lines, (err, out) => {
