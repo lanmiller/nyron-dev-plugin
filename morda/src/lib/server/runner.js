@@ -1270,24 +1270,40 @@ export function slotPick() {
       try { c = { at: Date.now(), usage: slotUsage({ id: s.id }) }; usagePickCache.set(s.id, c); }
       catch (e) { failed.push(`${s.label}: ${e.message}`); continue; }
     }
+    // неделя — максимум из «all models» и модельного лимита: стена любая
+    // из двух, свежее сессионное окно её не обходит
+    const week = Math.max(c.usage.week_all?.used_pct ?? -1, c.usage.week_model?.used_pct ?? -1);
     scored.push({
       id: s.id, label: s.label,
       session_pct: c.usage.session?.used_pct ?? c.usage.week_all?.used_pct ?? 100,
-      week_pct: c.usage.week_all?.used_pct ?? 100,
+      week_pct: week >= 0 ? week : 100,
     });
   }
   if (!scored.length)
     throw new Error(`ни один слот не отдал лимиты: ${failed.join('; ') || 'слотов нет'}`);
-  const below50 = scored.filter((x) => x.session_pct < 50);
+  // Недельная стена — ФИЛЬТР, а не тай-брейк (факт CTO 31.08: рестарт по
+  // лимиту снова сел на слот с выжатой неделей — у свежего 5-часового окна
+  // session_pct мал, и «догрузка начатой» выбирала его, не глядя на неделю).
+  const WEEK_WALL = 90;
+  const usable = scored.filter((x) => x.week_pct < WEEK_WALL);
   let pick, rule;
-  if (below50.length) {
-    below50.sort((a, b) => b.session_pct - a.session_pct || a.week_pct - b.week_pct);
-    pick = below50[0];
-    rule = 'догружаю начатую до 50% сессии';
-  } else {
-    scored.sort((a, b) => a.session_pct - b.session_pct || a.week_pct - b.week_pct);
+  if (!usable.length) {
+    scored.sort((a, b) => a.week_pct - b.week_pct || a.session_pct - b.session_pct);
     pick = scored[0];
-    rule = 'все выше 50% — ровняю по наименее занятой';
+    rule = `у ВСЕХ слотов неделя ≥${WEEK_WALL}% — беру наименее выжатый, лимиты на исходе`;
+  } else {
+    const below50 = usable.filter((x) => x.session_pct < 50);
+    if (below50.length) {
+      below50.sort((a, b) => b.session_pct - a.session_pct || a.week_pct - b.week_pct);
+      pick = below50[0];
+      rule = 'догружаю начатую до 50% сессии';
+    } else {
+      usable.sort((a, b) => a.session_pct - b.session_pct || a.week_pct - b.week_pct);
+      pick = usable[0];
+      rule = 'все выше 50% — ровняю по наименее занятой';
+    }
+    if (usable.length < scored.length)
+      rule += `; мимо стены (неделя ≥${WEEK_WALL}%): ${scored.filter((x) => x.week_pct >= WEEK_WALL).map((x) => x.label).join(', ')}`;
   }
   const why = scored.map((x) => `${x.label} — сессия ${x.session_pct}%, неделя ${x.week_pct}%`)
     .join('; ') + (failed.length ? `; без ответа: ${failed.join('; ')}` : '');
