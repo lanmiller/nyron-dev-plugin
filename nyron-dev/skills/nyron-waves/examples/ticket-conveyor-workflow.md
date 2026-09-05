@@ -4,7 +4,7 @@
 умеет «повиснуть до колбэка» — длинные прогоны (codex ~10 мин, docker ~12 мин)
 ведёт СЕССИЯ фоном (`run_in_background` + task-notification), workflow гоняет
 короткую механику. Разбиение: **WF-тестген → чекпойнт сессии (тесты=спека,
-можно уточнить бриф кодеру) → WF-импл → Sol-циклы сессией фоном (r1 полный,
+можно уточнить бриф кодеру) → WF-импл → Astra-циклы сессией фоном (r1 полный,
 r2+ по диффу фиксов, раунд без новых находок → стоп) → полный сьют ОДИН раз
 после последнего фикса → вердикт**. Ниже — скелет WF-импл (главный); тест-ген
 мелкого тикета допустимо вести сессией без WF. Прежний монолитный скелет
@@ -29,7 +29,7 @@ r2+ по диффу фиксов, раунд без новых находок �
 ```javascript
 export const meta = {
   name: 'ticket-conveyor-v2',
-  description: 'Конвейер тикета: тест-ген(Sol) → чекпойнт → код → валидатор → критика находок → Sol-ревью',
+  description: 'Конвейер тикета: тест-ген(Astra) → чекпойнт → код → валидатор → критика находок → Astra-ревью',
   phases: [
     { title: 'TestGen' }, { title: 'Impl' }, { title: 'Guard' },
     { title: 'Adversarial' }, { title: 'CrossReview' },
@@ -48,7 +48,7 @@ const metric = (stage, data) =>
   `echo '${'${'}JSON.stringify({ts: args.now, ticket: args.ticket, stage, ...data})}' >> ${'${'}args.metricsFile}`
 // упрощённо: реальную запись делает механический агент стадии одной echo-командой
 
-// ── Стадия 1: red-тесты из DoD пишет Sol (НЕ видит будущий код) ──
+// ── Стадия 1: red-тесты из DoD пишет Astra (НЕ видит будущий код) ──
 phase('TestGen')
 let tests = null
 if (args.behavioral) {
@@ -96,7 +96,7 @@ if (!guard.ok) return { status: 'БЛОКЕР', stage: 'guard', findings: guard.
 
 // ── Стадия 4: критика находок — ТОЛЬКО СЛОЖНЫЙ (канон по двум пилотам) ──
 phase('Adversarial')
-let round = 0, adv = { ok: true, summary: 'skip: обычный тикет — Sol один' }
+let round = 0, adv = { ok: true, summary: 'skip: обычный тикет — Astra один' }
 if (args.complexity === 'СЛОЖНЫЙ')
 while (round < 3) {
   adv = await agent(
@@ -132,7 +132,7 @@ while (crRound < 2) {
     { label: `sol:${args.ticket}#${crRound}`, model: 'sonnet', schema: VERDICT })
   if (cr.ok) break
   await agent(
-    `Почини по вердикту Sol в ${args.worktree}: ${cr.findings.join('; ')}.
+    `Почини по вердикту Astra в ${args.worktree}: ${cr.findings.join('; ')}.
      Точечные тесты перегнать. Тестовые файлы не трогать.`,
     { label: `fix-sol:${args.ticket}#${crRound}`, model: 'opus', agentType: 'backend-dev' })
   crRound++

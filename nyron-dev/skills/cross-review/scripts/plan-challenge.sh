@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # plan-challenge.sh — челлендж спеки/плана другой моделью (GPT через codex CLI)
 # ДО начала имплементации. Пара к Fable-штурму: Fable ищет узкие места мышлением,
-# Sol — сверкой плана с РЕАЛЬНЫМ кодом репо (read-only).
+# Astra — сверкой плана с РЕАЛЬНЫМ кодом репо (read-only).
 #
 # Использование:
 #   plan-challenge.sh -C <repo-dir> -t <файл-спеки/плана> [-m <model>]
 #
 #   -C  каталог репо главной зоны изменений (worktree/чекаут, read-only)
 #   -t  файл: спека/план/раскадровка (JTBD, DoD, нарезка, карта изменений)
-#   -m  модель (default gpt-5.6-sol, авто-фолбэк без Pro)
+#   -m  модель (default gpt-6-astra, авто-фолбэк на дефолт аккаунта)
 #
 # Выход: первая строка строго «ПЛАН: ОК» или «ПЛАН: РИСКИ», далее пункты.
 set -euo pipefail
@@ -80,7 +80,7 @@ EOF
 
 OUT_FILE=$(mktemp)
 ERR_FILE=$(mktemp)
-[ -n "$MODEL" ] || MODEL="gpt-5.6-sol"
+[ -n "$MODEL" ] || MODEL="gpt-6-astra"
 run_codex() {
   codex exec --sandbox read-only --cd "$REPO" --skip-git-repo-check \
     -c 'model_reasoning_effort="high"' \

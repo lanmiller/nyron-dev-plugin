@@ -150,11 +150,11 @@ EOF
 
 OUT_FILE=$(mktemp)
 ERR_FILE=$(mktemp)
-# Дефолт ревьюера — gpt-5.6-sol («Latest frontier agentic coding model»,
-# доступен на Pro-подписке, codex CLI >= 0.144). Аккаунт без него (400
+# Дефолт ревьюера — gpt-6-astra (GPT-6-Astra, «most capable model for complex,
+# demanding work», с 05.09.2026; прежде gpt-5.6-sol). Аккаунт без него (400
 # «model is not supported») — авто-фолбэк на дефолтную модель аккаунта.
 # Всегда — максимальный reasoning effort.
-[ -n "$MODEL" ] || MODEL="gpt-5.6-sol"
+[ -n "$MODEL" ] || MODEL="gpt-6-astra"
 run_codex() {
   codex exec --sandbox read-only --cd "$REPO" --skip-git-repo-check \
     -c "model_reasoning_effort=\"$EFFORT\"" \

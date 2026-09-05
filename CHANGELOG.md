@@ -1,5 +1,21 @@
 # Changelog — nyron-dev
 
+## 0.14.1 — 2026-09-05
+
+**Ревьюер codex переведён на GPT-6-Astra (`gpt-6-astra`) — решение CTO 05.09.**
+
+- Дефолт модели в `cross-review.sh` и `plan-challenge.sh`: `gpt-6-astra`
+  (прежде `gpt-5.6-sol`); авто-фолбэк на дефолт аккаунта при 400 сохранён.
+  Смоук фактом: `codex exec -m gpt-6-astra` отвечает (codex-cli 0.153.4,
+  слаг в `models_cache.json`, `supported_in_api: true`).
+- Кличка ревьюера в инструкциях скиллов — **Astra** (nyron-waves,
+  cross-review, vibe, feature-intake, jira-task-standard, wave-protocol,
+  пример конвейера, шаблон конфига). Датированная история «ревью Sol 08.08»
+  в коде будки и скиллах не переписана — это факты прошлых ревью.
+- Конфиги проектов (`.claude/nyron-dev.md`) ai-evolve / betzo / psylia:
+  `reviewer.model: gpt-6-astra` явно (пустое значение больше не полагается на
+  глобальный `~/.codex/config.toml`).
+
 ## 0.14.0 — 2026-08-29
 
 **Разбор двух классов застревания конвейера (KAN-209 psylia, 28–29.08: ~2 дня
