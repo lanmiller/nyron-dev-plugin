@@ -127,7 +127,7 @@ while (crRound < 2) {
      (канон «полный сьют один раз» — правила волн, «Качество»).
      2) Запусти Bash: ${args.crossReviewSh} -C ${args.worktree} -b main -t ${args.ticketFile}
      Верни ok=true при зелёных тестах И «ВЕРДИКТ: ПРИНЯТО»; иначе
-     findings (замечания дословно, «[sol] тип: суть»; НЕБЛОКИРУЮЩЕЕ — отдельным
+     findings (замечания дословно, «[astra] тип: суть»; НЕБЛОКИРУЮЩЕЕ — отдельным
      списком nonblocking). Метрики находок — echo в ${args.metricsFile}.`,
     { label: `astra:${args.ticket}#${crRound}`, model: 'sonnet', schema: VERDICT })
   if (cr.ok) break
