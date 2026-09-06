@@ -9,7 +9,7 @@
                                                           # каталоги worktree-сессий)
 
 Считает: input / output / cache_read / cache_write, разбивка output по моделям.
-Sol/codex здесь НЕ виден (подписка, не Claude-токены) — это структурная
+Astra/codex здесь НЕ виден (подписка, не Claude-токены) — это структурная
 экономия конвейера v2, а не дыра замера.
 """
 import json, sys, glob, os

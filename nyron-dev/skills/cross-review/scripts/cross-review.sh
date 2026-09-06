@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# cross-review.sh — кросс-ревью ветки другой моделью (GPT через codex CLI).
-# Клод писал — GPT проверяет. Работает на ChatGPT-подписке, API-ключ не нужен.
+# cross-review.sh — кросс-ревью ветки ДРУГОЙ моделью, крест-накрест по автору:
+# писал Claude — проверяет GPT (codex CLI, ChatGPT-подписка); писал codex —
+# проверяет Claude (claude -p). Движок выбирается сам по окружению (engine.sh).
 #
 # Использование:
-#   cross-review.sh -C <repo-dir> [-b <base=main>] [-m <model>] [-t <файл-контекста>]
-#                   [-s S|M|L]
+#   cross-review.sh -C <repo-dir> [-b <base=main>] [-e codex|claude|auto] [-m <model>]
+#                   [-M <claude-model>] [-t <файл-контекста>] [-s S|M|L]
 #
 #   -C  каталог git-репо (worktree ветки, HEAD = проверяемая ветка)
 #   -b  базовая ветка диффа (default: main)
-#   -m  модель codex (default: из конфига проекта reviewer.model, иначе дефолт codex)
+#   -e  ревьюер: codex | claude | auto (default auto — по окружению сессии:
+#       вызов из codex → claude, иначе → codex)
+#   -m  модель codex (default: из конфига проекта reviewer.model, иначе gpt-6-astra)
+#   -M  модель claude (default: reviewer.claude_model, иначе fable)
 #   -t  файл с контекстом задачи (тикет: JTBD, DoD, «Как тестировать»)
 #   -s  размер тикета → усилие модели: S=low, M=medium, L=high (default: high)
 #
@@ -32,15 +36,17 @@ report_fail() {
 }
 trap 'report_fail $?' EXIT
 
-REPO="" BASE="main" MODEL="" TICKET_FILE="" SIZE=""
-while getopts "C:b:m:t:s:" opt; do
+REPO="" BASE="main" ENGINE="auto" MODEL="" CLAUDE_MODEL="" TICKET_FILE="" SIZE=""
+while getopts "C:b:e:m:M:t:s:" opt; do
   case $opt in
     C) REPO=$OPTARG ;;
     b) BASE=$OPTARG ;;
+    e) ENGINE=$OPTARG ;;
     m) MODEL=$OPTARG ;;
+    M) CLAUDE_MODEL=$OPTARG ;;
     t) TICKET_FILE=$OPTARG ;;
     s) SIZE=$OPTARG ;;
-    *) echo "usage: $0 -C <repo> [-b base] [-m model] [-t ticket-file] [-s S|M|L]" >&2; exit 2 ;;
+    *) echo "usage: $0 -C <repo> [-b base] [-e codex|claude|auto] [-m model] [-M claude-model] [-t ticket-file] [-s S|M|L]" >&2; exit 2 ;;
   esac
 done
 
@@ -54,7 +60,9 @@ case "$(printf '%s' "$SIZE" | tr '[:lower:]' '[:upper:]')" in
 esac
 
 [ -n "$REPO" ] || { echo "ошибка: -C <repo-dir> обязателен" >&2; exit 2; }
-command -v codex >/dev/null || { echo "ошибка: codex CLI не установлен (npm i -g @openai/codex)" >&2; exit 3; }
+TAG="cross-review"
+. "$(dirname "$0")/engine.sh"
+engine_resolve
 git -C "$REPO" rev-parse --git-dir >/dev/null || exit 3
 
 MERGE_BASE=$(git -C "$REPO" merge-base "origin/$BASE" HEAD 2>/dev/null || git -C "$REPO" merge-base "$BASE" HEAD)
@@ -64,7 +72,7 @@ COMMITS=$(git -C "$REPO" log --oneline "$MERGE_BASE"..HEAD)
 STAT=$(git -C "$REPO" diff --stat "$MERGE_BASE"..HEAD)
 DIFF=$(git -C "$REPO" diff "$MERGE_BASE"..HEAD)
 # страховка от гигантских диффов: >300KB — ревьюеру уходит стат + просьба
-# смотреть файлы самому (codex умеет читать репо в read-only песочнице)
+# смотреть файлы самому (оба движка читают репо в read-only режиме)
 if [ "${#DIFF}" -gt 300000 ]; then
   DIFF="(дифф >300KB, в промт не влез — смотри изменённые файлы прямо в репо; список выше в --stat)"
 fi
@@ -75,7 +83,7 @@ TICKET_CTX=""
 PROMPT_FILE=$(mktemp)
 trap 'c=$?; rm -f "$PROMPT_FILE" "${OUT_FILE:-}" "${ERR_FILE:-}"; report_fail $c' EXIT
 cat > "$PROMPT_FILE" <<EOF
-Ты — независимый код-ревьюер. Код писала ДРУГАЯ модель (Claude); твоя ценность —
+Ты — независимый код-ревьюер ($REVIEWER). Код писала ДРУГАЯ модель ($AUTHOR); твоя ценность —
 свежий взгляд: ты ловишь ошибки, которые автор у себя не видит. Проверь ветку
 относительно $BASE. Твоя задача — найти РЕАЛЬНЫЕ проблемы, а не придраться.
 
@@ -150,23 +158,12 @@ EOF
 
 OUT_FILE=$(mktemp)
 ERR_FILE=$(mktemp)
-# Дефолт ревьюера — gpt-6-astra (GPT-6-Astra, «most capable model for complex,
-# demanding work», с 05.09.2026; прежде gpt-5.6-sol). Аккаунт без него (400
-# «model is not supported») — авто-фолбэк на дефолтную модель аккаунта.
-# Всегда — максимальный reasoning effort.
-[ -n "$MODEL" ] || MODEL="gpt-6-astra"
-run_codex() {
-  codex exec --sandbox read-only --cd "$REPO" --skip-git-repo-check \
-    -c "model_reasoning_effort=\"$EFFORT\"" \
-    --output-last-message "$OUT_FILE" "$@" - < "$PROMPT_FILE" >&2 2>"$ERR_FILE"
-}
-if ! run_codex -m "$MODEL"; then
-  echo "cross-review: модель $MODEL недоступна аккаунту — фолбэк на дефолт codex" >&2
-  if ! run_codex; then
-    FAIL_NOTE="codex не отработал и после фолбэка: $(tail -c 300 "$ERR_FILE" | tr '\n' ' ')"
-    echo "ошибка: $FAIL_NOTE" >&2
-    exit 5
-  fi
+# Движок и модель (дефолты codex→gpt-6-astra, claude→fable), авто-фолбэк на
+# дефолт аккаунта при недоступной модели — engine.sh.
+if ! engine_run; then
+  FAIL_NOTE="$ENGINE не отработал и после фолбэка: $(tail -c 300 "$ERR_FILE" | tr '\n' ' ')"
+  echo "ошибка: $FAIL_NOTE" >&2
+  exit 5
 fi
 
 cat "$OUT_FILE"

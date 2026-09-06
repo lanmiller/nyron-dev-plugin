@@ -129,12 +129,12 @@ while (crRound < 2) {
      Верни ok=true при зелёных тестах И «ВЕРДИКТ: ПРИНЯТО»; иначе
      findings (замечания дословно, «[sol] тип: суть»; НЕБЛОКИРУЮЩЕЕ — отдельным
      списком nonblocking). Метрики находок — echo в ${args.metricsFile}.`,
-    { label: `sol:${args.ticket}#${crRound}`, model: 'sonnet', schema: VERDICT })
+    { label: `astra:${args.ticket}#${crRound}`, model: 'sonnet', schema: VERDICT })
   if (cr.ok) break
   await agent(
     `Почини по вердикту Astra в ${args.worktree}: ${cr.findings.join('; ')}.
      Точечные тесты перегнать. Тестовые файлы не трогать.`,
-    { label: `fix-sol:${args.ticket}#${crRound}`, model: 'opus', agentType: 'backend-dev' })
+    { label: `fix-astra:${args.ticket}#${crRound}`, model: 'opus', agentType: 'backend-dev' })
   crRound++
 }
 

@@ -74,8 +74,10 @@ models:                      # карта моделей по ролям кон�
   mass: haiku                # массовые однотипные операции
 
 reviewer:                    # кросс-ревью другой моделью («кто писал — тот не проверяет»)
-  engine: codex              # codex (CLI, ChatGPT-подписка) | none
-  model: gpt-6-astra         # GPT-6-Astra (кличка в скиллах — Astra); пусто = дефолт codex
+  engine: codex              # codex = кросс-ревью включено (ревьюера скрипт выбирает
+                             # крест-накрест по автору: Claude→codex, codex→claude) | none
+  model: gpt-6-astra         # ревьюер кода Claude — GPT-6-Astra (кличка Astra); пусто = дефолт codex
+  claude_model: fable        # ревьюер кода codex — Claude (кличка Fable); пусто = fable
 
 quality_floor:               # СТОП-СТУПЕНИ: что в этом проекте минимизации НЕ подлежит.
                              # Волны проходят «лестницу до кода» (не писать лишнего), и

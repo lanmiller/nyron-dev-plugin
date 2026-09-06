@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# plan-challenge.sh — челлендж спеки/плана другой моделью (GPT через codex CLI)
-# ДО начала имплементации. Пара к Fable-штурму: Fable ищет узкие места мышлением,
-# Astra — сверкой плана с РЕАЛЬНЫМ кодом репо (read-only).
+# plan-challenge.sh — челлендж спеки/плана ДРУГОЙ моделью ДО начала имплементации,
+# крест-накрест по автору (engine.sh): план Claude сверяет GPT (codex, Astra), план
+# codex — Claude (claude -p, Fable). Пара к Fable-штурму: штурм ищет узкие места
+# мышлением, челленджер — сверкой плана с РЕАЛЬНЫМ кодом репо (read-only).
 #
 # Использование:
-#   plan-challenge.sh -C <repo-dir> -t <файл-спеки/плана> [-m <model>]
+#   plan-challenge.sh -C <repo-dir> -t <файл-спеки/плана> [-e codex|claude|auto] [-m <model>] [-M <claude-model>]
 #
 #   -C  каталог репо главной зоны изменений (worktree/чекаут, read-only)
 #   -t  файл: спека/план/раскадровка (JTBD, DoD, нарезка, карта изменений)
-#   -m  модель (default gpt-6-astra, авто-фолбэк на дефолт аккаунта)
+#   -e  ревьюер: codex | claude | auto (default auto — по окружению сессии)
+#   -m  модель codex (default gpt-6-astra), -M модель claude (default fable);
+#       модель недоступна — авто-фолбэк на дефолт аккаунта
 #
 # Выход: первая строка строго «ПЛАН: ОК» или «ПЛАН: РИСКИ», далее пункты.
 set -euo pipefail
@@ -26,22 +29,26 @@ report_fail() {
 }
 trap 'report_fail $?' EXIT
 
-REPO="" MODEL="" PLAN_FILE=""
-while getopts "C:t:m:" opt; do
+REPO="" ENGINE="auto" MODEL="" CLAUDE_MODEL="" PLAN_FILE=""
+while getopts "C:t:e:m:M:" opt; do
   case $opt in
     C) REPO=$OPTARG ;;
     t) PLAN_FILE=$OPTARG ;;
+    e) ENGINE=$OPTARG ;;
     m) MODEL=$OPTARG ;;
-    *) echo "usage: $0 -C <repo> -t <plan-file> [-m model]" >&2; exit 2 ;;
+    M) CLAUDE_MODEL=$OPTARG ;;
+    *) echo "usage: $0 -C <repo> -t <plan-file> [-e codex|claude|auto] [-m model] [-M claude-model]" >&2; exit 2 ;;
   esac
 done
 [ -n "$REPO" ] && [ -n "$PLAN_FILE" ] && [ -f "$PLAN_FILE" ] || { echo "ошибка: нужны -C <repo> и -t <файл плана>" >&2; exit 2; }
-command -v codex >/dev/null || { echo "ошибка: codex CLI не установлен" >&2; exit 3; }
+TAG="plan-challenge"; EFFORT="high"
+. "$(dirname "$0")/engine.sh"
+engine_resolve
 
 PROMPT_FILE=$(mktemp)
 trap 'c=$?; rm -f "$PROMPT_FILE" "${OUT_FILE:-}" "${ERR_FILE:-}"; report_fail $c' EXIT
 cat > "$PROMPT_FILE" <<EOF
-Ты — независимый архитектурный челленджер. План писала ДРУГАЯ модель (Claude);
+Ты — независимый архитектурный челленджер ($REVIEWER). План писала ДРУГАЯ модель ($AUTHOR);
 твоя ценность — проверить его против РЕАЛЬНОГО кода репо, к которому у тебя
 есть доступ на чтение. Имплементация ещё НЕ началась: поймать проблему сейчас
 стоит копейки, в мерже — вечер.
@@ -80,19 +87,10 @@ EOF
 
 OUT_FILE=$(mktemp)
 ERR_FILE=$(mktemp)
-[ -n "$MODEL" ] || MODEL="gpt-6-astra"
-run_codex() {
-  codex exec --sandbox read-only --cd "$REPO" --skip-git-repo-check \
-    -c 'model_reasoning_effort="high"' \
-    --output-last-message "$OUT_FILE" "$@" - < "$PROMPT_FILE" >&2 2>"$ERR_FILE"
-}
-if ! run_codex -m "$MODEL"; then
-  echo "plan-challenge: модель $MODEL недоступна — фолбэк на дефолт codex" >&2
-  if ! run_codex; then
-    FAIL_NOTE="codex не отработал и после фолбэка: $(tail -c 300 "$ERR_FILE" | tr '\n' ' ')"
-    echo "ошибка: $FAIL_NOTE" >&2
-    exit 5
-  fi
+if ! engine_run; then
+  FAIL_NOTE="$ENGINE не отработал и после фолбэка: $(tail -c 300 "$ERR_FILE" | tr '\n' ' ')"
+  echo "ошибка: $FAIL_NOTE" >&2
+  exit 5
 fi
 cat "$OUT_FILE"
 rm -f "$OUT_FILE"
