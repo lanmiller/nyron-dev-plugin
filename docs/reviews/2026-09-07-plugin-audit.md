@@ -170,8 +170,12 @@ prototype.md` — механика прототипа и вариативнос�
 комментариями). Остаётся: два файла, протокол чтения, мягкая деградация,
 секреты. Новые ключи: `guard.prod` (хосты и строки подключения прода),
 `review.gate: behavior | always | never`, `work.port_base`, `trace: jira |
-changelog | none`. Уходят: `max_parallel_waves`, `models.dispatcher/wave`,
-`merge_rights: wave | dispatcher` → `session | human`.
+changelog | none`, `intake: tasks | product`, `qa: model | human`. Секция
+`models` становится **оверрайдом** карты машины `~/.stovp/models.yaml`
+(спека §2.6): в проекте только отличия. Уходят: `max_parallel_waves`,
+`models.dispatcher/wave`, `merge_rights: wave | dispatcher` → `session |
+human`; клички моделей из скиллов (`Astra`, `Fable`) → роли (`review`,
+`work`).
 
 `references/setup.md` (одноразовые шаги) и аудитор проекта (§6) сливаются в
 скилл **`onboard`**: подключение проекта к стандарту и переезд с `nyron-dev`.
@@ -349,7 +353,7 @@ CTO 07.09: «канон того, что CLAUDE.md переделываются 
 
 | Релиз | Содержание | Приёмка фактом |
 |---|---|---|
-| **stovp 0.1** — канон | скиллы: `work`, `cross-review`, `jira-task-standard`, `feature-intake` (ужат), `product-flow`, `intake-groom`, `team-roles`, `live-epic-testing`, `qa-handoff`, `project-config` (ужат); хуки: политика + версия + **забор PreToolUse с `guard.prod`**; будка 8 тулов; `worktree-cleanup.sh` | `skills-lint` зелёный; забор отвечает deny на тестовый `psql <prod-host>`; тесты будки зелёные; один тикет psylia пройден `work` от старта до мержа |
+| **stovp 0.1** — канон | скиллы: `work`, `cross-review`, `jira-task-standard`, `feature-intake` (ужат), `product-flow`, `intake-groom`, `team-roles`, `live-epic-testing`, `qa-handoff`, `project-config` (ужат); **карта моделей машины** `~/.stovp/models.yaml` с ролями и `can` (спека §2.6), скиллы зовут роли, не клички; хуки: политика + версия + **забор PreToolUse с `guard.prod`**; будка 8 тулов; `worktree-cleanup.sh` | `skills-lint` зелёный; забор отвечает deny на тестовый `psql <prod-host>`; тесты будки зелёные; один тикет psylia пройден `work` от старта до мержа |
 | **stovp 0.2** — пульт | `pult_start` с worktree и целью по `work`; оркестратор-контекст переписан; дежурный/автопинок/автосудья/триаж выкл; сторож и нянька сняты с launchd; дерево «проект → сессии»; `release.js` на два плагина | три параллельные сессии из пульта на разных слотах, каждая в своём worktree, все три домержены через git-панель |
 | **stovp 0.3** — парадная дверь | скилл `onboard` (аудитор + setup); doctor report-only; переезд первого проекта с `nyron-dev` (psylia — у неё паспорт уже есть) | паспорт psylia говорит `stovp`, готовность зелёная, CLAUDE.md переписан по четырём веществам с подтверждением по пунктам |
 | **stovp 0.4** — доступ снаружи | туннель + HTTP Basic (есть) + Telegram-карточки вопросов (из VISION 2.1, дешёвая часть) | ответ на вопрос сессии с телефона доезжает в CLI |
