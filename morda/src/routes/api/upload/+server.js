@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import fs from 'node:fs';
 import path from 'node:path';
-import { rootByName } from '$lib/server/fleet.js';
+import { rootByName, hubDirFor } from '$lib/server/fleet.js';
 import { guarded } from '$lib/server/guard.js';
 
 // Вложения композера (этап 2 STOVP-58, «вложения путём файла»): файл
@@ -21,11 +21,12 @@ export async function POST({ request }) {
     if (file.size > MAX)
       return json({ error: `файл больше ${MAX / 1024 / 1024} МБ` }, { status: 400 });
     const root = rootByName(project);
-    const dir = path.join(root, '.nyron-hub', 'uploads');
+    const hubRel = path.basename(hubDirFor(root));
+    const dir = path.join(root, hubRel, 'uploads');
     fs.mkdirSync(dir, { recursive: true });
     // имя чистим до безопасного, уникальность — префиксом времени
     const safe = String(file.name || 'file').replace(/[^\w.\-а-яА-ЯёЁ]+/g, '_').slice(-80);
-    const rel = path.join('.nyron-hub', 'uploads', `${Date.now().toString(36)}-${safe}`);
+    const rel = path.join(hubRel, 'uploads', `${Date.now().toString(36)}-${safe}`);
     fs.writeFileSync(path.join(root, rel), Buffer.from(await file.arrayBuffer()));
     return json({ path: rel, name: file.name });
   } catch (e) {

@@ -11,6 +11,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { configFileFor } from './fleet.js';
 
 // «пишет прямо сейчас» — короткое окно зелёного без вердикта сторожа,
 // то же, что жило в fleet.js до выноса
@@ -69,7 +70,7 @@ const cfgCache = new Map(); // root → { mtime, min }
 export function checkinMs(root) {
   const env = Number(process.env.MORDA_CHECKIN_MIN);
   if (env >= 1) return env * 60_000;
-  const file = path.join(root, '.claude', 'nyron-dev.md');
+  const file = configFileFor(root);
   let mtime = 0;
   try { mtime = fs.statSync(file).mtimeMs; } catch { /* конфига нет */ }
   const c = cfgCache.get(root);

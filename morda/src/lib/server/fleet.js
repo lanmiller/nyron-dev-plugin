@@ -96,8 +96,19 @@ export function rootByName(name) {
 /** Для судьи-триажа: доступ к будке проекта без второй базы. */
 export function hubForJudge(root) { return hubFor(root); }
 
+// Проект может стоять на vibe-pult (.claude/vibe-pult.md, состояние в .vibe-pult/)
+// или на nyron-dev (.claude/nyron-dev.md, .nyron-hub/). Один пульт обслуживает
+// оба: файл конфига и папка будки выбираются по факту, vibe-pult первым.
+export function configFileFor(root) {
+  const vp = path.join(root, '.claude', 'vibe-pult.md');
+  return fs.existsSync(vp) ? vp : path.join(root, '.claude', 'nyron-dev.md');
+}
+export function hubDirFor(root) {
+  return path.join(root, fs.existsSync(path.join(root, '.claude', 'vibe-pult.md')) ? '.vibe-pult' : '.nyron-hub');
+}
+
 function hubFor(root) {
-  if (!dbs.has(root)) dbs.set(root, new HubDb(path.join(root, '.nyron-hub')));
+  if (!dbs.has(root)) dbs.set(root, new HubDb(hubDirFor(root)));
   return dbs.get(root);
 }
 
@@ -142,7 +153,7 @@ function matchAuthor(author, sessions) {
   return hits.length ? { key: hits[0].key, title: hits[0].title } : null;
 }
 
-// Трекер проекта из конфига плагина (.claude/nyron-dev.md): site+project_key
+// Трекер проекта из конфига плагина (.claude/vibe-pult.md или nyron-dev.md): site+project_key
 // → база для автолинковки тикетов в транскриптах (CTO 10.08: ссылки на Jira
 // открывать наружу/попапом — юзер там уже залогинен).
 const trackerCache = new Map(); // root → {base, keys} | null
@@ -150,7 +161,7 @@ function trackerFor(root) {
   if (trackerCache.has(root)) return trackerCache.get(root);
   let t = null;
   try {
-    const cfg = fs.readFileSync(path.join(root, '.claude', 'nyron-dev.md'), 'utf8');
+    const cfg = fs.readFileSync(configFileFor(root), 'utf8');
     const site = cfg.match(/^\s*site:\s*(\S+)/m)?.[1];
     const keys = [...cfg.matchAll(/^\s*(?:project_key|\w+):\s*([A-Z][A-Z0-9]{1,9})\s*(?:#.*)?$/gm)]
       .map((m) => m[1]);
